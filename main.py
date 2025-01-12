@@ -11,11 +11,10 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def export_financial_data_to_image(url):
+def export_financial_data_to_image(url, file_name):
   print(f"💲➡️🏞️ Exporting financial data to image...")
   try:
     with sync_playwright() as p:
-        # browser = p.chromium.launch(headless=False, slow_mo=50, devtools=True)
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(url)
@@ -27,14 +26,13 @@ def export_financial_data_to_image(url):
         page.wait_for_selector('.accept-all')
         page.click('.accept-all')
 
+        page.wait_for_timeout(2000)
+
         # Expand all metrics
         page.wait_for_selector('span.expand')
         page.click('span.expand')
 
-        page.wait_for_timeout(5000)
-        
-        screenshot_path = os.path.join(OUTPUT_DIR, "income_statement.png")
-        page.screenshot(path=screenshot_path, full_page=True)
+        page.screenshot(path=os.path.join(OUTPUT_DIR, f"{file_name}.png"), full_page=True)
         browser.close()
   except Exception as e:
       print(f"Error processing URL: {e}")
@@ -72,9 +70,11 @@ def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
 TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
 TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
 
+export_financial_data_to_image(TSLA_BALANCE_SHEET_URL, "balance_sheet")
+
 # Export financial data from URL to image
 if not os.path.exists(os.path.join(OUTPUT_DIR, "income_statement.png")):
-  export_financial_data_to_image(TSLA_FINANCIAL_STATEMENT_URL)
+  export_financial_data_to_image(TSLA_FINANCIAL_STATEMENT_URL, "income_statement")
 else:
   print("💲💲💲 Income statement image already exists. Moving on...")
 
@@ -89,7 +89,7 @@ model = genai.GenerativeModel(
 
 # Process the income statement
 with open(os.path.join(OUTPUT_DIR, "income_statement.png"), "rb") as img_file:
-    image_data = img_file.read()
+  image_data = img_file.read()
 
 income_statement_prompt = """
   The output should be in a CSV format with the following columns and rows:
