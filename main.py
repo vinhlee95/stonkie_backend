@@ -12,7 +12,7 @@ OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def export_financial_data_to_image(url, file_name):
-  print(f"💲➡️🏞️ Exporting financial data to image...")
+  print(f"💲➡️🏞️ Exporting financial data to {file_name} image...")
   try:
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -67,16 +67,6 @@ def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
     except Exception as e:
         print(f"❌❌❌ Error saving CSV file: {e}")
 
-TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
-TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
-
-export_financial_data_to_image(TSLA_BALANCE_SHEET_URL, "balance_sheet")
-
-# Export financial data from URL to image
-if not os.path.exists(os.path.join(OUTPUT_DIR, "income_statement.png")):
-  export_financial_data_to_image(TSLA_FINANCIAL_STATEMENT_URL, "income_statement")
-else:
-  print("💲💲💲 Income statement image already exists. Moving on...")
 
 model = genai.GenerativeModel(
    model_name="gemini-1.5-pro",
@@ -87,35 +77,73 @@ model = genai.GenerativeModel(
   """
 )
 
-# Process the income statement
-with open(os.path.join(OUTPUT_DIR, "income_statement.png"), "rb") as img_file:
-  image_data = img_file.read()
-
 income_statement_prompt = """
-  The output should be in a CSV format with the following columns and rows:
-  - Years as columns
-  - Metrics as rows:
-    - Total Revenue
-    - Gross Profit
-    - Operating Income
-    - Operating Expenses
-    - Diluted EPS
-    - Net Income
-    - EBIT
-    - EBITDA
-    - Gross Profit Margin in percentage (gross profit / total revenue)
-    - Operating Profit Margin in percentage (operating income / total revenue)
-    - Net Profit Margin in percentage (net income / total revenue)
-"""
-print(f"🏞️➡️📝 Processing income statement image to text output...")
-response = model.generate_content([
-    {"mime_type": "image/png", "data": image_data},
-    income_statement_prompt
-])
-print(f"✅💾 Done processing income statement image to text output. Now saving to CSV...")
+    The output should be in a CSV format with the following columns and rows:
+    - Years as columns
+    - Metrics as rows:
+      - Total Revenue
+      - Gross Profit
+      - Operating Income
+      - Operating Expenses
+      - Diluted EPS
+      - Net Income
+      - EBIT
+      - EBITDA
+      - Gross Profit Margin in percentage (gross profit / total revenue)
+      - Operating Profit Margin in percentage (operating income / total revenue)
+      - Net Profit Margin in percentage (net income / total revenue)
+  """
 
-# Convert response to CSV format
-if response.text:
-    save_to_csv(response.text, 'income_statement.csv', OUTPUT_DIR)
-else:
-    print("❌❌❌ No data received from the model")
+balance_sheet_prompt = """
+    The output should be in a CSV format with the following columns and rows:
+    - Years as columns
+    - Metrics as rows:
+      - Total Assets
+      - Current Assets
+      - Inventory
+      - Cash and Cash Equivalents
+      - Total Liabilities
+      - Current Liabilities
+      - Common Stock Equity
+      - Retained Earnings
+
+      - Liquidity Ratio (Current Assets / Current Liabilities)
+      - Debt Ratio (Total Liabilities / Total Assets)
+"""
+
+"""
+Main function that takes in the URL of the financial statement and the file name:
+- Export the financial data to an image
+- Process the image to a CSV
+"""
+def export_financial_data_to_csv(url, file_name, prompt):
+  # Check if the output already exists
+  if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")):
+    print(f"💲💲💲 {file_name} CSV already exists in {OUTPUT_DIR}.")
+    return
+
+  export_financial_data_to_image(url, file_name)
+
+  # Process the financial data in the image file
+  with open(os.path.join(OUTPUT_DIR, f"{file_name}.png"), "rb") as img_file:
+    image_data = img_file.read()
+
+  print(f"🏞️➡️📝 Processing income statement image to text output...")
+  response = model.generate_content([
+      {"mime_type": "image/png", "data": image_data},
+      prompt
+  ])
+  print(f"✅💾 Done processing the {file_name} image to text output. Now saving to CSV...")
+
+  # Convert response to CSV format
+  if response.text:
+      save_to_csv(response.text, f'{file_name}.csv', OUTPUT_DIR)
+  else:
+      print("❌❌❌ No data received from the model")
+
+
+TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
+TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
+
+export_financial_data_to_csv(TSLA_FINANCIAL_STATEMENT_URL, "income_statement", income_statement_prompt)
+export_financial_data_to_csv(TSLA_BALANCE_SHEET_URL, "balance_sheet", balance_sheet_prompt)
