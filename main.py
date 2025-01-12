@@ -9,12 +9,14 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 def export_financial_data_to_image(url):
+  print(f"💲➡️🏞️ Exporting financial data to image...")
   try:
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(url)
 
+        # Cookie acceptance
         page.wait_for_selector('#scroll-down-btn')
         page.click('#scroll-down-btn')
 
@@ -79,6 +81,6 @@ if response.text:
         writer = csv.writer(f)
         writer.writerows(csv_data)
     
-    print("Data has been saved to financial_data.csv")
-else:
-    print("No data received from the model")
+    print("✅✅✅ Data has been saved to financial_data.csv")
+else: 
+    print("❌❌❌ No data received from the model")
