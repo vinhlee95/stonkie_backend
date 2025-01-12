@@ -8,6 +8,9 @@ load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+OUTPUT_DIR = "outputs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 def export_financial_data_to_image(url):
   print(f"💲➡️🏞️ Exporting financial data to image...")
   try:
@@ -23,7 +26,7 @@ def export_financial_data_to_image(url):
         page.wait_for_selector('.accept-all')
         page.click('.accept-all')
         
-        screenshot_path = "income_statement.png"
+        screenshot_path = os.path.join(OUTPUT_DIR, "income_statement.png")
         page.screenshot(path=screenshot_path, full_page=True)
         browser.close()
   except Exception as e:
@@ -31,6 +34,7 @@ def export_financial_data_to_image(url):
 
 def save_to_csv(data, filename="financial_data.csv"):
     if data:
+        filename = os.path.join(OUTPUT_DIR, filename)
         with open(filename, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
             # ... (Write header row)
@@ -39,7 +43,7 @@ def save_to_csv(data, filename="financial_data.csv"):
 url = "https://finance.yahoo.com/quote/TSLA/financials"
 
 # Export financial data from URL to image
-if not os.path.exists("income_statement.png"):
+if not os.path.exists(os.path.join(OUTPUT_DIR, "income_statement.png")):
   export_financial_data_to_image(url)
 else:
   print("💲💲💲 Income statement image already exists. Moving on...")
@@ -54,7 +58,7 @@ model = genai.GenerativeModel(
 )
 
 # Process the income statement
-with open("income_statement.png", "rb") as img_file:
+with open(os.path.join(OUTPUT_DIR, "income_statement.png"), "rb") as img_file:
     image_data = img_file.read()
 
 income_statement_prompt = """
@@ -67,6 +71,8 @@ income_statement_prompt = """
     - Operating Expenses
     - Diluted EPS
     - Net Income
+    - EBIT
+    - EBITDA
     - Gross Profit Margin in percentage (gross profit / total revenue)
     - Operating Profit Margin in percentage (operating income / total revenue)
     - Net Profit Margin in percentage (net income / total revenue)
@@ -84,7 +90,7 @@ if response.text:
     csv_data = list(csv.reader(response.text.strip().splitlines()))
     
     # Save to CSV
-    with open('financial_data.csv', 'w', newline='') as f:
+    with open(os.path.join(OUTPUT_DIR, 'financial_data.csv'), 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(csv_data)
     
