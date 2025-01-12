@@ -39,48 +39,55 @@ def save_to_csv(data, filename="financial_data.csv"):
 url = "https://finance.yahoo.com/quote/TSLA/financials"
 
 # Export financial data from URL to image
-export_financial_data_to_image(url)
+if not os.path.exists("income_statement.png"):
+  export_financial_data_to_image(url)
+else:
+  print("💲💲💲 Income statement image already exists. Moving on...")
 
 model = genai.GenerativeModel(
    model_name="gemini-1.5-pro",
    system_instruction="""
     You are a helpful financial agent that can take in:
     - Input as a screenshot of a financial statement of a company
-    - Output as a CSV of the financial data having:
-      - Years as columns
-      - Metrics as rows:
-        - Total Revenue
-        - Gross Profit
-        - Operating Income
-        - Operating Expenses
-        - Diluted EPS
-        - Net Income
-        - Gross Profit Margin in percentage (gross profit / total revenue)
-        - Operating Profit Margin in percentage (operating income / total revenue)
-        - Net Profit Margin in percentage (net income / total revenue)
+    - Output as a CSV of the financial data having required columns and rows specified in the prompt
   """
 )
 
-# Load the image natively
+# Process the income statement
 with open("income_statement.png", "rb") as img_file:
     image_data = img_file.read()
 
+income_statement_prompt = """
+  The output should be in a CSV format with the following columns and rows:
+  - Years as columns
+  - Metrics as rows:
+    - Total Revenue
+    - Gross Profit
+    - Operating Income
+    - Operating Expenses
+    - Diluted EPS
+    - Net Income
+    - Gross Profit Margin in percentage (gross profit / total revenue)
+    - Operating Profit Margin in percentage (operating income / total revenue)
+    - Net Profit Margin in percentage (net income / total revenue)
+"""
+print(f"🏞️➡️📝 Processing income statement image to text output...")
 response = model.generate_content([
     {"mime_type": "image/png", "data": image_data},
-    "Please analyze this financial statement and provide the data in the specified format."
+    income_statement_prompt
 ])
+print(f"✅💾 Done processing income statement image to text output. Now saving to CSV...")
 
 # Convert response to CSV format
 if response.text:
-    # Split the response into lines and process
-    lines = response.text.strip().split('\n')
-    csv_data = [line.split(',') for line in lines]
+    # Use csv.reader to properly parse the text with comma handling
+    csv_data = list(csv.reader(response.text.strip().splitlines()))
     
     # Save to CSV
     with open('financial_data.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(csv_data)
     
-    print("✅✅✅ Data has been saved to financial_data.csv")
+    print("✅✅✅ Data has been saved to CSV file")
 else: 
     print("❌❌❌ No data received from the model")
