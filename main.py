@@ -116,13 +116,16 @@ Main function that takes in the URL of the financial statement and the file name
 - Export the financial data to an image
 - Process the image to a CSV
 """
-def export_financial_data_to_csv(url, file_name, prompt):
+def export_financial_data_to_csv(url, file_name, prompt, force=False):
   # Check if the output already exists
-  if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")):
-    print(f"💲💲💲 {file_name} CSV already exists in {OUTPUT_DIR}.")
+  if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")) and not force:
+    print(f"✅💲 {file_name} CSV already exists in {OUTPUT_DIR}. Enjoy investing!")
     return
 
-  export_financial_data_to_image(url, file_name)
+  if not os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.png")):
+    export_financial_data_to_image(url, file_name)
+  else:
+    print(f"✅🏞️ {file_name} image already exists in {OUTPUT_DIR}.")
 
   # Process the financial data in the image file
   with open(os.path.join(OUTPUT_DIR, f"{file_name}.png"), "rb") as img_file:
@@ -133,7 +136,7 @@ def export_financial_data_to_csv(url, file_name, prompt):
       {"mime_type": "image/png", "data": image_data},
       prompt
   ])
-  print(f"✅💾 Done processing the {file_name} image to text output. Now saving to CSV...")
+  print(f"🚧💾 Done processing the {file_name} image to text output. Now saving to CSV...")
 
   # Convert response to CSV format
   if response.text:
@@ -145,5 +148,5 @@ def export_financial_data_to_csv(url, file_name, prompt):
 TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
 TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
 
-export_financial_data_to_csv(TSLA_FINANCIAL_STATEMENT_URL, "income_statement", income_statement_prompt)
+export_financial_data_to_csv(TSLA_FINANCIAL_STATEMENT_URL, "income_statement", income_statement_prompt, True)
 export_financial_data_to_csv(TSLA_BALANCE_SHEET_URL, "balance_sheet", balance_sheet_prompt)
