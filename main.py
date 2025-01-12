@@ -15,6 +15,7 @@ def export_financial_data_to_image(url):
   print(f"💲➡️🏞️ Exporting financial data to image...")
   try:
     with sync_playwright() as p:
+        # browser = p.chromium.launch(headless=False, slow_mo=50, devtools=True)
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(url)
@@ -25,6 +26,12 @@ def export_financial_data_to_image(url):
 
         page.wait_for_selector('.accept-all')
         page.click('.accept-all')
+
+        # Expand all metrics
+        page.wait_for_selector('span.expand')
+        page.click('span.expand')
+
+        page.wait_for_timeout(5000)
         
         screenshot_path = os.path.join(OUTPUT_DIR, "income_statement.png")
         page.screenshot(path=screenshot_path, full_page=True)
