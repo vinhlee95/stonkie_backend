@@ -16,17 +16,18 @@ def export_financial_data_to_image(url, file_name):
   try:
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
+
+        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
         page.goto(url)
 
         # Cookie acceptance
-        page.wait_for_selector('#scroll-down-btn')
-        page.click('#scroll-down-btn')
+        # page.wait_for_selector('#scroll-down-btn')
+        # page.click('#scroll-down-btn')
 
         page.wait_for_selector('.accept-all')
         page.click('.accept-all')
 
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1500)
 
         # Expand all metrics
         page.wait_for_selector('span.expand')
@@ -77,7 +78,7 @@ model = genai.GenerativeModel(
   """
 )
 
-income_statement_prompt = """
+income_statement_main_metrics_prompt = """
     The output should be in a CSV format with the following columns and rows:
     - Years as columns
     - Metrics as rows:
@@ -94,21 +95,35 @@ income_statement_prompt = """
       - Net Profit Margin in percentage (net income / total revenue)
   """
 
-balance_sheet_prompt = """
+balance_sheet_main_metrics_prompt = """
     The output should be in a CSV format with the following columns and rows:
     - Years as columns
     - Metrics as rows:
       - Total Assets
       - Current Assets
-      - Inventory
       - Cash and Cash Equivalents
+      - Receivables
+      - Inventory
       - Total Liabilities
       - Current Liabilities
+      - Total Non Current Liabilities
       - Common Stock Equity
       - Retained Earnings
+      - Total Debt
+      - Net Debt
+      - Share Issued
+      - Tangible Book Value
 
       - Liquidity Ratio (Current Assets / Current Liabilities)
       - Debt Ratio (Total Liabilities / Total Assets)
+"""
+
+all_metrics_prompt = """
+  The output should be in a CSV format with:
+  - The first column contains the "Breakdown" or description of the financial metric.
+  - The subsequent columns represent time periods (TTM, 12/31/2023, 12/31/2022, etc.).
+
+  All numbers are in thousands. Includes commas in the numbers.
 """
 
 """
@@ -131,7 +146,7 @@ def export_financial_data_to_csv(url, file_name, prompt, force=False):
   with open(os.path.join(OUTPUT_DIR, f"{file_name}.png"), "rb") as img_file:
     image_data = img_file.read()
 
-  print(f"🏞️➡️📝 Processing income statement image to text output...")
+  print(f"🏞️➡️📝 Processing {file_name} image to text output...")
   response = model.generate_content([
       {"mime_type": "image/png", "data": image_data},
       prompt
@@ -171,13 +186,13 @@ def main():
     export_financial_data_to_csv(
         financial_statement_url, 
         f"{ticker.lower()}_income_statement", 
-        income_statement_prompt, 
+        income_statement_main_metrics_prompt, 
     )
-    
+
     export_financial_data_to_csv(
         balance_sheet_url, 
         f"{ticker.lower()}_balance_sheet", 
-        balance_sheet_prompt
+        balance_sheet_main_metrics_prompt,
     )
 
 if __name__ == "__main__":
