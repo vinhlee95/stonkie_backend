@@ -144,9 +144,41 @@ def export_financial_data_to_csv(url, file_name, prompt, force=False):
   else:
       print("❌❌❌ No data received from the model")
 
+def get_financial_urls(ticker):
+    """
+    Generate Yahoo Finance URLs for a given ticker symbol
+    
+    Args:
+        ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
+    
+    Returns:
+        tuple: URLs for financial statement and balance sheet
+    """
+    base_url = f"https://finance.yahoo.com/quote/{ticker.upper()}"
+    return (
+        f"{base_url}/financials",
+        f"{base_url}/balance-sheet"
+    )
 
-TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
-TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
+def main():
+    # Get ticker symbol from user
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
+    
+    # Generate URLs for the given ticker
+    financial_statement_url, balance_sheet_url = get_financial_urls(ticker)
+    
+    # Process financial data
+    export_financial_data_to_csv(
+        financial_statement_url, 
+        f"{ticker.lower()}_income_statement", 
+        income_statement_prompt, 
+    )
+    
+    export_financial_data_to_csv(
+        balance_sheet_url, 
+        f"{ticker.lower()}_balance_sheet", 
+        balance_sheet_prompt
+    )
 
-export_financial_data_to_csv(TSLA_FINANCIAL_STATEMENT_URL, "income_statement", income_statement_prompt, True)
-export_financial_data_to_csv(TSLA_BALANCE_SHEET_URL, "balance_sheet", balance_sheet_prompt)
+if __name__ == "__main__":
+    main()
