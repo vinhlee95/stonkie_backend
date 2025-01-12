@@ -39,19 +39,42 @@ def export_financial_data_to_image(url):
   except Exception as e:
       print(f"Error processing URL: {e}")
 
-def save_to_csv(data, filename="financial_data.csv"):
-    if data:
-        filename = os.path.join(OUTPUT_DIR, filename)
-        with open(filename, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
-            # ... (Write header row)
+def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
+    """
+    Save data to a CSV file in the specified output directory.
+    
+    Args:
+        data: Either a string containing CSV data or a list of rows
+        filename (str): Name of the output CSV file
+        output_dir (str): Directory to save the CSV file
+    """
+    try:
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Create full file path
+        filepath = os.path.join(output_dir, filename)
+        
+        # Convert string data to list if needed
+        if isinstance(data, str):
+            data = list(csv.reader(data.strip().splitlines()))
+        
+        # Write to CSV file
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
             writer.writerows(data)
+            
+        print(f"✅✅✅ Data has been saved to {filepath}")
+        
+    except Exception as e:
+        print(f"❌❌❌ Error saving CSV file: {e}")
 
-url = "https://finance.yahoo.com/quote/TSLA/financials"
+TSLA_FINANCIAL_STATEMENT_URL = "https://finance.yahoo.com/quote/TSLA/financials"
+TSLA_BALANCE_SHEET_URL = "https://finance.yahoo.com/quote/TSLA/balance-sheet"
 
 # Export financial data from URL to image
 if not os.path.exists(os.path.join(OUTPUT_DIR, "income_statement.png")):
-  export_financial_data_to_image(url)
+  export_financial_data_to_image(TSLA_FINANCIAL_STATEMENT_URL)
 else:
   print("💲💲💲 Income statement image already exists. Moving on...")
 
@@ -93,14 +116,6 @@ print(f"✅💾 Done processing income statement image to text output. Now savin
 
 # Convert response to CSV format
 if response.text:
-    # Use csv.reader to properly parse the text with comma handling
-    csv_data = list(csv.reader(response.text.strip().splitlines()))
-    
-    # Save to CSV
-    with open(os.path.join(OUTPUT_DIR, 'financial_data.csv'), 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerows(csv_data)
-    
-    print("✅✅✅ Data has been saved to CSV file")
-else: 
+    save_to_csv(response.text, 'income_statement.csv', OUTPUT_DIR)
+else:
     print("❌❌❌ No data received from the model")
