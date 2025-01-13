@@ -15,7 +15,20 @@ model = genai.GenerativeModel(
     1. Key financial metrics and their trends
     2. Company's financial health
     3. Areas of strength and concern
-    4. Recommendations for investors
+    4. Year-over-year growth rates in these metrics, sorted by year in descending order:
+      - Total assets
+      - Total liabilities
+      - Total equity
+      - Stockholders' equity
+      - Gross Profit
+      - Net Income
+      - Profit Margin
+      - Operating Cash Flow
+      - Free Cash Flow
+    5. Recommendations for investors
+
+    Only provide the analysis from the source data given in the prompt.
+    Do not make up any information or share information that is not provided in the source data.
     """
 )
 
@@ -42,6 +55,7 @@ def analyze_financial_data(ticker):
     # Update file paths to use CSV extension
     income_statement_path = os.path.join(output_dir, f"{ticker}_income_statement.csv")
     balance_sheet_path = os.path.join(output_dir, f"{ticker}_balance_sheet.csv")
+    cash_flow_path = os.path.join(output_dir, f"{ticker}_cash_flow.csv")
     
     if not os.path.exists(income_statement_path) or not os.path.exists(balance_sheet_path):
         print(f"❌ Financial statements for {ticker.upper()} not found. Please run main.py first.")
@@ -50,11 +64,13 @@ def analyze_financial_data(ticker):
     try:
         # Read CSV files instead of binary files
         with open(income_statement_path, "r") as income_file, \
-             open(balance_sheet_path, "r") as balance_file:
+             open(balance_sheet_path, "r") as balance_file, \
+             open(cash_flow_path, "r") as cash_flow_file: 
             
             income_data = income_file.read()
             balance_data = balance_file.read()
-
+            cash_flow_data = cash_flow_file.read()
+            
         print(f"📊 Analyzing financial statements for {ticker.upper()}...")
         
         # Update the model input to handle text data instead of images
@@ -64,6 +80,8 @@ def analyze_financial_data(ticker):
             "This is the income statement.",
             balance_data,
             "This is the balance sheet.",
+            cash_flow_data,
+            "This is the cash flow statement.",
             analysis_prompt
         ])
 
