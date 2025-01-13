@@ -6,7 +6,7 @@ import google.generativeai as genai
 from google.cloud import vision
 
 def parse_text_from_image(path):
-    print(f"🔍🔍🔍 Parsing text from image: {path}")
+    print(f"🔍🔍 Parsing text from image: {path}")
     client = vision.ImageAnnotatorClient()
     with open(path, "rb") as image_file:
         content = image_file.read()
@@ -209,12 +209,13 @@ def get_financial_urls(ticker):
         ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
     
     Returns:
-        tuple: URLs for financial statement and balance sheet
+        tuple: URLs for financial statement, balance sheet and cash flow
     """
     base_url = f"https://finance.yahoo.com/quote/{ticker.upper()}"
     return (
         f"{base_url}/financials",
-        f"{base_url}/balance-sheet"
+        f"{base_url}/balance-sheet",
+        f"{base_url}/cash-flow"
     )
 
 def main():
@@ -222,7 +223,7 @@ def main():
     ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
     
     # Generate URLs for the given ticker
-    financial_statement_url, balance_sheet_url = get_financial_urls(ticker)
+    financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
     
     # Process financial data
     export_financial_data_to_csv(
@@ -233,6 +234,11 @@ def main():
     export_financial_data_to_csv(
         balance_sheet_url, 
         f"{ticker.lower()}_balance_sheet", 
+    )
+
+    export_financial_data_to_csv(
+        cash_flow_url, 
+        f"{ticker.lower()}_cash_flow", 
     )
 
 if __name__ == "__main__":
