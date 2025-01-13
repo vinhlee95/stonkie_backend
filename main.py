@@ -3,6 +3,37 @@ import os
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 import google.generativeai as genai
+from google.cloud import vision
+
+def parse_text_from_image(path):
+    print(f"🔍🔍🔍 Parsing text from image: {path}")
+    client = vision.ImageAnnotatorClient()
+    with open(path, "rb") as image_file:
+        content = image_file.read()
+
+    image = vision.Image(content=content)
+    # Use regular text detection for tables/financial data
+    response = client.text_detection(image=image)
+    
+    # Check for errors
+    if response.error.message:
+        raise Exception(
+            '{}\nFor more info on error messages, check: '
+            'https://cloud.google.com/apis/design/errors'.format(
+                response.error.message))
+    
+    # Get the text from the response
+    if response.text_annotations:
+        doc_text = response.text_annotations[0].description
+    else:
+        return ""
+
+    # Basic Cleaning (Expand as needed)
+    lines = doc_text.splitlines()
+    cleaned_lines = [line.strip() for line in lines if line.strip()]
+    cleaned_text = "\n".join(cleaned_lines)
+
+    return cleaned_text
 
 load_dotenv()
 
@@ -126,12 +157,28 @@ all_metrics_prompt = """
   All numbers are in thousands. Includes commas in the numbers.
 """
 
+def get_prompt_from_ocr_text(ocr_text):
+  return f"""
+    You are an expert at converting financial tables from text to CSV format. You will receive text extracted from an image of a financial table. Your task is to output the data in a comma-separated value (CSV) format.
+
+    Here are the key aspects of the table's structure:
+
+    *   The first column contains the "Breakdown" or description of the financial metric.
+    *   The subsequent columns represent time periods (TTM, 12/31/2023, 12/31/2022, etc.).
+    *   All numbers are in thousands. Do not keep the commas in the numbers.
+
+    Here's the extracted text:
+    {ocr_text}
+
+    Output the data as CSV, including a header row. Do not include any explanatory text or comments in the CSV output.
+  """
+
 """
 Main function that takes in the URL of the financial statement and the file name:
 - Export the financial data to an image
 - Process the image to a CSV
 """
-def export_financial_data_to_csv(url, file_name, prompt, force=False):
+def export_financial_data_to_csv(url, file_name, force=False):
   # Check if the output already exists
   if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")) and not force:
     print(f"✅💲 {file_name} CSV already exists in {OUTPUT_DIR}. Enjoy investing!")
@@ -142,16 +189,11 @@ def export_financial_data_to_csv(url, file_name, prompt, force=False):
   else:
     print(f"✅🏞️ {file_name} image already exists in {OUTPUT_DIR}.")
 
-  # Process the financial data in the image file
-  with open(os.path.join(OUTPUT_DIR, f"{file_name}.png"), "rb") as img_file:
-    image_data = img_file.read()
+  # Use Google Vision to extract the text from the image
+  ocr_text = parse_text_from_image(os.path.join(OUTPUT_DIR, f"{file_name}.png"))
+  print("✅📘 Done parsing the text from the image. Now feeding it to the model...")
 
-  print(f"🏞️➡️📝 Processing {file_name} image to text output...")
-  response = model.generate_content([
-      {"mime_type": "image/png", "data": image_data},
-      prompt
-  ])
-  print(f"🚧💾 Done processing the {file_name} image to text output. Now saving to CSV...")
+  response = model.generate_content(get_prompt_from_ocr_text(ocr_text))
 
   # Convert response to CSV format
   if response.text:
@@ -186,13 +228,11 @@ def main():
     export_financial_data_to_csv(
         financial_statement_url, 
         f"{ticker.lower()}_income_statement", 
-        income_statement_main_metrics_prompt, 
     )
 
     export_financial_data_to_csv(
         balance_sheet_url, 
         f"{ticker.lower()}_balance_sheet", 
-        balance_sheet_main_metrics_prompt,
     )
 
 if __name__ == "__main__":
