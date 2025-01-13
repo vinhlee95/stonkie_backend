@@ -109,54 +109,6 @@ model = genai.GenerativeModel(
   """
 )
 
-income_statement_main_metrics_prompt = """
-    The output should be in a CSV format with the following columns and rows:
-    - Years as columns
-    - Metrics as rows:
-      - Total Revenue
-      - Gross Profit
-      - Operating Income
-      - Operating Expenses
-      - Diluted EPS
-      - Net Income
-      - EBIT
-      - EBITDA
-      - Gross Profit Margin in percentage (gross profit / total revenue)
-      - Operating Profit Margin in percentage (operating income / total revenue)
-      - Net Profit Margin in percentage (net income / total revenue)
-  """
-
-balance_sheet_main_metrics_prompt = """
-    The output should be in a CSV format with the following columns and rows:
-    - Years as columns
-    - Metrics as rows:
-      - Total Assets
-      - Current Assets
-      - Cash and Cash Equivalents
-      - Receivables
-      - Inventory
-      - Total Liabilities
-      - Current Liabilities
-      - Total Non Current Liabilities
-      - Common Stock Equity
-      - Retained Earnings
-      - Total Debt
-      - Net Debt
-      - Share Issued
-      - Tangible Book Value
-
-      - Liquidity Ratio (Current Assets / Current Liabilities)
-      - Debt Ratio (Total Liabilities / Total Assets)
-"""
-
-all_metrics_prompt = """
-  The output should be in a CSV format with:
-  - The first column contains the "Breakdown" or description of the financial metric.
-  - The subsequent columns represent time periods (TTM, 12/31/2023, 12/31/2022, etc.).
-
-  All numbers are in thousands. Includes commas in the numbers.
-"""
-
 def get_prompt_from_ocr_text(ocr_text):
   return f"""
     You are an expert at converting financial tables from text to CSV format. You will receive text extracted from an image of a financial table. Your task is to output the data in a comma-separated value (CSV) format.
