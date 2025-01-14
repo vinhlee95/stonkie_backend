@@ -73,6 +73,13 @@ def export_financial_data_to_image(url, file_name):
   except Exception as e:
       print(f"Error processing URL: {e}")
 
+def is_number(s):
+    try:
+      float(s)
+      return True
+    except ValueError:
+      return False
+
 def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
     """
     Save data to a CSV file in the specified output directory.
@@ -91,18 +98,40 @@ def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
         
         # Convert string data to list if needed
         if isinstance(data, str):
-            data = list(csv.reader(data.strip().splitlines()))
+            temp_data = data.strip().splitlines()
+            # Remove first and last row having the "csv" header
+            temp_data = temp_data[1:-1]
+            
+            # Data cleaning
+            parsed_data = []
+            for index, row in enumerate(temp_data):
+                # Skip the first row since it has the string headers
+                if index == 0:
+                  parsed_data.append(row)
+                  continue
+
+                columns = row.split(',')
+                # Form 2 strings, 1 for text & 1 for number
+                text_columns = [column for column in columns if not is_number(column)]
+                number_columns = [column for column in columns if is_number(column)]
+
+                # For text columns, merge all the text columns into 1 string
+                text_columns = ''.join(text_columns)
+                # Merge the text and number columns to a string
+                final_row = f"{text_columns}, {','.join(number_columns)}"
+                parsed_data.append(final_row)
+
+            final_data = list(csv.reader(parsed_data))
         
         # Write to CSV file
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerows(data)
+            writer.writerows(final_data)
             
         print(f"✅✅✅ Data has been saved to {filepath}")
         
     except Exception as e:
         print(f"❌❌❌ Error saving CSV file: {e}")
-
 
 model = genai.GenerativeModel(
    model_name="gemini-1.5-pro",
@@ -239,3 +268,7 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Run main
+if __name__ == "__main__":
+    main()
