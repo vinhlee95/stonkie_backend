@@ -42,7 +42,6 @@ const App: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log(data);
       setFinancialData(prev => ({
         ...prev,
         [reportType]: data
