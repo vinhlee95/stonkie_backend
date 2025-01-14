@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FinancialData, ReportType } from './types';
+import { formatNumber } from './utils/formatters';
 import {
   Table,
   TableBody,
@@ -64,10 +65,19 @@ const App: React.FC = () => {
   const renderTable = (data: FinancialData | null, title: string) => {
     if (!data) return null;
 
+    const formatCellValue = (value: any, column: string): string => {
+      // Don't format the first column (usually metric names)
+      if (column === data.columns[0]) return value;
+      return formatNumber(value);
+    };
+
     return (
       <Box sx={{ mt: 4 }}>
         <Typography variant="h5" sx={{ mb: 2 }}>
           {title}
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 2 }}>
+          All numbers are in thousands of USD.
         </Typography>
         <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
           <Table stickyHeader size="small">
@@ -93,8 +103,11 @@ const App: React.FC = () => {
                   sx={{ '&:nth-of-type(odd)': { backgroundColor: 'action.hover' } }}
                 >
                   {data.columns.map((column, colIndex) => (
-                    <TableCell key={colIndex}>
-                      {row[column]}
+                    <TableCell 
+                      key={colIndex}
+                      align={colIndex === 0 ? 'left' : 'right'} // Right-align numbers
+                    >
+                      {formatCellValue(row[column], column)}
                     </TableCell>
                   ))}
                 </TableRow>
