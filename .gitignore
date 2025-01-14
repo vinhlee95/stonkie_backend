@@ -3,3 +3,5 @@ venv/
 outputs/
 .DS_Store
 __pycache__/
+# Local Netlify folder
+.netlify
