@@ -112,13 +112,13 @@ def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
 
                 columns = row.split(',')
                 # Form 2 strings, 1 for text & 1 for number
-                text_columns = [column for column in columns if not is_number(column)]
-                number_columns = [column for column in columns if is_number(column)]
+                metric_col = [column for column in columns if not is_number(column) and str(column).strip() != 'N/A']
+                value_col = [column for column in columns if is_number(column) or str(column).strip() == 'N/A']
 
                 # For text columns, merge all the text columns into 1 string
-                text_columns = ''.join(text_columns)
+                metric_col = ''.join(metric_col)
                 # Merge the text and number columns to a string
-                final_row = f"{text_columns}, {','.join(number_columns)}"
+                final_row = f"{metric_col}, {','.join(value_col)}"
                 parsed_data.append(final_row)
 
             final_data = list(csv.reader(parsed_data))
@@ -151,6 +151,7 @@ def get_prompt_from_ocr_text(ocr_text):
     *   The first column contains the "Breakdown" or description of the financial metric.
     *   The subsequent columns represent time periods (TTM, 12/31/2023, 12/31/2022, etc.).
     *   All numbers are in thousands. Do not keep the commas in the numbers.
+    *   If there are no numbers reported in a year, mark it as "N/A".
 
     Here's the extracted text:
     {ocr_text}
