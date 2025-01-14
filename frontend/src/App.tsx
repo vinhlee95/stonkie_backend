@@ -1,5 +1,21 @@
 import React, { useState } from 'react';
 import { FinancialData, ReportType } from './types';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Alert,
+  Box,
+  CircularProgress,
+  Container
+} from '@mui/material';
 
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>('');
@@ -25,6 +41,7 @@ const App: React.FC = () => {
       }
 
       const data = await response.json();
+      console.log(data);
       setFinancialData(prev => ({
         ...prev,
         [reportType]: data
@@ -40,7 +57,6 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!ticker.trim()) return;
 
-    // Fetch all report types
     const reportTypes: ReportType[] = ['income_statement', 'balance_sheet', 'cash_flow'];
     await Promise.all(reportTypes.map(type => fetchFinancialData(type)));
   };
@@ -49,69 +65,92 @@ const App: React.FC = () => {
     if (!data) return null;
 
     return (
-      <div className="mt-8">
-        <h2 className="text-xl font-bold mb-4">{title}</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white border border-gray-300">
-            <thead>
-              <tr>
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" sx={{ mb: 2 }}>
+          {title}
+        </Typography>
+        <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
+          <Table stickyHeader size="small">
+            <TableHead>
+              <TableRow>
                 {data.columns.map((column, index) => (
-                  <th key={index} className="px-4 py-2 border-b border-gray-300 bg-gray-100">
+                  <TableCell
+                    key={index}
+                    sx={{
+                      fontWeight: 'bold',
+                      backgroundColor: 'background.paper'
+                    }}
+                  >
                     {column}
-                  </th>
+                  </TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {data.data.map((row, rowIndex) => (
-                <tr key={rowIndex}>
+                <TableRow
+                  key={rowIndex}
+                  sx={{ '&:nth-of-type(odd)': { backgroundColor: 'action.hover' } }}
+                >
                   {data.columns.map((column, colIndex) => (
-                    <td key={colIndex} className="px-4 py-2 border-b border-gray-300">
+                    <TableCell key={colIndex}>
                       {row[column]}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
     );
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Financial Statement Analysis</h1>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Typography variant="h3" component="h1" sx={{ mb: 4 }}>
+        Stock agent 🚀
+      </Typography>
+      <Typography variant="body1" sx={{ mb: 4 }}>
+        Invest easier and wiser every day 💰
+      </Typography>
       
-      <form onSubmit={handleSubmit} className="mb-8">
-        <div className="flex gap-4">
-          <input
-            type="text"
+      <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <TextField
             value={ticker}
             onChange={(e) => setTicker(e.target.value)}
             placeholder="Enter stock ticker (e.g., AAPL)"
-            className="flex-1 p-2 border border-gray-300 rounded"
+            label="Stock Ticker"
+            variant="outlined"
+            size="small"
+            sx={{ flexGrow: 1 }}
           />
-          <button
+          <Button
             type="submit"
+            variant="contained"
             disabled={loading || !ticker.trim()}
-            className="px-4 py-2 bg-blue-500 text-white rounded disabled:bg-gray-300"
+            sx={{ minWidth: 120 }}
           >
-            {loading ? 'Loading...' : 'Fetch Data'}
-          </button>
-        </div>
-      </form>
+            {loading ? (
+              <CircularProgress size={24} color="inherit" />
+            ) : (
+              'Fetch Data'
+            )}
+          </Button>
+        </Box>
+      </Box>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <Alert severity="error" sx={{ mb: 4 }}>
           {error}
-        </div>
+        </Alert>
       )}
 
       {renderTable(financialData.income_statement, 'Income Statement')}
       {renderTable(financialData.balance_sheet, 'Balance Sheet')}
       {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
-    </div>
+    </Container>
   );
 };
 
