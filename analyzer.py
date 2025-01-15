@@ -99,10 +99,3 @@ def analyze_financial_data(ticker):
 
     except Exception as e:
         print(f"❌ Error during analysis: {e}")
-
-def main():
-    ticker = input("Enter stock ticker symbol to analyze (e.g., TSLA, AAPL): ").strip()
-    analyze_financial_data(ticker)
-
-if __name__ == "__main__":
-    main()

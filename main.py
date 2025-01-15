@@ -1,6 +1,6 @@
 import csv
 import os
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 import google.generativeai as genai
 from google.cloud import vision
@@ -8,10 +8,32 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
+import base64
+import json
+from google.oauth2 import service_account
+
+def get_vision_client():
+    # Decode and save the credentials temporarily
+    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    if not credentials:
+       print("❌ Google credentials not found in environment variables")
+       return None
+
+    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
+    
+    # Create credentials object
+    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
+    
+    # Create and return the client
+    return vision.ImageAnnotatorClient(credentials=credentials)
 
 def parse_text_from_image(path):
     print(f"🔍🔍 Parsing text from image: {path}")
-    client = vision.ImageAnnotatorClient()
+    client = get_vision_client()
+    if not client:
+       print("❌ Failed to create Vision client")
+       return ""
+
     with open(path, "rb") as image_file:
         content = image_file.read()
 
@@ -46,32 +68,26 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def export_financial_data_to_image(url, file_name):
-  print(f"💲➡️🏞️ Exporting financial data to {file_name} image...")
-  try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
+async def export_financial_data_to_image(url, file_name):
+    print(f"💲➡️🏞️ Exporting financial data to {file_name} image...")
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page(viewport={'width': 1920, 'height': 1080})
+            await page.goto(url)
 
-        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
-        page.goto(url)
+            await page.wait_for_selector('.accept-all')
+            await page.click('.accept-all')
 
-        # Cookie acceptance
-        # page.wait_for_selector('#scroll-down-btn')
-        # page.click('#scroll-down-btn')
+            await page.wait_for_timeout(1500)
 
-        page.wait_for_selector('.accept-all')
-        page.click('.accept-all')
+            await page.wait_for_selector('span.expand')
+            await page.click('span.expand')
 
-        page.wait_for_timeout(1500)
-
-        # Expand all metrics
-        page.wait_for_selector('span.expand')
-        page.click('span.expand')
-
-        page.screenshot(path=os.path.join(OUTPUT_DIR, f"{file_name}.png"), full_page=True)
-        browser.close()
-  except Exception as e:
-      print(f"Error processing URL: {e}")
+            await page.screenshot(path=os.path.join(OUTPUT_DIR, f"{file_name}.png"), full_page=True)
+            await browser.close()
+    except Exception as e:
+        print(f"Error processing URL: {e}")
 
 def is_number(s):
     try:
@@ -164,20 +180,24 @@ Main function that takes in the URL of the financial statement and the file name
 - Export the financial data to an image
 - Process the image to a CSV
 """
-def export_financial_data_to_csv(url, file_name, force=False):
+async def export_financial_data_to_csv(url, file_name, force=False):
   # Check if the output already exists
   if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")) and not force:
     print(f"✅💲 {file_name} CSV already exists in {OUTPUT_DIR}. Enjoy investing!")
     return
 
   if not os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.png")):
-    export_financial_data_to_image(url, file_name)
+    await export_financial_data_to_image(url, file_name)
   else:
     print(f"✅🏞️ {file_name} image already exists in {OUTPUT_DIR}.")
 
   # Use Google Vision to extract the text from the image
   ocr_text = parse_text_from_image(os.path.join(OUTPUT_DIR, f"{file_name}.png"))
   print("✅📘 Done parsing the text from the image. Now feeding it to the model...")
+
+  if not ocr_text:
+    print("❌❌ Failed to parse the text from the image")
+    return
 
   response = model.generate_content(get_prompt_from_ocr_text(ocr_text))
 
@@ -204,7 +224,7 @@ def get_financial_urls(ticker):
         f"{base_url}/cash-flow"
     )
 
-def main():
+async def main():
     # Get ticker symbol from user
     ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
     
@@ -212,17 +232,17 @@ def main():
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
     
     # Process financial data
-    export_financial_data_to_csv(
+    await export_financial_data_to_csv(
         financial_statement_url, 
         f"{ticker.lower()}_income_statement", 
     )
 
-    export_financial_data_to_csv(
+    await export_financial_data_to_csv(
         balance_sheet_url, 
         f"{ticker.lower()}_balance_sheet", 
     )
 
-    export_financial_data_to_csv(
+    await export_financial_data_to_csv(
         cash_flow_url, 
         f"{ticker.lower()}_cash_flow", 
     )
@@ -254,7 +274,7 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
                 "balance_sheet": urls[1],
                 "cash_flow": urls[2]
             }
-            export_financial_data_to_csv(url_map[report_type], f"{ticker.lower()}_{report_type}")
+            await export_financial_data_to_csv(url_map[report_type], f"{ticker.lower()}_{report_type}")
         
         print(f"Already exported {ticker.lower()}_{report_type}.csv")
         # Read CSV and convert to JSON
@@ -269,7 +289,3 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Run main
-if __name__ == "__main__":
-    main()
