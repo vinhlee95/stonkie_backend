@@ -25,6 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Health check
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.get("/api/financial-data/{ticker}/{report_type}")
 async def get_financial_data(ticker: str, report_type: str) -> Dict:
     """
