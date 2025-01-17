@@ -181,6 +181,8 @@ Main function that takes in the URL of the financial statement and the file name
 - Process the image to a CSV
 """
 async def export_financial_data_to_csv(url, file_name, force=False):
+  print(f"💲🗂️ Exporting financial data to {file_name} CSV...")
+
   # Check if the output already exists
   if os.path.exists(os.path.join(OUTPUT_DIR, f"{file_name}.csv")) and not force:
     print(f"✅💲 {file_name} CSV already exists in {OUTPUT_DIR}. Enjoy investing!")
