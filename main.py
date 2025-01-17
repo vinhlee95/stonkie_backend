@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -6,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
 from google.cloud import storage
+from google.oauth2 import service_account
 
 load_dotenv()
 
@@ -38,7 +41,17 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     """
     try:
         # Get the CSV from google cloud storage
-        storage_client = storage.Client()
+        credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        if not credentials:
+            print("❌ Google credentials not found in environment variables")
+            return {
+                "data": [],
+            }
+
+        credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
+        credentials = service_account.Credentials.from_service_account_info(credentials_dict)
+        storage_client = storage.Client(credentials=credentials)
+
         csv_blob = storage_client.bucket(BUCKET_NAME).blob(f"{ticker.lower()}_{report_type}.csv")
         
         # If the CSV doesn't exist, return an empty data object
