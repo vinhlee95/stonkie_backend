@@ -5,12 +5,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
+from google.cloud import storage
 
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 OUTPUT_DIR = "outputs"
+BUCKET_NAME = "stock_agent_financial_report"
+
 app = FastAPI()
 
 # Configure CORS
@@ -29,24 +32,28 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     report_type can be: income_statement, balance_sheet, or cash_flow
     """
     try:
-        file_path = os.path.join(OUTPUT_DIR, f"{ticker.lower()}_{report_type}.csv")
-        if not os.path.exists(file_path):
-            # Return 200 but with an empty data object
+        # Get the CSV from google cloud storage
+        storage_client = storage.Client()
+        csv_blob = storage_client.bucket(BUCKET_NAME).blob(f"{ticker.lower()}_{report_type}.csv")
+        
+        # If the CSV doesn't exist, return an empty data object
+        if not csv_blob.exists():
             return {
                 "data": [],
                 "columns": []
             }
         
-        print(f"Already exported {ticker.lower()}_{report_type}.csv")
-        # Read CSV and convert to JSON
-        df = pd.read_csv(file_path)
-        print(df)
-        print(df.columns.tolist())
-        print(df.to_dict('records'))
+        # Download the blob as string and convert to bytes
+        csv_content = csv_blob.download_as_string()
         
+        # Use pandas to read the CSV content from the string
+        df = pd.read_csv(pd.io.common.BytesIO(csv_content))
+        
+        # Convert the dataframe to JSON format
         return {
-            "data": df.to_dict('records'),
-            "columns": df.columns.tolist()
+            "data": df.to_dict('records'),  # Each row becomes a dictionary
+            "columns": df.columns.tolist()   # List of column names
         }
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
