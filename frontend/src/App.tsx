@@ -18,6 +18,8 @@ import {
   Container
 } from '@mui/material';
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL
+
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
@@ -34,7 +36,7 @@ const App: React.FC = () => {
       setError(null);
       
       const response = await fetch(
-        `http://localhost:8000/api/financial-data/${ticker.toLowerCase()}/${reportType}`
+        `${BACKEND_URL}/api/financial-data/${ticker.toLowerCase()}/${reportType}`
       );
       
       if (!response.ok) {
