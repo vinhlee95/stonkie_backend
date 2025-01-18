@@ -8,7 +8,8 @@ load_dotenv()
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel(
+# Very powerful model for investment advice, do not use this yet
+super_model = genai.GenerativeModel(
     model_name="gemini-1.5-pro",
     system_instruction="""
     You are a professional financial analyst who specializes in analyzing company financial statements.
@@ -28,6 +29,15 @@ model = genai.GenerativeModel(
       - Free Cash Flow
     5. Recommendations for investors
 
+    Only provide the analysis from the source data given in the prompt.
+    Do not make up any information or share information that is not provided in the source data.
+    """
+)
+
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-pro",
+    system_instruction="""
+    You are a professional financial analyst who specializes in analyzing company financial statements.
     Only provide the analysis from the source data given in the prompt.
     Do not make up any information or share information that is not provided in the source data.
     """
@@ -129,7 +139,7 @@ def analyze_financial_data_from_question(ticker, question):
         
         # Update the model input to include the specific question
         response = model.generate_content([
-            f"Analyze these financial statements for {ticker.upper()}:",
+            f"Here are financial statements for {ticker.upper()}:",
             income_data,
             "This is the income statement.",
             balance_data,
