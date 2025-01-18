@@ -3,12 +3,13 @@ import json
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
 from google.cloud import storage
 from google.oauth2 import service_account
+import logging
 
 load_dotenv()
 
@@ -17,7 +18,18 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 OUTPUT_DIR = "outputs"
 BUCKET_NAME = "stock_agent_financial_report"
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
+
+# Add logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    response = await call_next(request)
+    logger.info(f"{request.method} {request.url.path} - {response.status_code}")
+    return response
 
 # Configure CORS
 app.add_middleware(
