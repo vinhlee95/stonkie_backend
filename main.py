@@ -2,7 +2,6 @@ import base64
 import json
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -13,8 +12,6 @@ import logging
 from analyzer import analyze_financial_data_from_question
 
 load_dotenv()
-
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 OUTPUT_DIR = "outputs"
 BUCKET_NAME = "stock_agent_financial_report"
