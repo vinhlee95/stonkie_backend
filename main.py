@@ -10,6 +10,7 @@ from typing import Dict
 from google.cloud import storage
 from google.oauth2 import service_account
 import logging
+from analyzer import analyze_financial_data_from_question
 
 load_dotenv()
 
@@ -87,3 +88,30 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/{ticker}/analyze")
+async def analyze_financial_data(ticker: str, request: Request):
+    """
+    Analyze financial statements for a given ticker symbol based on a specific question
+    
+    Args:
+        ticker (str): Ticker symbol from URL path parameter
+        request (Request): FastAPI request object containing the question in body
+    Returns:
+        dict: Analysis response and status
+    """
+    try:
+        body = await request.json()
+        question = body.get('question')
+        
+        if not question:
+            raise HTTPException(status_code=400, detail="Question is required in request body")
+
+        analysis_result = analyze_financial_data_from_question(ticker, question)
+
+        return {
+            "status": "success",
+            "data": analysis_result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during analysis: {str(e)}")

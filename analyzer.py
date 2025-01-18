@@ -42,12 +42,16 @@ Based on this financial statement:
 In your analysis, be sure to include numbers and percentages for e.g. year over year growth rates.
 """
 
-def analyze_financial_data(ticker):
+def analyze_financial_data_from_question(ticker, question):
     """
-    Analyze financial statements for a given ticker symbol
+    Analyze financial statements for a given ticker symbol and answer a specific question
     
     Args:
         ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
+        question (str): Specific question about the financial data
+        
+    Returns:
+        dict: Object containing the analysis response {"data": str}
     """
     ticker = ticker.lower()
     output_dir = "outputs"
@@ -58,8 +62,7 @@ def analyze_financial_data(ticker):
     cash_flow_path = os.path.join(output_dir, f"{ticker}_cash_flow.csv")
     
     if not os.path.exists(income_statement_path) or not os.path.exists(balance_sheet_path):
-        print(f"❌ Financial statements for {ticker.upper()} not found. Please run main.py first.")
-        return
+        return {"data": f"❌ Financial statements for {ticker.upper()} not found. Please run main.py first."}
 
     try:
         # Read CSV files instead of binary files
@@ -70,32 +73,24 @@ def analyze_financial_data(ticker):
             income_data = income_file.read()
             balance_data = balance_file.read()
             cash_flow_data = cash_flow_file.read()
-            
-        print(f"📊 Analyzing financial statements for {ticker.upper()}...")
         
-        # Update the model input to handle text data instead of images
+        # Update the model input to include the specific question
         response = model.generate_content([
-            "Analyze these financial statements for " + ticker.upper() + ":",
+            f"Analyze these financial statements for {ticker.upper()}:",
             income_data,
             "This is the income statement.",
             balance_data,
             "This is the balance sheet.",
             cash_flow_data,
             "This is the cash flow statement.",
-            analysis_prompt
+            analysis_prompt,
+            f"\nSpecific question to address: {question}"
         ])
 
         if response.text:
-            print("\n=== Financial Analysis ===\n")
-            print(response.text)
-            
-            # Save analysis to file
-            analysis_file = os.path.join(output_dir, f"{ticker}_analysis.txt")
-            with open(analysis_file, "w") as f:
-                f.write(response.text)
-            print(f"\n✅ Analysis saved to {analysis_file}")
+            return {"data": response.text}
         else:
-            print("❌ No analysis generated from the model")
+            return {"data": "❌ No analysis generated from the model"}
 
     except Exception as e:
-        print(f"❌ Error during analysis: {e}")
+        return {"data": f"❌ Error during analysis: {e}"}
