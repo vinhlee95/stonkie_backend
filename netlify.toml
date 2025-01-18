@@ -1,0 +1,11 @@
+[build]
+  base = "frontend/"
+  command = "npm run build"
+  publish = "build"
+
+[ignore]
+  # Ignore all files outside frontend directory
+  files = [
+    "*",
+    "!frontend/**/*"
+  ] 
