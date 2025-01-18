@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Paper, Typography, CircularProgress } from '@mui/material';
+import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import ReactMarkdown from 'react-markdown';
 
 interface Message {
@@ -17,6 +18,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,78 +131,114 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
   };
 
   return (
-    <Paper elevation={3} sx={{ p: 2, maxWidth: 600, margin: 'auto', mt: 4 }}>
-      <Box sx={{ 
-        height: 400, 
-        overflowY: 'auto', 
-        mb: 2,
-        '&::-webkit-scrollbar': {
-          width: '8px',
-        },
-        '&::-webkit-scrollbar-track': {
-          background: '#f1f1f1',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: '#888',
-          borderRadius: '4px',
-        },
-        '&::-webkit-scrollbar-thumb:hover': {
-          background: '#555',
-        },
-      }}>
-        {messages.map((message, index) => (
-          <Box
-            key={index}
-            sx={{
-              display: 'flex',
-              justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
-              mb: 2,
+    <Box sx={{ position: 'fixed', bottom: 20, right: 20, maxWidth: '90%', width: 600 }}>
+      {!isVisible && (
+        <Button 
+          onClick={() => setIsVisible(true)} 
+          variant="contained" 
+          sx={{ 
+            minWidth: 'auto',
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            float: 'right'
+          }}
+        >
+          <ChatBubbleIcon />
+        </Button>
+      )}
+      
+      {isVisible && (
+        <Paper elevation={3} sx={{ p: 2, clear: 'both', position: 'relative' }}>
+          <Button 
+            onClick={() => setIsVisible(false)}
+            sx={{ 
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              minWidth: 'auto',
+              width: 30,
+              height: 30,
+              p: 0,
+              borderRadius: '50%'
             }}
           >
-            <Paper
-              sx={{
-                p: 2,
-                maxWidth: message.type === 'user' ? '70%' : '85%',
-                bgcolor: message.type === 'user' ? 'primary.light' : 'grey.50',
-                color: message.type === 'user' ? 'white' : 'text.primary',
-                borderRadius: 2,
-                boxShadow: 2,
-              }}
-            >
-              <MessageContent 
-                content={message.content} 
-                isUser={message.type === 'user'} 
-              />
-            </Paper>
-          </Box>
-        ))}
-        {isLoading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <CircularProgress size={24} />
-          </Box>
-        )}
-      </Box>
-
-      <form onSubmit={handleSubmit}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            fullWidth
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about financial analysis..."
-            disabled={isLoading}
-            size="small"
-          />
-          <Button 
-            type="submit" 
-            variant="contained" 
-            disabled={isLoading || !input.trim()}
-          >
-            Send
+            ✕
           </Button>
-        </Box>
-      </form>
-    </Paper>
+          
+          <Box sx={{ 
+            height: '75vh',
+            overflowY: 'auto',
+            mt: 2,
+            '&::-webkit-scrollbar': {
+              width: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: '#f1f1f1',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#888',
+              borderRadius: '4px',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: '#555',
+            },
+          }}>
+            {messages.map((message, index) => (
+              <Box
+                key={index}
+                sx={{
+                  display: 'flex',
+                  justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
+                  mb: 2,
+                }}
+              >
+                <Paper
+                  sx={{
+                    p: 2,
+                    maxWidth: message.type === 'user' ? '70%' : '85%',
+                    bgcolor: message.type === 'user' ? 'primary.light' : 'grey.50',
+                    color: message.type === 'user' ? 'white' : 'text.primary',
+                    borderRadius: 2,
+                    boxShadow: 2,
+                  }}
+                >
+                  <MessageContent 
+                    content={message.content} 
+                    isUser={message.type === 'user'} 
+                  />
+                </Paper>
+              </Box>
+            ))}
+            {isLoading && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+          </Box>
+
+          <form onSubmit={handleSubmit}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                fullWidth
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about financial analysis..."
+                disabled={isLoading}
+                size="small"
+              />
+              <Button 
+                type="submit" 
+                variant="contained" 
+                disabled={isLoading || !input.trim()}
+              >
+                Send
+              </Button>
+            </Box>
+          </form>
+        </Paper>
+      )}
+    </Box>
   );
 };
 
