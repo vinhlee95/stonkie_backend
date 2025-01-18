@@ -175,11 +175,11 @@ const App: React.FC = () => {
           right: 20,
           zIndex: 1000,
           boxShadow: 20,
-          maxWidth: '400px',
-          width: '100%'
+          maxWidth: '500px',
+          width: '100%',
         }}
       >
-        {ticker && <FinancialChatbox ticker={ticker} />}
+        <FinancialChatbox ticker={ticker} />
       </Box>
     </>
   );

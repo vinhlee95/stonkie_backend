@@ -1,6 +1,7 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from enum import Enum
 
 load_dotenv()
 
@@ -42,6 +43,37 @@ Based on this financial statement:
 In your analysis, be sure to include numbers and percentages for e.g. year over year growth rates.
 """
 
+class QuestionType(Enum):
+    GENERAL_FINANCE = "general-finance"
+    COMPANY_SPECIFIC = "company-specific"
+
+def classify_question(question):
+    """
+    Classify the question as either '{QuestionType.GENERAL_FINANCE.value}' or '{QuestionType.COMPANY_SPECIFIC.value}'.
+    So that we can determine proper model to use for analysis.
+    Return the classification as a string.
+    """    
+
+    classification_model = genai.GenerativeModel('gemini-1.5-pro')
+    prompt = f"""Classify the following question as either '{QuestionType.GENERAL_FINANCE.value}' or '{QuestionType.COMPANY_SPECIFIC.value}'.
+    Examples:
+    - 'What is the average P/E ratio for the tech industry?' -> {QuestionType.GENERAL_FINANCE.value}
+    - 'What is Apple's revenue for the last quarter?' -> {QuestionType.COMPANY_SPECIFIC.value}
+    Question:
+    {question}"""
+
+    try:
+        response = classification_model.generate_content([prompt])
+        if QuestionType.COMPANY_SPECIFIC.value in response.text.lower():
+            return QuestionType.COMPANY_SPECIFIC.value
+        elif QuestionType.GENERAL_FINANCE.value in response.text.lower():
+            return QuestionType.GENERAL_FINANCE.value
+        else:
+            raise ValueError(f"Unknown question type: {response.text}")
+    except Exception as e:
+        print(f"Error during classifying type of question: {e}")
+        return None
+
 def analyze_financial_data_from_question(ticker, question):
     """
     Analyze financial statements for a given ticker symbol or answer generic financial questions
@@ -53,25 +85,18 @@ def analyze_financial_data_from_question(ticker, question):
     Returns:
         dict: Object containing the analysis response {"data": str}
     """
-    # First, check if this is a generic question
-    generic_model = genai.GenerativeModel(
-        model_name="gemini-1.5-pro",
-        system_instruction="""
-        You are a professional financial analyst who specializes in explaining financial concepts.
-        Provide clear, concise explanations of financial terms, metrics, and concepts.
-        Focus on helping users understand fundamental financial concepts.
-        Only provide factual, widely accepted financial knowledge.
-        """
-    )
-    
-    # Simple check if the question appears to be generic
-    generic_keywords = [
-        "what is", "how to calculate", "explain", "definition of",
-        "how do you", "describe", "define", "meaning of"
-    ]
-    
-    if any(keyword in question.lower() for keyword in generic_keywords):
+
+    classification = classify_question(question)
+    if classification == QuestionType.GENERAL_FINANCE.value:
         try:
+            generic_model = genai.GenerativeModel(
+                model_name="gemini-1.5-pro",
+                system_instruction="""
+                You are a professional financial analyst who specializes in explaining financial concepts.
+                Give a short explanation of the financial question in less than 100 words.
+                Give an example of how this concept is used in real-world financial scenarios, using well-known companies and their financial statements.
+                """
+            )
             response = generic_model.generate_content([
                 "Please explain this financial concept or answer this question:",
                 question
