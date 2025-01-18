@@ -125,7 +125,7 @@ def analyze_financial_data_from_question(ticker, question):
     cash_flow_path = os.path.join(output_dir, f"{ticker}_cash_flow.csv")
     
     if not os.path.exists(income_statement_path) or not os.path.exists(balance_sheet_path):
-        return {"data": f"❌ Financial statements for {ticker.upper()} not found. Please run main.py first."}
+        return {"data": f"❌ Financial statements for {ticker.upper()} not found."}
 
     try:
         # Read CSV files instead of binary files
