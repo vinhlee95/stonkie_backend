@@ -17,6 +17,7 @@ import {
   CircularProgress,
   Container
 } from '@mui/material';
+import FinancialChatbox from './components/FinancialChatbox';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
@@ -121,50 +122,66 @@ const App: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Typography variant="h3" component="h1" sx={{ mb: 4 }}>
-        Stock agent 🚀
-      </Typography>
-      <Typography variant="body1" sx={{ mb: 4 }}>
-        Invest easier and wiser every day 💰
-      </Typography>
-      
-      <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <TextField
-            value={ticker}
-            onChange={(e) => setTicker(e.target.value)}
-            placeholder="Enter stock ticker (e.g., AAPL)"
-            label="Stock Ticker"
-            variant="outlined"
-            size="small"
-            sx={{ flexGrow: 1 }}
-          />
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={loading || !ticker.trim()}
-            sx={{ minWidth: 120 }}
-          >
-            {loading ? (
-              <CircularProgress size={24} color="inherit" />
-            ) : (
-              'Fetch Data'
-            )}
-          </Button>
+    <>
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Typography variant="h3" component="h1" sx={{ mb: 4 }}>
+          Stock agent 🚀
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 4 }}>
+          Invest easier and wiser every day 💰
+        </Typography>
+        
+        <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value)}
+              placeholder="Enter stock ticker (e.g., AAPL)"
+              label="Stock Ticker"
+              variant="outlined"
+              size="small"
+              sx={{ flexGrow: 1 }}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading || !ticker.trim()}
+              sx={{ minWidth: 120 }}
+            >
+              {loading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Fetch Data'
+              )}
+            </Button>
+          </Box>
         </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 4 }}>
+            {error}
+          </Alert>
+        )}
+
+        {renderTable(financialData.income_statement, 'Income Statement')}
+        {renderTable(financialData.balance_sheet, 'Balance Sheet')}
+        {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
+      </Container>
+
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          zIndex: 1000,
+          boxShadow: 20,
+          maxWidth: '400px',
+          width: '100%'
+        }}
+      >
+        {ticker && <FinancialChatbox ticker={ticker} />}
       </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 4 }}>
-          {error}
-        </Alert>
-      )}
-
-      {renderTable(financialData.income_statement, 'Income Statement')}
-      {renderTable(financialData.balance_sheet, 'Balance Sheet')}
-      {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
-    </Container>
+    </>
   );
 };
 
