@@ -44,15 +44,43 @@ In your analysis, be sure to include numbers and percentages for e.g. year over 
 
 def analyze_financial_data_from_question(ticker, question):
     """
-    Analyze financial statements for a given ticker symbol and answer a specific question
+    Analyze financial statements for a given ticker symbol or answer generic financial questions
     
     Args:
         ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
-        question (str): Specific question about the financial data
+        question (str): Specific question about the financial data or generic financial concept
         
     Returns:
         dict: Object containing the analysis response {"data": str}
     """
+    # First, check if this is a generic question
+    generic_model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro",
+        system_instruction="""
+        You are a professional financial analyst who specializes in explaining financial concepts.
+        Provide clear, concise explanations of financial terms, metrics, and concepts.
+        Focus on helping users understand fundamental financial concepts.
+        Only provide factual, widely accepted financial knowledge.
+        """
+    )
+    
+    # Simple check if the question appears to be generic
+    generic_keywords = [
+        "what is", "how to calculate", "explain", "definition of",
+        "how do you", "describe", "define", "meaning of"
+    ]
+    
+    if any(keyword in question.lower() for keyword in generic_keywords):
+        try:
+            response = generic_model.generate_content([
+                "Please explain this financial concept or answer this question:",
+                question
+            ])
+            return {"data": response.text} if response.text else {"data": "❌ No explanation generated"}
+        except Exception as e:
+            return {"data": f"❌ Error generating explanation: {e}"}
+    
+    # If not generic, proceed with company-specific analysis
     ticker = ticker.lower()
     output_dir = "outputs"
     
