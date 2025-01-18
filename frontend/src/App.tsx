@@ -124,12 +124,21 @@ const App: React.FC = () => {
   return (
     <>
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Typography variant="h3" component="h1" sx={{ mb: 4 }}>
-          Stock agent 🚀
-        </Typography>
-        <Typography variant="body1" sx={{ mb: 4 }}>
-          Invest easier and wiser every day 💰
-        </Typography>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          mb: 4,
+          gap: 2
+        }}>
+          <img 
+            src="/stonkie.png" 
+            alt="Stonkie logo" 
+            style={{ height: '80px' }}
+          />
+          <Typography variant="h4" sx={{ mb: 0 }}>
+            Invest easier and wiser every day 💰
+          </Typography>
+        </Box>
         
         <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
           <Box sx={{ display: 'flex', gap: 2 }}>
