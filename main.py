@@ -114,4 +114,5 @@ async def analyze_financial_data(ticker: str, request: Request):
             "data": analysis_result
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during analysis: {str(e)}")
+        logger.error(f"Error during analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
