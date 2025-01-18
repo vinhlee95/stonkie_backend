@@ -18,7 +18,7 @@ import {
   Container
 } from '@mui/material';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>('');
