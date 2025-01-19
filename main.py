@@ -10,6 +10,8 @@ from google.cloud import storage
 from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
+from enum import Enum
+from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
 
 load_dotenv()
 
@@ -43,6 +45,11 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok"}
 
+class ReportType(Enum):
+    INCOME_STATEMENT = "income_statement"
+    BALANCE_SHEET = "balance_sheet"
+    CASH_FLOW = "cash_flow"
+
 @app.get("/api/financial-data/{ticker}/{report_type}")
 async def get_financial_data(ticker: str, report_type: str) -> Dict:
     """
@@ -50,6 +57,15 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     report_type can be: income_statement, balance_sheet, or cash_flow
     """
     try:
+        # Validate and convert report_type to enum
+        try:
+            report_type_enum = ReportType(report_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
+            )
+
         # Get the CSV from google cloud storage
         credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         if not credentials:
@@ -77,10 +93,21 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
         # Use pandas to read the CSV content from the string
         df = pd.read_csv(pd.io.common.BytesIO(csv_content))
         
+        # Filter columns based on report type
+        metric_mapping = {
+            ReportType.INCOME_STATEMENT: INCOME_STATEMENT_METRICS,
+            ReportType.BALANCE_SHEET: BALANCE_SHEET_METRICS,
+            ReportType.CASH_FLOW: CASH_FLOW_METRICS
+        }
+        
+        selected_metrics = metric_mapping[report_type_enum]
+        first_col_name = df.columns[0]
+        df = df[df[first_col_name].str.lower().isin(selected_metrics)]
+        
         # Convert the dataframe to JSON format
         return {
-            "data": df.to_dict('records'),  # Each row becomes a dictionary
-            "columns": df.columns.tolist()   # List of column names
+            "data": df.to_dict('records'),
+            "columns": df.columns.tolist()
         }
     
     except Exception as e:
