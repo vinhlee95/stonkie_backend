@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown';
 interface Message {
   type: 'user' | 'bot';
   content: string;
+  isFAQ?: boolean;  // Add this field to distinguish FAQ messages
+  suggestions?: string[];  // Add this field for FAQ suggestions
 }
 
 interface FinancialChatboxProps {
@@ -18,19 +20,40 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
 const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMessage }) => {
   const [messages, setMessages] = useState<Message[]>(() => [
-    // Initialize messages with the welcome message
-    { type: 'bot', content: initialMessage }
+    // Initialize messages with the welcome message and FAQs
+    { 
+      type: 'bot', 
+      content: initialMessage 
+    },
+    {
+      type: 'bot',
+      content: "Here are some general frequently asked questions:",
+      isFAQ: true,
+      suggestions: [
+        "What is a company's total asset?",
+        "How is profit margin calculated?",
+        "Where can I find a company's profit margin?"
+      ]
+    }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleFAQClick = async (question: string) => {
+    setInput(question);
+    // Simulate form submission with the selected question
+    const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+    await handleSubmit(fakeEvent, question);
+  };
+
+  const handleSubmit = async (e: React.FormEvent, forcedInput?: string) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const questionToAsk = forcedInput || input;
+    if (!questionToAsk.trim()) return;
 
     // Add user message to chat
-    const userMessage: Message = { type: 'user', content: input };
+    const userMessage: Message = { type: 'user', content: questionToAsk };
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
@@ -40,7 +63,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question: input, ticker: ticker }),
+        body: JSON.stringify({ question: questionToAsk, ticker: ticker }),
       });
 
       if (!response.ok) {
@@ -68,9 +91,42 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
     }
   };
 
-  const MessageContent: React.FC<{ content: string, isUser: boolean }> = ({ content, isUser }) => {
+  const MessageContent: React.FC<{ content: string, isUser: boolean, isFAQ?: boolean, suggestions?: string[] }> = 
+    ({ content, isUser, isFAQ, suggestions }) => {
     if (isUser) {
       return <Typography>{content}</Typography>;
+    }
+
+    if (isFAQ && suggestions) {
+      return (
+        <Box>
+          <Typography sx={{ mb: 1 }}>{content}</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {suggestions.map((suggestion, index) => (
+              <Button
+                key={index}
+                variant="outlined"
+                size="small"
+                onClick={() => handleFAQClick(suggestion)}
+                sx={{
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  textTransform: 'none',
+                  p: 1,
+                  borderColor: 'grey.300',
+                  color: 'text.primary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                    borderColor: 'primary.main',
+                  }
+                }}
+              >
+                {suggestion}
+              </Button>
+            ))}
+          </Box>
+        </Box>
+      );
     }
     
     return (
@@ -264,7 +320,9 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 >
                   <MessageContent 
                     content={message.content} 
-                    isUser={message.type === 'user'} 
+                    isUser={message.type === 'user'}
+                    isFAQ={message.isFAQ}
+                    suggestions={message.suggestions}
                   />
                 </Paper>
               </Box>
@@ -276,7 +334,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
             )}
           </Box>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={(e) => handleSubmit(e)}>
             <TextField
               fullWidth
               value={input}
