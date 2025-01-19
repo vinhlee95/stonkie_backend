@@ -398,7 +398,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
             <div ref={messagesEndRef} />
           </Box>
 
-          <form onSubmit={(e) => handleSubmit(e)}>
+          <form onSubmit={(e) => handleSubmit(e)} style={{ marginBottom: '12px' }}>
             <TextField
               fullWidth
               value={input}
@@ -410,6 +410,9 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 '& .MuiOutlinedInput-root': {
                   borderRadius: 3,
                   pr: '8px', // Reduce right padding to accommodate button
+                  '& input': {
+                    py: 1.5  // Add more vertical padding to the input (12px top and bottom)
+                  }
                 }
               }}
               InputProps={{
