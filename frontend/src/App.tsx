@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
@@ -182,10 +183,16 @@ const App: React.FC = () => {
           gap: 2,
           width: '100%'
         }}>
-          <img 
+          <Box
+            component="img"
             src="/stonkie.png" 
             alt="Stonkie logo" 
-            style={{ height: '60px' }}
+            sx={{ 
+              height: '60px',
+              '@media (max-width: 600px)': {
+                height: '40px'
+              }
+            }}
           />
           <Box component="form" onSubmit={handleSubmit} sx={{ flexGrow: 1 }}>
             <Box sx={{ display: 'flex', gap: 2 }}>
@@ -236,12 +243,18 @@ const App: React.FC = () => {
                 type="submit"
                 variant="contained"
                 disabled={loading || !ticker.trim()}
-                sx={{ minWidth: 120 }}
+                sx={{ 
+                  minWidth: 120,
+                  borderRadius: '12px',
+                  '@media (max-width: 600px)': {
+                    minWidth: 42,
+                  }
+                }}
               >
                 {loading ? (
                   <CircularProgress size={24} color="inherit" />
                 ) : (
-                  'Fetch Data'
+                  <DownloadIcon />
                 )}
               </Button>
             </Box>
