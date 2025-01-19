@@ -140,9 +140,24 @@ def analyze_financial_data_from_question(ticker, question):
             return {"data": f"❌ Error generating explanation: {e}"}
     
     # If not generic, proceed with company-specific analysis
-    ticker = ticker.lower()
     if not ticker:
-        return {"data": "❌ Ticker is required"}
+        # Ask the model to find the ticker
+        ticker_model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro",
+            system_instruction="""
+                You are a professional financial analyst who specializes in finding stock tickers.
+                Given a company name, find the stock ticker for the company.
+            """
+        )
+        response = ticker_model.generate_content([
+            "Please find the stock ticker for the company that is mentioned in the question:",
+            question,
+            "only return the ticker name without any other texts."
+        ])
+        ticker = response.text
+
+    # Lower case and strip any whitespace
+    ticker = ticker.lower().strip()
 
     credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if not credentials:
