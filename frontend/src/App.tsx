@@ -209,6 +209,11 @@ const App: React.FC = () => {
                     label="Stock Ticker"
                     variant="outlined"
                     size="small"
+                    sx={{ 
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '12px'
+                      }
+                    }}
                     InputProps={{
                       ...params.InputProps,
                       endAdornment: (

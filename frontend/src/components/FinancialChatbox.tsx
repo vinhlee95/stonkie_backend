@@ -151,22 +151,55 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
       )}
       
       {isVisible && (
-        <Paper elevation={3} sx={{ p: 2, clear: 'both', position: 'relative' }}>
-          <Button 
-            onClick={() => setIsVisible(false)}
-            sx={{ 
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              minWidth: 'auto',
-              width: 30,
-              height: 30,
-              p: 0,
-              borderRadius: '50%'
-            }}
-          >
-            ✕
-          </Button>
+        <Paper elevation={3} sx={{ 
+          p: 2, 
+          clear: 'both', 
+          position: 'relative',
+          borderRadius: 4  // More rounded corners for main chat window
+        }}>
+          {/* Header Section */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            borderBottom: 1,
+            borderColor: 'divider',
+            pb: 1,
+            mb: 2
+          }}>
+            <Typography variant="h6" sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              gap: 1
+            }}>
+              <Box
+                component="img"
+                src="/stonkie.png"
+                alt="Stonkie Avatar"
+                sx={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                }}
+              />
+              Chat with Stonkie
+            </Typography>
+            <Button 
+              onClick={() => setIsVisible(false)}
+              sx={{ 
+                minWidth: 'auto',
+                width: 40,
+                height: 40,
+                p: 0,
+                borderRadius: '50%',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                }
+              }}
+            >
+              <Typography sx={{ fontSize: '24px' }}>✕</Typography>
+            </Button>
+          </Box>
           
           <Box sx={{ 
             height: '75vh',
@@ -256,11 +289,19 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
                 placeholder="Ask about financial analysis..."
                 disabled={isLoading}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 3  // More rounded corners for text input
+                  }
+                }}
               />
               <Button 
                 type="submit" 
                 variant="contained" 
                 disabled={isLoading || !input.trim()}
+                sx={{
+                  borderRadius: 3  // More rounded corners for send button
+                }}
               >
                 Send
               </Button>
