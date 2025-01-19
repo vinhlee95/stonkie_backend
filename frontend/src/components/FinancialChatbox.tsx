@@ -176,16 +176,6 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
               alignItems: 'center',
               gap: 1
             }}>
-              <Box
-                component="img"
-                src="/stonkie.png"
-                alt="Stonkie Avatar"
-                sx={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                }}
-              />
               Chat with Stonkie
             </Typography>
             <Button 
