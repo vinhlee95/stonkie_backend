@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Box, TextField, Button, Paper, Typography, CircularProgress } from '@mui/material';
+import { Box, TextField, Button, Paper, Typography, CircularProgress, InputAdornment } from '@mui/material';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
+import SendIcon from '@mui/icons-material/Send';
 import ReactMarkdown from 'react-markdown';
 
 interface Message {
@@ -276,31 +277,39 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
           </Box>
 
           <form onSubmit={handleSubmit}>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField
-                fullWidth
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about financial analysis..."
-                disabled={isLoading}
-                size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 3  // More rounded corners for text input
-                  }
-                }}
-              />
-              <Button 
-                type="submit" 
-                variant="contained" 
-                disabled={isLoading || !input.trim()}
-                sx={{
-                  borderRadius: 3  // More rounded corners for send button
-                }}
-              >
-                Send
-              </Button>
-            </Box>
+            <TextField
+              fullWidth
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask about financial analysis..."
+              disabled={isLoading}
+              size="small"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 3,
+                  pr: '8px', // Reduce right padding to accommodate button
+                }
+              }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button 
+                      type="submit" 
+                      disabled={isLoading || !input.trim()}
+                      sx={{
+                        minWidth: '40px',
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        p: 0,
+                      }}
+                    >
+                      <SendIcon fontSize="small" />
+                    </Button>
+                  </InputAdornment>
+                ),
+              }}
+            />
           </form>
         </Paper>
       )}
