@@ -15,11 +15,19 @@ import {
   Alert,
   Box,
   CircularProgress,
-  Container
+  Container,
+  createTheme,
+  ThemeProvider
 } from '@mui/material';
 import FinancialChatbox from './components/FinancialChatbox';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
+
+const theme = createTheme({
+  typography: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif',
+  },
+});
 
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>('');
@@ -122,7 +130,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <>
+    <ThemeProvider theme={theme}>
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <Box sx={{ 
           display: 'flex', 
@@ -190,7 +198,7 @@ const App: React.FC = () => {
       >
         <FinancialChatbox ticker={ticker} />
       </Box>
-    </>
+    </ThemeProvider>
   );
 };
 
