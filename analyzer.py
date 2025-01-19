@@ -2,6 +2,7 @@ import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 from enum import Enum
+from google.cloud import storage
 
 load_dotenv()
 
@@ -44,13 +45,8 @@ model = genai.GenerativeModel(
 )
 
 analysis_prompt = """
-Based on this financial statement:
-1. Analyze the company's financial performance and health
-2. Identify key trends in revenue, profitability, and major metrics
-3. Calculate and interpret year-over-year growth rates
-4. Highlight any red flags or areas of concern
-5. Provide a summary of whether this company appears to be a good investment.
-In your analysis, be sure to include numbers and percentages for e.g. year over year growth rates.
+    Based on this financial statement, include numbers and percentages for e.g. year over year growth rates
+    to answer to the question.
 """
 
 class QuestionType(Enum):
@@ -117,27 +113,33 @@ def analyze_financial_data_from_question(ticker, question):
     
     # If not generic, proceed with company-specific analysis
     ticker = ticker.lower()
-    output_dir = "outputs"
+    client = storage.Client()
+    bucket = client.bucket('stock_agent_financial_report')
     
-    # Update file paths to use CSV extension
-    income_statement_path = os.path.join(output_dir, f"{ticker}_income_statement.csv")
-    balance_sheet_path = os.path.join(output_dir, f"{ticker}_balance_sheet.csv")
-    cash_flow_path = os.path.join(output_dir, f"{ticker}_cash_flow.csv")
-    
-    if not os.path.exists(income_statement_path) or not os.path.exists(balance_sheet_path):
-        return {"data": f"❌ Financial statements for {ticker.upper()} not found."}
-
-    try:
-        # Read CSV files instead of binary files
-        with open(income_statement_path, "r") as income_file, \
-             open(balance_sheet_path, "r") as balance_file, \
-             open(cash_flow_path, "r") as cash_flow_file: 
-            
-            income_data = income_file.read()
-            balance_data = balance_file.read()
-            cash_flow_data = cash_flow_file.read()
+    if not bucket:
+        return {"data": "❌ GCP bucket name not configured"}
         
-        # Update the model input to include the specific question
+    try:
+        # Read files from GCP bucket
+        income_blob = bucket.blob(f"{ticker}_income_statement.csv")
+        balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
+        cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
+        
+        # TODO: may be do another classification to check which financial statement the question is asking for
+        # and then check if the file exists in the bucket and only throw if the relevant statement is missing
+        # instead of throwing an error if any of the statements are missing like now
+        if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
+            return {"data": f"❌ Financial statements for {ticker.upper()} not found in cloud storage."}
+        
+        income_data = income_blob.download_as_text()
+        balance_data = balance_blob.download_as_text()
+        cash_flow_data = cash_flow_blob.download_as_text()
+        
+    except Exception as e:
+        return {"data": f"❌ Error accessing cloud storage: {e}"}
+
+    # Continue with analysis using the loaded data
+    try:
         response = model.generate_content([
             f"Here are financial statements for {ticker.upper()}:",
             income_data,
@@ -150,10 +152,7 @@ def analyze_financial_data_from_question(ticker, question):
             f"\nSpecific question to address: {question}"
         ])
 
-        if response.text:
-            return {"data": response.text}
-        else:
-            return {"data": "❌ No analysis generated from the model"}
+        return {"data": response.text} if response.text else {"data": "❌ No analysis generated from the model"}
 
     except Exception as e:
         return {"data": f"❌ Error during analysis: {e}"}
