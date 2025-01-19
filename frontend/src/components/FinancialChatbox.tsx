@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, TextField, Button, Paper, Typography, CircularProgress, InputAdornment } from '@mui/material';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import SendIcon from '@mui/icons-material/Send';
 import ReactMarkdown from 'react-markdown';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
 interface Message {
   type: 'user' | 'bot';
@@ -39,6 +40,8 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   const handleFAQClick = async (question: string) => {
     setInput(question);
@@ -90,6 +93,24 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
       setInput('');
     }
   };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const element = e.currentTarget;
+    const isScrollable = element.scrollHeight > element.clientHeight;
+    setShowScrollButton(isScrollable);
+  };
+
+  useEffect(() => {
+    const chatBox = messagesEndRef.current?.parentElement;
+    if (chatBox) {
+      const isScrollable = chatBox.scrollHeight > chatBox.clientHeight;
+      setShowScrollButton(isScrollable);
+    }
+  }, [messages]);
 
   const MessageContent: React.FC<{ content: string, isUser: boolean, isFAQ?: boolean, suggestions?: string[] }> = 
     ({ content, isUser, isFAQ, suggestions }) => {
@@ -252,11 +273,12 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
           
           <Box sx={{ 
             height: {
-              xs: '60vh', // 60% height on mobile
-              sm: '75vh'  // original 75% height on larger screens
+              xs: '60vh',
+              sm: '75vh'
             },
             overflowY: 'auto',
             mt: 2,
+            position: 'relative',
             '&::-webkit-scrollbar': {
               width: '8px',
             },
@@ -270,7 +292,37 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
             '&::-webkit-scrollbar-thumb:hover': {
               background: '#555',
             },
-          }}>
+          }}
+          onScroll={handleScroll}>
+            {showScrollButton && (
+              <Box sx={{ 
+                position: 'sticky',
+                top: '1px',
+                left: '1px',
+                zIndex: 1,
+                ml: 2,
+                marginLeft: 0
+              }}>
+                <Button
+                  onClick={scrollToBottom}
+                  size="small"
+                  sx={{
+                    minWidth: '32px',
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    padding: 0,
+                    backgroundColor: 'background.paper',
+                    boxShadow: 1,
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    }
+                  }}
+                >
+                  <KeyboardArrowDownIcon />
+                </Button>
+              </Box>
+            )}
             {messages.map((message, index) => (
               <Box
                 key={index}
@@ -332,6 +384,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 <CircularProgress size={24} />
               </Box>
             )}
+            <div ref={messagesEndRef} />
           </Box>
 
           <form onSubmit={(e) => handleSubmit(e)}>
