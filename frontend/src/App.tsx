@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { FinancialData, ReportType } from './types';
 import { formatNumber } from './utils/formatters';
 import {
@@ -17,9 +17,11 @@ import {
   CircularProgress,
   Container,
   createTheme,
-  ThemeProvider
+  ThemeProvider,
+  Autocomplete,
 } from '@mui/material';
 import FinancialChatbox from './components/FinancialChatbox';
+import { debounce } from 'lodash';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
@@ -28,7 +30,6 @@ const theme = createTheme({
     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif',
   },
 });
-
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
@@ -38,6 +39,19 @@ const App: React.FC = () => {
     balance_sheet: null,
     cash_flow: null
   });
+  const [searchResults, setSearchResults] = useState<Array<{
+    symbol: string;
+    name: string;
+  }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSearch = useCallback(
+    debounce((query: string) => {
+      searchSymbols(query);
+    }, 300),
+    []
+  );
 
   const fetchFinancialData = async (reportType: ReportType) => {
     try {
@@ -61,6 +75,34 @@ const App: React.FC = () => {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const searchSymbols = async (query: string) => {
+    if (!query || query.length < 1) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+    try {
+      const response = await fetch(
+        `https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords=${query}&apikey=${process.env.REACT_APP_ALPHA_VANTAGE_API_KEY}`
+      );
+      const data = await response.json();
+      
+      if (data.bestMatches) {
+        setSearchResults(
+          data.bestMatches.map((match: any) => ({
+            symbol: match['1. symbol'],
+            name: match['2. name'],
+          }))
+        );
+      }
+    } catch (err) {
+      console.error('Failed to fetch symbols:', err);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
@@ -150,14 +192,43 @@ const App: React.FC = () => {
         
         <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField
+            <Autocomplete
               value={ticker}
-              onChange={(e) => setTicker(e.target.value)}
-              placeholder="Enter stock ticker (e.g., AAPL)"
-              label="Stock Ticker"
-              variant="outlined"
-              size="small"
+              onChange={(_, newValue) => setTicker(typeof newValue === 'string' ? newValue : newValue?.symbol || '')}
+              onInputChange={(_, newInputValue, reason) => {
+                if (reason === 'input') {
+                  debouncedSearch(newInputValue);
+                }
+              }}
+              options={searchResults}
+              getOptionLabel={(option) => 
+                typeof option === 'string' 
+                  ? option 
+                  : `${option.symbol} - ${option.name}`
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder="Enter stock ticker (e.g., AAPL)"
+                  label="Stock Ticker"
+                  variant="outlined"
+                  size="small"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {searchLoading && (
+                          <CircularProgress color="inherit" size={20} />
+                        )}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+              freeSolo
               sx={{ flexGrow: 1 }}
+              loading={searchLoading}
             />
             <Button
               type="submit"
