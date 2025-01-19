@@ -138,6 +138,7 @@ const App: React.FC = () => {
                 {data.columns.map((column, index) => (
                   <TableCell
                     key={index}
+                    align={index === 0 ? 'left' : 'right'}
                     sx={{
                       fontWeight: 'bold',
                       backgroundColor: 'background.paper'
@@ -157,7 +158,7 @@ const App: React.FC = () => {
                   {data.columns.map((column, colIndex) => (
                     <TableCell 
                       key={colIndex}
-                      align={colIndex === 0 ? 'left' : 'right'} // Right-align numbers
+                      align={colIndex === 0 ? 'left' : 'right'}
                     >
                       {formatCellValue(row[column], column)}
                     </TableCell>
