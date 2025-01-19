@@ -11,12 +11,16 @@ interface Message {
 
 interface FinancialChatboxProps {
   ticker: string;  // Current ticker passed from parent component
+  initialMessage: string;  // Add this new prop
 }
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
-const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMessage }) => {
+  const [messages, setMessages] = useState<Message[]>(() => [
+    // Initialize messages with the welcome message
+    { type: 'bot', content: initialMessage }
+  ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);

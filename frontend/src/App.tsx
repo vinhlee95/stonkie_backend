@@ -269,7 +269,10 @@ const App: React.FC = () => {
           width: '100%',
         }}
       >
-        <FinancialChatbox ticker={ticker} />
+        <FinancialChatbox 
+          ticker={ticker} 
+          initialMessage="Hi! My name is Stonkie, your stock agent. Feel free to ask me anything about a particular stock you are interested in."
+        />
       </Box>
     </ThemeProvider>
   );
