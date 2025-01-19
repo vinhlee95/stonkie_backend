@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, TextField, Button, Paper, Typography, CircularProgress } from '@mui/material';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import ReactMarkdown from 'react-markdown';
+import { useTheme } from '@mui/material/styles';
 
 interface Message {
   type: 'user' | 'bot';
@@ -19,6 +20,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const theme = useTheme();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,8 +193,24 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
                   display: 'flex',
                   justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
                   mb: 2,
+                  position: 'relative',
+                  alignItems: 'flex-start',
                 }}
               >
+                {message.type === 'bot' && (
+                  <Box
+                    component="img"
+                    src="/stonkie.png"
+                    alt="AI Avatar"
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      mr: 1,
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
                 <Paper
                   sx={{
                     p: 2,
@@ -201,6 +219,18 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
                     color: message.type === 'user' ? 'white' : 'text.primary',
                     borderRadius: 2,
                     boxShadow: 2,
+                    position: 'relative',
+                    '&::before': message.type === 'bot' ? {
+                      content: '""',
+                      position: 'absolute',
+                      width: 0,
+                      height: 0,
+                      borderStyle: 'solid',
+                      left: -10,
+                      borderWidth: '10px 10px 10px 0',
+                      borderColor: 'transparent #f5f5f5 transparent transparent',
+                      top: 10,
+                    } : {}
                   }}
                 >
                   <MessageContent 
