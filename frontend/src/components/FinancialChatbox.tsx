@@ -194,7 +194,10 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
           </Box>
           
           <Box sx={{ 
-            height: '75vh',
+            height: {
+              xs: '60vh', // 60% height on mobile
+              sm: '75vh'  // original 75% height on larger screens
+            },
             overflowY: 'auto',
             mt: 2,
             '&::-webkit-scrollbar': {
