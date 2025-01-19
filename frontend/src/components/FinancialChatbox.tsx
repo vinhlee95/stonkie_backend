@@ -231,8 +231,8 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
             height: 56,
             borderRadius: '50%',
             float: 'right',
-            mr: { xs: 2, sm: 0 },  // Add right margin (16px on mobile, 0 on desktop)
-            mb: { xs: 2, sm: 0 }   // Add bottom margin (16px on mobile, 0 on desktop)
+            mr: { xs: 4, sm: 0 },  // Add right margin (16px on mobile, 0 on desktop)
+            mb: { xs: 4, sm: 0 }   // Add bottom margin (16px on mobile, 0 on desktop)
           }}
         >
           <ChatBubbleIcon />
