@@ -298,7 +298,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 )}
                 <Paper
                   sx={{
-                    p: 2,
+                    p: 1.5,
                     maxWidth: message.type === 'user' ? '70%' : '85%',
                     bgcolor: message.type === 'user' ? 'primary.light' : 'grey.50',
                     color: message.type === 'user' ? 'white' : 'text.primary',
