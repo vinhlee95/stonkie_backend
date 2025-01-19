@@ -86,20 +86,20 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/{ticker}/analyze")
-async def analyze_financial_data(ticker: str, request: Request):
+@app.post("/api/company/analyze")
+async def analyze_financial_data(request: Request):
     """
     Analyze financial statements for a given ticker symbol based on a specific question
     
     Args:
-        ticker (str): Ticker symbol from URL path parameter
-        request (Request): FastAPI request object containing the question in body
+        request (Request): FastAPI request object containing the question and ticker in body
     Returns:
         dict: Analysis response and status
     """
     try:
         body = await request.json()
         question = body.get('question')
+        ticker = body.get('ticker')
         
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")

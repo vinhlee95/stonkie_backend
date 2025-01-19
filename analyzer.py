@@ -103,7 +103,7 @@ def analyze_financial_data_from_question(ticker, question):
 
     classification = classify_question(question)
     logger.info(f"The question is classified as: {classification}")
-    
+
     if classification == QuestionType.GENERAL_FINANCE.value:
         try:
             general_finance_model = genai.GenerativeModel(
@@ -141,6 +141,9 @@ def analyze_financial_data_from_question(ticker, question):
     
     # If not generic, proceed with company-specific analysis
     ticker = ticker.lower()
+    if not ticker:
+        return {"data": "❌ Ticker is required"}
+
     credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if not credentials:
         return {"data": "❌ Google Cloud credentials not found in environment variables"}

@@ -30,12 +30,12 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/${ticker}/analyze`, {
+      const response = await fetch(`${BACKEND_URL}/api/company/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question: input }),
+        body: JSON.stringify({ question: input, ticker: ticker }),
       });
 
       if (!response.ok) {
