@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Box, TextField, Button, Paper, Typography, CircularProgress } from '@mui/material';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import ReactMarkdown from 'react-markdown';
-import { useTheme } from '@mui/material/styles';
 
 interface Message {
   type: 'user' | 'bot';
@@ -24,7 +23,6 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const theme = useTheme();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
