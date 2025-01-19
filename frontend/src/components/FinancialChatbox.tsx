@@ -213,7 +213,14 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   };
 
   return (
-    <Box sx={{ position: 'fixed', bottom: 20, right: 20, maxWidth: '90%', width: 600 }}>
+    <Box sx={{ 
+      position: 'fixed', 
+      bottom: { xs: 0, sm: 20 },  // Remove bottom margin on mobile
+      right: { xs: 0, sm: 20 },
+      maxWidth: { xs: '100%', sm: '90%' },
+      width: { xs: '100%', sm: 600 },
+      px: { xs: 0, sm: 0 }  // Remove horizontal padding on mobile
+    }}>
       {!isVisible && (
         <Button 
           onClick={() => setIsVisible(true)} 
@@ -235,7 +242,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
           p: 2, 
           clear: 'both', 
           position: 'relative',
-          borderRadius: 4  // More rounded corners for main chat window
+          borderRadius: { xs: '16px 16px 0 0', sm: 4 }  // Rounded top corners only on mobile, all corners on desktop
         }}>
           {/* Header Section */}
           <Box sx={{ 
@@ -258,8 +265,8 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
               onClick={() => setIsVisible(false)}
               sx={{ 
                 minWidth: 'auto',
-                width: 40,
-                height: 40,
+                width: 32,
+                height: 32,
                 p: 0,
                 borderRadius: '50%',
                 '&:hover': {
@@ -267,7 +274,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 }
               }}
             >
-              <Typography sx={{ fontSize: '24px' }}>✕</Typography>
+              <Typography sx={{ fontSize: '20px' }}>✕</Typography>
             </Button>
           </Box>
           
@@ -279,6 +286,8 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
             overflowY: 'auto',
             mt: 2,
             position: 'relative',
+            mr: -2,  // Negative margin to extend to edge on all viewports
+            pr: 2,   // Padding to maintain content spacing on all viewports
             '&::-webkit-scrollbar': {
               width: '8px',
             },
