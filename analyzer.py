@@ -1,8 +1,11 @@
+import base64
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 from enum import Enum
 from google.cloud import storage
+import json
+from google.oauth2 import service_account
 
 load_dotenv()
 
@@ -113,7 +116,13 @@ def analyze_financial_data_from_question(ticker, question):
     
     # If not generic, proceed with company-specific analysis
     ticker = ticker.lower()
-    client = storage.Client()
+    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    if not credentials:
+        return {"data": "❌ Google Cloud credentials not found in environment variables"}
+    
+    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
+    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
+    client = storage.Client(credentials=credentials)
     bucket = client.bucket('stock_agent_financial_report')
     
     if not bucket:
