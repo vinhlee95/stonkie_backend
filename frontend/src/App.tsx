@@ -178,70 +178,67 @@ const App: React.FC = () => {
           display: 'flex', 
           alignItems: 'center', 
           mb: 4,
-          gap: 2
+          gap: 2,
+          width: '100%'
         }}>
           <img 
             src="/stonkie.png" 
             alt="Stonkie logo" 
-            style={{ height: '80px' }}
+            style={{ height: '60px' }}
           />
-          <Typography variant="h4" sx={{ mb: 0 }}>
-            Invest easier and wiser every day 💰
-          </Typography>
-        </Box>
-        
-        <Box component="form" onSubmit={handleSubmit} sx={{ mb: 4 }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Autocomplete
-              value={ticker}
-              onChange={(_, newValue) => setTicker(typeof newValue === 'string' ? newValue : newValue?.symbol || '')}
-              onInputChange={(_, newInputValue, reason) => {
-                if (reason === 'input') {
-                  debouncedSearch(newInputValue);
+          <Box component="form" onSubmit={handleSubmit} sx={{ flexGrow: 1 }}>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Autocomplete
+                value={ticker}
+                onChange={(_, newValue) => setTicker(typeof newValue === 'string' ? newValue : newValue?.symbol || '')}
+                onInputChange={(_, newInputValue, reason) => {
+                  if (reason === 'input') {
+                    debouncedSearch(newInputValue);
+                  }
+                }}
+                options={searchResults}
+                getOptionLabel={(option) => 
+                  typeof option === 'string' 
+                    ? option 
+                    : `${option.symbol} - ${option.name}`
                 }
-              }}
-              options={searchResults}
-              getOptionLabel={(option) => 
-                typeof option === 'string' 
-                  ? option 
-                  : `${option.symbol} - ${option.name}`
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder="Enter stock ticker (e.g., AAPL)"
-                  label="Stock Ticker"
-                  variant="outlined"
-                  size="small"
-                  InputProps={{
-                    ...params.InputProps,
-                    endAdornment: (
-                      <>
-                        {searchLoading && (
-                          <CircularProgress color="inherit" size={20} />
-                        )}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  }}
-                />
-              )}
-              freeSolo
-              sx={{ flexGrow: 1 }}
-              loading={searchLoading}
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={loading || !ticker.trim()}
-              sx={{ minWidth: 120 }}
-            >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                'Fetch Data'
-              )}
-            </Button>
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder="Enter stock ticker (e.g., AAPL)"
+                    label="Stock Ticker"
+                    variant="outlined"
+                    size="small"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {searchLoading && (
+                            <CircularProgress color="inherit" size={20} />
+                          )}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+                freeSolo
+                sx={{ flexGrow: 1 }}
+                loading={searchLoading}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading || !ticker.trim()}
+                sx={{ minWidth: 120 }}
+              >
+                {loading ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  'Fetch Data'
+                )}
+              </Button>
+            </Box>
           </Box>
         </Box>
 
