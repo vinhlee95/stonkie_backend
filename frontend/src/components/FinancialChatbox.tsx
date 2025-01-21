@@ -121,7 +121,6 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
       console.error('Error fetching FAQs:', error);
     }
   };
-  console.log(messages)
 
   const handleChatOpen = () => {
     setIsVisible(true);
