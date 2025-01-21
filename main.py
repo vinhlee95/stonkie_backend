@@ -12,6 +12,7 @@ import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
 from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
+from faq_generator import DEFAULT_QUESTIONS, get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
 
 load_dotenv()
 
@@ -140,3 +141,29 @@ async def analyze_financial_data(request: Request):
     except Exception as e:
         logger.error(f"Error during analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
+
+
+@app.get("/api/company/faq")
+async def get_faq(request: Request):
+    """
+    Suggest 3 FAQs for a given ticker symbol
+    """
+    try:
+        # Get ticker symbol from query params
+        ticker = request.query_params.get('ticker')
+        if not ticker:
+            # Come up with 3 generic questions
+            return {
+                "status": "success",
+                "data": get_general_frequent_ask_questions()
+            }
+        # If the ticker is provided, ask the model to generate 3 FAQs
+        else:
+            return {
+                "status": "success",
+                "data": get_frequent_ask_questions_for_ticker(ticker)
+            }
+    except Exception as e:
+        logger.error(f"Error during FAQ generation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
+    
