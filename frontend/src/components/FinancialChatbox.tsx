@@ -21,26 +21,16 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
 const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMessage }) => {
   const [messages, setMessages] = useState<Message[]>(() => [
-    // Initialize messages with the welcome message and FAQs
     { 
       type: 'bot', 
       content: initialMessage 
-    },
-    {
-      type: 'bot',
-      content: "Here are some general frequently asked questions:",
-      isFAQ: true,
-      suggestions: [
-        "What is a company's total asset?",
-        "How is profit margin calculated?",
-        "Where can I find a company's profit margin?"
-      ]
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [hasFetchedFAQs, setHasFetchedFAQs] = useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   const handleFAQClick = async (question: string) => {
@@ -111,6 +101,35 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
       setShowScrollButton(isScrollable);
     }
   }, [messages]);
+
+  const fetchFAQs = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/company/faq`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch FAQs');
+      }
+      const faqData = await response.json();
+      
+      // Add FAQ message to chat
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: "Here are some general frequently asked questions:",
+        isFAQ: true,
+        suggestions: faqData.data || []
+      }]);
+    } catch (error) {
+      console.error('Error fetching FAQs:', error);
+    }
+  };
+  console.log(messages)
+
+  const handleChatOpen = () => {
+    setIsVisible(true);
+    if (!hasFetchedFAQs) {
+      fetchFAQs();
+      setHasFetchedFAQs(true);
+    }
+  };
 
   const MessageContent: React.FC<{ content: string, isUser: boolean, isFAQ?: boolean, suggestions?: string[] }> = 
     ({ content, isUser, isFAQ, suggestions }) => {
@@ -223,7 +242,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
     }}>
       {!isVisible && (
         <Button 
-          onClick={() => setIsVisible(true)} 
+          onClick={handleChatOpen}
           variant="contained" 
           sx={{ 
             minWidth: 'auto',
