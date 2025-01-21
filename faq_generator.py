@@ -28,7 +28,7 @@ def get_general_frequent_ask_questions():
             "The questions should be in the form of a list of questions. Only return the list of questions, no other text.",
         ])
         
-        return response.text.split("\n")
+        return [q for q in response.text.split("\n") if q.strip()]
     except Exception as e:
         # Return placeholder questions
         return DEFAULT_QUESTIONS
@@ -57,7 +57,7 @@ def get_frequent_ask_questions_for_ticker(ticker):
             "The questions should be in the form of a list of questions.",
         ])
       
-        return response.text.split("\n")
+        return [q for q in response.text.split("\n") if q.strip()]
     except Exception as e:
         # Return placeholder questions
         return DEFAULT_QUESTIONS
