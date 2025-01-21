@@ -25,10 +25,11 @@ def get_general_frequent_ask_questions():
             "Generate 3 questions that customers would ask about a particular financial concept such as revenue, net income, cash flow, etc.",
             "The question should be generic and not specific to any particular company.",
             "The questions should be concise and to the point.",
-            "The questions should be in the form of a list of questions. Only return the list of questions, no other text.",
+            "The questions should be in the form of a list of questions. Only return the list of questions without the number at the beginning, no other text.",
         ])
         
-        return [q for q in response.text.split("\n") if q.strip()]
+        # Remove "*" symbols and strip whitespace from each question
+        return [q.replace("*", "").strip() for q in response.text.split("\n") if q.strip()]
     except Exception as e:
         # Return placeholder questions
         return DEFAULT_QUESTIONS
@@ -57,7 +58,8 @@ def get_frequent_ask_questions_for_ticker(ticker):
             "The questions should be in the form of a list of questions.",
         ])
       
-        return [q for q in response.text.split("\n") if q.strip()]
+        # Remove "*" symbols and strip whitespace from each question
+        return [q.replace("*", "").strip() for q in response.text.split("\n") if q.strip()]
     except Exception as e:
         # Return placeholder questions
         return DEFAULT_QUESTIONS
