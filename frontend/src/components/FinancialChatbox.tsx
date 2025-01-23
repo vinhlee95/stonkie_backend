@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, TextField, Button, Paper, Typography, CircularProgress, InputAdornment } from '@mui/material';
+import { Box, TextField, Button, Paper, Typography, InputAdornment } from '@mui/material';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import SendIcon from '@mui/icons-material/Send';
 import ReactMarkdown from 'react-markdown';
