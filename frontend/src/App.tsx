@@ -187,21 +187,43 @@ const App: React.FC = () => {
 
   const renderFinancialChart = (data: FinancialData | null) => {
     if (!data) return null;
-
-    // Find revenue and gross profit rows
+    const columns = data.columns
+    
     const revenueRow = data.data.find(row => {
-      const metric = row[data.columns[0]];
+      const metric = row[columns[0]];
       return typeof metric === 'string' && 
         metric.toLowerCase().includes('revenue') && 
         !metric.toLowerCase().includes('cost');
     });
-    const grossProfitRow = data.data.find(row => {
-      const metric = row[data.columns[0]];
+    const netIncome = data.data.find(row => {
+      const metric = row[columns[0]];
       return typeof metric === 'string' && 
-        metric.toLowerCase().includes('gross profit');
+        metric.toLowerCase().includes('net income');
     });
 
-    if (!revenueRow || !grossProfitRow) return null;
+    // Reverse the columns array (except the first column which contains metrics)
+    const reversedColumns = [data.columns[0], ...data.columns.slice(1).reverse()];
+    
+    // Update the data rows to match the reversed column order
+    const reversedData = data.data.map(row => {
+      const rowValues = Object.values(row);
+      return [rowValues[0], ...rowValues.slice(1).reverse()];
+    });
+
+    // Update the data object with reversed columns and data
+    data = {
+      ...data,
+      columns: reversedColumns,
+      data: reversedData.map(row => {
+        const obj: Record<string, string | number> = {};
+        reversedColumns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return obj;
+      })
+    };
+
+    if (!revenueRow || !netIncome) return null;
 
     const years = data.columns.slice(1);
     
@@ -216,8 +238,8 @@ const App: React.FC = () => {
           borderWidth: 1,
         },
         {
-          label: 'Gross Profit',
-          data: years.map(year => parseFloat(grossProfitRow[year].toString().replace(/[^0-9.-]+/g, ''))),
+          label: 'Net income',
+          data: years.map(year => parseFloat(netIncome[year].toString().replace(/[^0-9.-]+/g, ''))),
           backgroundColor: 'rgba(75, 192, 192, 0.5)',
           borderColor: 'rgba(75, 192, 192, 1)',
           borderWidth: 1,
@@ -234,7 +256,7 @@ const App: React.FC = () => {
         },
         title: {
           display: true,
-          text: 'Revenue and Gross Profit Trends',
+          text: 'Revenue and Net income Trends',
         },
       },
       scales: {
@@ -256,6 +278,9 @@ const App: React.FC = () => {
 
     return (
       <Box sx={{ height: 400, mt: 4 }}>
+        <Typography variant="h5" sx={{ mb: 2 }}>
+          Growth and profitability
+        </Typography>
         <Bar data={chartData} options={options} />
       </Box>
     );
