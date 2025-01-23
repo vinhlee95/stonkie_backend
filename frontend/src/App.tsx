@@ -23,7 +23,19 @@ import {
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
 import DownloadIcon from '@mui/icons-material/Download';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend } from 'chart.js';
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  LineElement, 
+  PointElement, 
+  Title, 
+  Tooltip, 
+  Legend,
+  BarController,
+  LineController
+} from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 
 // Register ChartJS components
@@ -35,7 +47,9 @@ ChartJS.register(
   PointElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  BarController,
+  LineController
 );
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'

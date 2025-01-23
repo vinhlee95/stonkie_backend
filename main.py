@@ -12,7 +12,7 @@ import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
 from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
-from faq_generator import DEFAULT_QUESTIONS, get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
+from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
 
 load_dotenv()
 
