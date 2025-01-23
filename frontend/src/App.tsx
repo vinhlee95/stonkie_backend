@@ -24,7 +24,7 @@ import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
 import DownloadIcon from '@mui/icons-material/Download';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Chart } from 'react-chartjs-2';
 
 // Register ChartJS components
 ChartJS.register(
@@ -318,9 +318,7 @@ const App: React.FC = () => {
         <Typography variant="h5" sx={{ mb: 2 }}>
           Growth and profitability
         </Typography>
-        {/* Ignore the error here, it's a known issue with react-chartjs-2 */}
-        {/* @ts-ignore */}
-        <Bar data={chartData} options={options} />
+        <Chart type='bar' data={chartData} options={options} />
       </Box>
     );
   }
