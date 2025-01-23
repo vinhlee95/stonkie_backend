@@ -4,6 +4,7 @@ import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import SendIcon from '@mui/icons-material/Send';
 import ReactMarkdown from 'react-markdown';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import { useTheme } from '@mui/material/styles';
 
 interface Message {
   type: 'user' | 'bot';
@@ -61,6 +62,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   const [hasFetchedFAQs, setHasFetchedFAQs] = useState(false);
   const [isFAQLoading, setIsFAQLoading] = useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const theme = useTheme();
 
   const handleFAQClick = async (question: string) => {
     setInput(question);
@@ -404,7 +406,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                       width: 40,
                       height: 40,
                       borderRadius: '50%',
-                      mr: 1,
+                      mr: 2,
                       flexShrink: 0,
                     }}
                   />
@@ -424,10 +426,12 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                       width: 0,
                       height: 0,
                       borderStyle: 'solid',
-                      left: -10,
-                      borderWidth: '10px 10px 10px 0',
-                      borderColor: 'transparent #f5f5f5 transparent transparent',
+                      left: -8,
+                      borderWidth: '8px 10px 8px 0',
+                      borderColor: `transparent ${theme.palette.grey[50]} transparent transparent`,
                       top: 10,
+                      filter: 'drop-shadow(-2px 1px 1px rgba(0,0,0,0.15))',
+                      zIndex: 1,
                     } : {}
                   }}
                 >
@@ -458,7 +462,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                     width: 40,
                     height: 40,
                     borderRadius: '50%',
-                    mr: 1,
+                    mr: 2,
                     flexShrink: 0,
                   }}
                 />
@@ -477,10 +481,12 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                       width: 0,
                       height: 0,
                       borderStyle: 'solid',
-                      left: -10,
-                      borderWidth: '10px 10px 10px 0',
+                      left: -8,
+                      borderWidth: '8px 10px 8px 0',
                       borderColor: 'transparent #f5f5f5 transparent transparent',
                       top: 10,
+                      filter: 'drop-shadow(-2px 1px 1px rgba(0,0,0,0.15))',
+                      zIndex: 1,
                     }
                   }}
                 >
