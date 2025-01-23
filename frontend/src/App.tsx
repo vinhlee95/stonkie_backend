@@ -19,6 +19,8 @@ import {
   createTheme,
   ThemeProvider,
   Autocomplete,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
@@ -73,6 +75,7 @@ const App: React.FC = () => {
     name: string;
   }>>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSearch = useCallback(
@@ -337,6 +340,10 @@ const App: React.FC = () => {
     );
   }
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -431,11 +438,36 @@ const App: React.FC = () => {
           </Alert>
         )}
 
-        {renderTable(financialData.income_statement, 'Income Statement')}
-        {renderFinancialChart(financialData.income_statement)}
+        {(financialData.income_statement || financialData.balance_sheet || financialData.cash_flow) && (
+          <>
+            <Tabs 
+              value={activeTab} 
+              onChange={handleTabChange}
+              sx={{ 
+                borderBottom: 1, 
+                borderColor: 'divider',
+                mb: 3
+              }}
+            >
+              <Tab label="Overview" />
+              <Tab label="Statements" />
+            </Tabs>
 
-        {renderTable(financialData.balance_sheet, 'Balance Sheet')}
-        {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
+            {activeTab === 0 && (
+              <>
+                {renderFinancialChart(financialData.income_statement)}
+              </>
+            )}
+
+            {activeTab === 1 && (
+              <>
+                {renderTable(financialData.income_statement, 'Income Statement')}
+                {renderTable(financialData.balance_sheet, 'Balance Sheet')}
+                {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
+              </>
+            )}
+          </>
+        )}
       </Container>
 
       <Box
