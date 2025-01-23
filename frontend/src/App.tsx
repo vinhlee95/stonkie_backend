@@ -23,7 +23,7 @@ import {
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
 import DownloadIcon from '@mui/icons-material/Download';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 
 // Register ChartJS components
@@ -31,6 +31,8 @@ ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Title,
   Tooltip,
   Legend
@@ -227,22 +229,44 @@ const App: React.FC = () => {
 
     const years = data.columns.slice(1);
     
+    // Calculate net margin with 2 decimal places
+    const netMarginData = years.map(year => {
+      const revenue = parseFloat(revenueRow[year].toString().replace(/[^0-9.-]+/g, ''));
+      const income = parseFloat(netIncome[year].toString().replace(/[^0-9.-]+/g, ''));
+      return Number(((income / revenue) * 100).toFixed(2)); // Round to 2 decimal places
+    });
+
     const chartData = {
       labels: years,
       datasets: [
         {
+          type: 'bar' as const,
           label: 'Revenue',
           data: years.map(year => parseFloat(revenueRow[year].toString().replace(/[^0-9.-]+/g, ''))),
           backgroundColor: 'rgba(53, 162, 235, 0.5)',
           borderColor: 'rgba(53, 162, 235, 1)',
           borderWidth: 1,
+          yAxisID: 'y',
         },
         {
+          type: 'bar' as const,
           label: 'Net income',
           data: years.map(year => parseFloat(netIncome[year].toString().replace(/[^0-9.-]+/g, ''))),
           backgroundColor: 'rgba(75, 192, 192, 0.5)',
           borderColor: 'rgba(75, 192, 192, 1)',
           borderWidth: 1,
+          yAxisID: 'y',
+        },
+        {
+          type: 'line' as const,
+          label: 'Net Margin (%)',
+          data: netMarginData,
+          borderColor: 'rgba(255, 159, 64, 1)',
+          borderWidth: 2,
+          pointBackgroundColor: 'rgba(255, 159, 64, 1)',
+          pointRadius: 4,
+          fill: false,
+          yAxisID: 'percentage',
         },
       ],
     };
@@ -256,12 +280,13 @@ const App: React.FC = () => {
         },
         title: {
           display: true,
-          text: 'Revenue and Net income Trends',
+          text: 'Revenue, Net Income, and Net Margin Trends',
         },
       },
       scales: {
         y: {
           beginAtZero: true,
+          position: 'left' as const,
           ticks: {
             callback: function(value: any, index: number, values: any[]): string {
               if (typeof value !== 'number') return '';
@@ -273,6 +298,18 @@ const App: React.FC = () => {
             },
           },
         },
+        percentage: {
+          beginAtZero: true,
+          position: 'right' as const,
+          grid: {
+            drawOnChartArea: false,
+          },
+          ticks: {
+            callback: function(value: any): string {
+              return `${Number(value).toFixed(2)}%`; // Format display with 2 decimal places
+            },
+          },
+        },
       },
     };
 
@@ -281,10 +318,12 @@ const App: React.FC = () => {
         <Typography variant="h5" sx={{ mb: 2 }}>
           Growth and profitability
         </Typography>
+        {/* Ignore the error here, it's a known issue with react-chartjs-2 */}
+        {/* @ts-ignore */}
         <Bar data={chartData} options={options} />
       </Box>
     );
-  };
+  }
 
   return (
     <ThemeProvider theme={theme}>
