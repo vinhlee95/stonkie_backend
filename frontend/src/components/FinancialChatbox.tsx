@@ -104,7 +104,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
 
   const fetchFAQs = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/company/faq`);
+      const response = await fetch(`${BACKEND_URL}/api/company/faq?ticker=${ticker}`);
       if (!response.ok) {
         throw new Error('Failed to fetch FAQs');
       }
