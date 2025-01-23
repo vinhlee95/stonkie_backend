@@ -41,6 +41,7 @@ import {
 import { Chart } from 'react-chartjs-2';
 import Overview from './components/Overview';
 import Statements from './components/Statements';
+import CompanySearch from './components/CompanySearch';
 
 // Register ChartJS components
 ChartJS.register(
@@ -152,93 +153,19 @@ const App: React.FC = () => {
     setActiveTab(newValue);
   };
 
+  const handleTickerChange = (newTicker: string) => {
+    setTicker(newTicker);
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          mb: 4,
-          gap: 2,
-          width: '100%'
-        }}>
-          <Box
-            component="img"
-            src="/stonkie.png" 
-            alt="Stonkie logo" 
-            sx={{ 
-              height: '60px',
-              '@media (max-width: 600px)': {
-                height: '40px'
-              }
-            }}
-          />
-          <Box component="form" onSubmit={handleSubmit} sx={{ flexGrow: 1 }}>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Autocomplete
-                value={ticker}
-                onChange={(_, newValue) => setTicker(typeof newValue === 'string' ? newValue : newValue?.symbol || '')}
-                onInputChange={(_, newInputValue, reason) => {
-                  if (reason === 'input') {
-                    debouncedSearch(newInputValue);
-                  }
-                }}
-                options={searchResults}
-                getOptionLabel={(option) => 
-                  typeof option === 'string' 
-                    ? option 
-                    : `${option.symbol} - ${option.name}`
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    placeholder="Enter stock ticker (e.g., AAPL)"
-                    label="Stock Ticker"
-                    variant="outlined"
-                    size="small"
-                    sx={{ 
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: '12px'
-                      }
-                    }}
-                    InputProps={{
-                      ...params.InputProps,
-                      endAdornment: (
-                        <>
-                          {searchLoading && (
-                            <CircularProgress color="inherit" size={20} />
-                          )}
-                          {params.InputProps.endAdornment}
-                        </>
-                      ),
-                    }}
-                  />
-                )}
-                freeSolo
-                sx={{ flexGrow: 1 }}
-                loading={searchLoading}
-              />
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading || !ticker.trim()}
-                sx={{ 
-                  minWidth: 120,
-                  borderRadius: '12px',
-                  '@media (max-width: 600px)': {
-                    minWidth: 42,
-                  }
-                }}
-              >
-                {loading ? (
-                  <CircularProgress size={24} color="inherit" />
-                ) : (
-                  <DownloadIcon />
-                )}
-              </Button>
-            </Box>
-          </Box>
-        </Box>
+        <CompanySearch
+          ticker={ticker}
+          loading={loading}
+          onTickerChange={handleTickerChange}
+          onSubmit={handleSubmit}
+        />
 
         {error && (
           <Alert severity="error" sx={{ mb: 4 }}>
