@@ -19,6 +19,34 @@ interface FinancialChatboxProps {
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
+const LoadingMessage = () => (
+  <Box sx={{ display: 'flex', gap: 1 }}>
+    {[1, 2, 3].map((dot) => (
+      <Box
+        key={dot}
+        sx={{
+          width: 8,
+          height: 8,
+          backgroundColor: 'grey.400',
+          borderRadius: '50%',
+          animation: 'pulse 1.5s infinite',
+          animationDelay: `${(dot - 1) * 0.2}s`,
+          '@keyframes pulse': {
+            '0%, 100%': {
+              transform: 'scale(0.8)',
+              opacity: 0.5,
+            },
+            '50%': {
+              transform: 'scale(1.2)',
+              opacity: 1,
+            },
+          },
+        }}
+      />
+    ))}
+  </Box>
+);
+
 const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMessage }) => {
   const [messages, setMessages] = useState<Message[]>(() => [
     { 
@@ -31,6 +59,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   const [isVisible, setIsVisible] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [hasFetchedFAQs, setHasFetchedFAQs] = useState(false);
+  const [isFAQLoading, setIsFAQLoading] = useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   const handleFAQClick = async (question: string) => {
@@ -103,6 +132,7 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
   }, [messages]);
 
   const fetchFAQs = async () => {
+    setIsFAQLoading(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/company/faq?ticker=${ticker}`);
       if (!response.ok) {
@@ -119,6 +149,8 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
       }]);
     } catch (error) {
       console.error('Error fetching FAQs:', error);
+    } finally {
+      setIsFAQLoading(false);
     }
   };
 
@@ -408,9 +440,52 @@ const FinancialChatbox: React.FC<FinancialChatboxProps> = ({ ticker, initialMess
                 </Paper>
               </Box>
             ))}
-            {isLoading && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                <CircularProgress size={24} />
+            {(isLoading || isFAQLoading) && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  mb: 2,
+                  position: 'relative',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <Box
+                  component="img"
+                  src="/stonkie.png"
+                  alt="AI Avatar"
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    mr: 1,
+                    flexShrink: 0,
+                  }}
+                />
+                <Paper
+                  sx={{
+                    p: 1.5,
+                    maxWidth: '85%',
+                    bgcolor: 'grey.50',
+                    color: 'text.primary',
+                    borderRadius: 2,
+                    boxShadow: 2,
+                    position: 'relative',
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      width: 0,
+                      height: 0,
+                      borderStyle: 'solid',
+                      left: -10,
+                      borderWidth: '10px 10px 10px 0',
+                      borderColor: 'transparent #f5f5f5 transparent transparent',
+                      top: 10,
+                    }
+                  }}
+                >
+                  <LoadingMessage />
+                </Paper>
               </Box>
             )}
             <div ref={messagesEndRef} />
