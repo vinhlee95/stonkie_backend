@@ -10,6 +10,6 @@ export const formatNumber = (value: string | number | null | undefined): string 
   // Format with commas
   return num.toLocaleString('en-US', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    maximumFractionDigits: 2
   });
 }; 
