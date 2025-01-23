@@ -23,6 +23,18 @@ import {
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
 import DownloadIcon from '@mui/icons-material/Download';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8080'
 
@@ -173,6 +185,82 @@ const App: React.FC = () => {
     );
   };
 
+  const renderFinancialChart = (data: FinancialData | null) => {
+    if (!data) return null;
+
+    // Find revenue and gross profit rows
+    const revenueRow = data.data.find(row => {
+      const metric = row[data.columns[0]];
+      return typeof metric === 'string' && 
+        metric.toLowerCase().includes('revenue') && 
+        !metric.toLowerCase().includes('cost');
+    });
+    const grossProfitRow = data.data.find(row => {
+      const metric = row[data.columns[0]];
+      return typeof metric === 'string' && 
+        metric.toLowerCase().includes('gross profit');
+    });
+
+    if (!revenueRow || !grossProfitRow) return null;
+
+    const years = data.columns.slice(1);
+    
+    const chartData = {
+      labels: years,
+      datasets: [
+        {
+          label: 'Revenue',
+          data: years.map(year => parseFloat(revenueRow[year].toString().replace(/[^0-9.-]+/g, ''))),
+          backgroundColor: 'rgba(53, 162, 235, 0.5)',
+          borderColor: 'rgba(53, 162, 235, 1)',
+          borderWidth: 1,
+        },
+        {
+          label: 'Gross Profit',
+          data: years.map(year => parseFloat(grossProfitRow[year].toString().replace(/[^0-9.-]+/g, ''))),
+          backgroundColor: 'rgba(75, 192, 192, 0.5)',
+          borderColor: 'rgba(75, 192, 192, 1)',
+          borderWidth: 1,
+        },
+      ],
+    };
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+        },
+        title: {
+          display: true,
+          text: 'Revenue and Gross Profit Trends',
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value: any, index: number, values: any[]): string {
+              if (typeof value !== 'number') return '';
+              return value >= 1e9 
+                ? `$${(value / 1e9).toFixed(1)}B`
+                : value >= 1e6
+                ? `$${(value / 1e6).toFixed(1)}M`
+                : `$${value}`;
+            },
+          },
+        },
+      },
+    };
+
+    return (
+      <Box sx={{ height: 400, mt: 4 }}>
+        <Bar data={chartData} options={options} />
+      </Box>
+    );
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -268,6 +356,8 @@ const App: React.FC = () => {
         )}
 
         {renderTable(financialData.income_statement, 'Income Statement')}
+        {renderFinancialChart(financialData.income_statement)}
+
         {renderTable(financialData.balance_sheet, 'Balance Sheet')}
         {renderTable(financialData.cash_flow, 'Cash Flow Statement')}
       </Container>
