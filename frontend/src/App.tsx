@@ -1,30 +1,16 @@
 import React, { useState, useCallback } from 'react';
 import { FinancialData, ReportType } from './types';
-import { formatNumber } from './utils/formatters';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  TextField,
-  Button,
-  Typography,
   Alert,
   Box,
-  CircularProgress,
   Container,
   createTheme,
   ThemeProvider,
-  Autocomplete,
   Tabs,
   Tab,
 } from '@mui/material';
 import FinancialChatbox from './components/FinancialChatbox';
 import { debounce } from 'lodash';
-import DownloadIcon from '@mui/icons-material/Download';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -38,7 +24,6 @@ import {
   BarController,
   LineController
 } from 'chart.js';
-import { Chart } from 'react-chartjs-2';
 import Overview from './components/Overview';
 import Statements from './components/Statements';
 import CompanySearch from './components/CompanySearch';
