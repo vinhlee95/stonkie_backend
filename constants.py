@@ -18,7 +18,9 @@ BALANCE_SHEET_METRICS = [
     'total debt',
     'stockholder equity',
     'tangible book value',
-    'ordinary shares number'
+    'ordinary shares number',
+    'total debt',
+    'cash and cash equivalents'
 ]
 
 CASH_FLOW_METRICS = [
