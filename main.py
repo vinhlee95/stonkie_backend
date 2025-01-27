@@ -13,6 +13,7 @@ from analyzer import analyze_financial_data_from_question
 from enum import Enum
 from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
 from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -167,3 +168,24 @@ async def get_faq(request: Request):
         logger.error(f"Error during FAQ generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
     
+
+@app.get("/api/companies/most-viewed")
+async def get_most_viewed_companies():
+    """
+    Get the most viewed companies
+    """
+    class Company(BaseModel):
+        name: str
+        ticker: str
+        
+    most_viewed_companies: list[Company] = [
+        Company(name="Apple", ticker="AAPL"),
+        Company(name="Tesla", ticker="TSLA"),
+        Company(name="Microsoft", ticker="MSFT"),
+        Company(name="Nvidia", ticker="NVDA"),
+    ]
+    
+    return {
+        "status": "success",
+        "data": most_viewed_companies
+    }
