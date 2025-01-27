@@ -20,7 +20,8 @@ BALANCE_SHEET_METRICS = [
     'tangible book value',
     'ordinary shares number',
     'total debt',
-    'cash and cash equivalents'
+    'cash',
+    'cash equivalents'
 ]
 
 CASH_FLOW_METRICS = [
