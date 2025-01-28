@@ -15,6 +15,7 @@ from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW
 from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
 from pydantic import BaseModel
 from urllib.parse import urlencode
+import time
 
 load_dotenv()
 
@@ -59,8 +60,10 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     Get financial data for a specific ticker and report type
     report_type can be: income_statement, balance_sheet, or cash_flow
     """
+    start_time = time.time()
     try:
         # Validate and convert report_type to enum
+        step_start = time.time()
         try:
             report_type_enum = ReportType(report_type)
         except ValueError:
@@ -68,35 +71,31 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
                 status_code=400, 
                 detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
             )
+        logger.info(f"Report type validation took: {time.time() - step_start:.3f} seconds")
 
-        # Get the CSV from google cloud storage
+        # Get credentials and initialize storage client
+        step_start = time.time()
         credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         if not credentials:
             print("❌ Google credentials not found in environment variables")
-            return {
-                "data": [],
-            }
-
+            return {"data": []}
+        
         credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
         credentials = service_account.Credentials.from_service_account_info(credentials_dict)
         storage_client = storage.Client(credentials=credentials)
+        logger.info(f"Credentials setup took: {time.time() - step_start:.3f} seconds")
 
+        # Download blob
+        step_start = time.time()
         csv_blob = storage_client.bucket(BUCKET_NAME).blob(f"{ticker.lower()}_{report_type}.csv")
-        
-        # If the CSV doesn't exist, return an empty data object
         if not csv_blob.exists():
-            return {
-                "data": [],
-                "columns": []
-            }
-        
-        # Download the blob as string and convert to bytes
+            return {"data": [], "columns": []}
         csv_content = csv_blob.download_as_string()
-        
-        # Use pandas to read the CSV content from the string
+        logger.info(f"Blob download took: {time.time() - step_start:.3f} seconds")
+
+        # Process data with pandas
+        step_start = time.time()
         df = pd.read_csv(pd.io.common.BytesIO(csv_content))
-        
-        # Filter columns based on report type
         metric_mapping = {
             ReportType.INCOME_STATEMENT: INCOME_STATEMENT_METRICS,
             ReportType.BALANCE_SHEET: BALANCE_SHEET_METRICS,
@@ -106,14 +105,17 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
         selected_metrics = metric_mapping[report_type_enum]
         first_col_name = df.columns[0]
         df = df[df[first_col_name].str.lower().isin(selected_metrics)]
-        
-        # Convert the dataframe to JSON format
-        return {
+        result = {
             "data": df.to_dict('records'),
             "columns": df.columns.tolist()
         }
+        logger.info(f"Data processing took: {time.time() - step_start:.3f} seconds")
+        
+        logger.info(f"Total execution time: {time.time() - start_time:.3f} seconds")
+        return result
     
     except Exception as e:
+        logger.error(f"Error occurred after {time.time() - start_time:.3f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/company/analyze")
