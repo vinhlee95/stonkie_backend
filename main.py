@@ -14,6 +14,7 @@ from enum import Enum
 from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
 from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions
 from pydantic import BaseModel
+from urllib.parse import urlencode
 
 load_dotenv()
 
@@ -169,6 +170,15 @@ async def get_faq(request: Request):
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
     
 
+def get_company_logo_url(company_name: str):
+    """
+    Proxy endpoint to fetch company logo and return as image response
+    """
+    API_KEY = os.getenv('BRAND_FETCH_API_KEY')
+    params = urlencode({'c': API_KEY })
+    return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
+
+
 @app.get("/api/companies/most-viewed")
 async def get_most_viewed_companies():
     """
@@ -177,15 +187,20 @@ async def get_most_viewed_companies():
     class Company(BaseModel):
         name: str
         ticker: str
-        
+        logo_url: str
+
     most_viewed_companies: list[Company] = [
-        Company(name="Apple", ticker="AAPL"),
-        Company(name="Tesla", ticker="TSLA"),
-        Company(name="Microsoft", ticker="MSFT"),
-        Company(name="Nvidia", ticker="NVDA"),
+        Company(name="Apple", ticker="AAPL", logo_url=get_company_logo_url("apple")),
+        Company(name="Tesla", ticker="TSLA", logo_url=get_company_logo_url("tesla")),
+        Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
+        Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
     ]
     
     return {
         "status": "success",
         "data": most_viewed_companies
     }
+
+
+
+        
