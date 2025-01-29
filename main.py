@@ -71,7 +71,7 @@ def get_storage_client():
 
 # TODO: this is now cached forever in a lifetime of the process
 # TODO: use Redis
-@lru_cache(maxsize=100)
+# @lru_cache(maxsize=100)
 def get_cached_financial_data(ticker: str, report_type: str) -> tuple:
     storage_client = get_storage_client()
     if not storage_client:
@@ -127,7 +127,10 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
         
         selected_metrics = metric_mapping[report_type_enum]
         first_col_name = df.columns[0]
-        df = df[df[first_col_name].str.lower().isin(selected_metrics)]
+        
+        # Filter rows where any metric is contained in the column name
+        df = df[df[first_col_name].str.lower().apply(lambda x: any(metric in str(x) for metric in selected_metrics))]
+        
         result = {
             "data": df.to_dict('records'),
             "columns": columns
