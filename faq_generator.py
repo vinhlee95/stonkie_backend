@@ -63,3 +63,83 @@ def get_frequent_ask_questions_for_ticker(ticker):
     except Exception as e:
         # Return placeholder questions
         return DEFAULT_QUESTIONS
+
+async def get_frequent_ask_questions_for_ticker_stream(ticker):
+    """
+    Streaming version: Get 3 frequent ask questions for a given ticker symbol
+    Yields questions as they are generated
+    """
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro",
+            system_instruction="""
+            You are a professional financial analyst who specializes in anticipating questions from customers.
+            """
+        )
+
+        # Get company name first (streaming)
+        company_name_response = model.generate_content(
+            f"What is the company's name in full instead of ticker symbol for {ticker}?",
+            stream=True
+        )
+        company_name = "".join(chunk.text for chunk in company_name_response)
+        
+        # Yield status update
+        yield {"type": "status", "message": "Found company name: " + company_name}
+        
+        # Generate questions (streaming)
+        response = model.generate_content(
+            [
+                f"Here is the company's name: {company_name}",
+                "Generate 3 questions that customers would ask about this ticker symbol.",
+                "We only have balance sheet, income statement, and cash flow statements for this company.",
+                "The questions should be related to one of the company's financial statements.",
+                "The questions should be concise and to the point.",
+                "The questions should be in the form of a list of questions.",
+            ],
+            stream=True
+        )
+
+        current_question = ""
+        question_number = 1
+        
+        for chunk in response:
+            if chunk.text:
+                current_question += chunk.text
+                if "\n" in current_question:
+                    # Split on newlines and process complete questions
+                    parts = current_question.split("\n")
+                    # Process all complete questions except the last part
+                    for part in parts[:-1]:
+                        if part.strip():
+                            clean_question = part.replace("*", "").strip()
+                            yield {
+                                "type": "question",
+                                "number": question_number,
+                                "text": clean_question
+                            }
+                            question_number += 1
+                    # Keep the incomplete part
+                    current_question = parts[-1]
+        
+        # Handle the last question if there is one
+        if current_question.strip():
+            clean_question = current_question.replace("*", "").strip()
+            yield {
+                "type": "question",
+                "number": question_number,
+                "text": clean_question
+            }
+            
+        # Yield completion status
+        yield {"type": "status", "message": "completed"}
+            
+    except Exception as e:
+        yield {"type": "error", "message": str(e)}
+        # After error, yield default questions
+        for i, question in enumerate(DEFAULT_QUESTIONS, 1):
+            yield {
+                "type": "question",
+                "number": i,
+                "text": question
+            }
