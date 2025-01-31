@@ -76,7 +76,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=genai.GenerationConfig(
-                temperature=0.1,
+                temperature=0.3,
                 max_output_tokens=150,
             )
         )
@@ -90,6 +90,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                 "The questions should be related to one of the company's financial statements.",
                 "The questions should be concise and to the point.",
                 "The questions should be in the form of a list of questions.",
+                "The question should be about a financial year instead of quarterly."
             ],
             stream=True
         )
