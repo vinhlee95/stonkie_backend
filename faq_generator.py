@@ -15,7 +15,7 @@ DEFAULT_QUESTIONS = [
 def get_general_frequent_ask_questions():
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name="gemini-1.5-flash",
             system_instruction="""
             You are a professional financial analyst who specializes in anticipating questions from customers.
             """
@@ -41,7 +41,7 @@ def get_frequent_ask_questions_for_ticker(ticker):
     """
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name="gemini-1.5-flash",
             system_instruction="""
             You are a professional financial analyst who specializes in anticipating questions from customers.
             """
