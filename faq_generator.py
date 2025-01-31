@@ -79,23 +79,11 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
             You are a professional financial analyst who specializes in anticipating questions from customers.
             """
         )
-
-        yield {"type": "status", "message": "Getting company name..."}
-
-        # Get company name first (streaming)
-        company_name_response = model.generate_content(
-            f"What is the company's name in full instead of ticker symbol for {ticker}?",
-            stream=True
-        )
-        company_name = "".join(chunk.text for chunk in company_name_response)
-        
-        # Yield status update
-        yield {"type": "status", "message": "Found company name: " + company_name}
         
         # Generate questions (streaming)
         response = model.generate_content(
             [
-                f"Here is the company's name: {company_name}",
+                f"Here is the company's ticker name: {ticker}",
                 "Generate 3 questions that customers would ask about this ticker symbol.",
                 "We only have balance sheet, income statement, and cash flow statements for this company.",
                 "The questions should be related to one of the company's financial statements.",
