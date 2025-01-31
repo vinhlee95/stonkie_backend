@@ -69,6 +69,9 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
     Streaming version: Get 3 frequent ask questions for a given ticker symbol
     Yields questions as they are generated
     """
+
+    yield {"type": "status", "message": "Here are some frequently asked questions about this ticker symbol:"}
+
     try:
         model = genai.GenerativeModel(
             model_name="gemini-1.5-pro",
@@ -76,6 +79,8 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
             You are a professional financial analyst who specializes in anticipating questions from customers.
             """
         )
+
+        yield {"type": "status", "message": "Getting company name..."}
 
         # Get company name first (streaming)
         company_name_response = model.generate_content(
