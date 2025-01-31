@@ -89,7 +89,7 @@ def classify_question(question):
         print(f"Error during classifying type of question: {e}")
         return None
 
-def analyze_financial_data_from_question(ticker, question):
+async def analyze_financial_data_from_question(ticker, question):
     """
     Analyze financial statements for a given ticker symbol or answer generic financial questions
     
@@ -97,10 +97,9 @@ def analyze_financial_data_from_question(ticker, question):
         ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
         question (str): Specific question about the financial data or generic financial concept
         
-    Returns:
-        dict: Object containing the analysis response {"data": str}
+    Yields:
+        str: Chunks of analysis response as they are generated
     """
-
     classification = classify_question(question)
     logger.info(f"The question is classified as: {classification}")
 
@@ -114,13 +113,17 @@ def analyze_financial_data_from_question(ticker, question):
                 Give an example of how this concept is used in real-world financial scenarios, using well-known companies and their financial statements.
                 """
             )
-            response = general_finance_model.generate_content([
+            response = await general_finance_model.generate_content_async([
                 "Please explain this financial concept or answer this question:",
                 question
-            ])
-            return {"data": response.text} if response.text else {"data": "❌ No explanation generated"}
+            ], stream=True)
+
+            async for chunk in response:
+                yield chunk.text if chunk.text else "❌ No explanation generated"
+            return
         except Exception as e:
-            return {"data": f"❌ Error generating explanation: {e}"}
+            yield f"❌ Error generating explanation: {e}"
+            return
 
     if classification == QuestionType.COMPANY_GENERAL.value:
         try:
@@ -131,13 +134,17 @@ def analyze_financial_data_from_question(ticker, question):
                     You are able to answer questions about companies in general.
                 """
             )
-            response = company_general_model.generate_content([
+            response = await company_general_model.generate_content_async([
                 "Please answer this question:",
                 question
-            ])
-            return {"data": response.text} if response.text else {"data": "❌ No explanation generated"}
+            ], stream=True)
+
+            async for chunk in response:
+                yield chunk.text if chunk.text else "❌ No explanation generated"
+            return
         except Exception as e:
-            return {"data": f"❌ Error generating explanation: {e}"}
+            yield f"❌ Error generating explanation: {e}"
+            return
     
     # If not generic, proceed with company-specific analysis
     if not ticker:
@@ -149,19 +156,23 @@ def analyze_financial_data_from_question(ticker, question):
                 Given a company name, find the stock ticker for the company.
             """
         )
-        response = ticker_model.generate_content([
+        response = await ticker_model.generate_content_async([
             "Please find the stock ticker for the company that is mentioned in the question:",
             question,
             "only return the ticker name without any other texts."
-        ])
-        ticker = response.text
+        ], stream=True)
+
+        async for chunk in response:
+            yield chunk.text if chunk.text else "❌ No ticker found"
+        return
 
     # Lower case and strip any whitespace
     ticker = ticker.lower().strip()
 
     credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if not credentials:
-        return {"data": "❌ Google Cloud credentials not found in environment variables"}
+        yield "❌ Google Cloud credentials not found in environment variables"
+        return
     
     credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
     credentials = service_account.Credentials.from_service_account_info(credentials_dict)
@@ -169,30 +180,31 @@ def analyze_financial_data_from_question(ticker, question):
     bucket = client.bucket('stock_agent_financial_report')
     
     if not bucket:
-        return {"data": "❌ GCP bucket name not configured"}
+        yield "❌ GCP bucket name not configured"
+        return
         
     try:
+        # TODO: cache these files in memory
         # Read files from GCP bucket
         income_blob = bucket.blob(f"{ticker}_income_statement.csv")
         balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
         cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
         
-        # TODO: may be do another classification to check which financial statement the question is asking for
-        # and then check if the file exists in the bucket and only throw if the relevant statement is missing
-        # instead of throwing an error if any of the statements are missing like now
         if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
-            return {"data": f"❌ Financial statements for {ticker.upper()} not found in cloud storage."}
+            yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
+            return
         
         income_data = income_blob.download_as_text()
         balance_data = balance_blob.download_as_text()
         cash_flow_data = cash_flow_blob.download_as_text()
         
     except Exception as e:
-        return {"data": f"❌ Error accessing cloud storage: {e}"}
+        yield f"❌ Error accessing cloud storage: {e}"
+        return
 
     # Continue with analysis using the loaded data
     try:
-        response = model.generate_content([
+        response = await model.generate_content_async([
             f"Here are financial statements for {ticker.upper()}:",
             income_data,
             "This is the income statement.",
@@ -202,9 +214,10 @@ def analyze_financial_data_from_question(ticker, question):
             "This is the cash flow statement.",
             analysis_prompt,
             f"\nSpecific question to address: {question}"
-        ])
+        ], stream=True)
 
-        return {"data": response.text} if response.text else {"data": "❌ No analysis generated from the model"}
+        async for chunk in response:
+            yield chunk.text if chunk.text else "❌ No analysis generated from the model"
 
     except Exception as e:
-        return {"data": f"❌ Error during analysis: {e}"}
+        yield f"❌ Error during analysis: {e}"

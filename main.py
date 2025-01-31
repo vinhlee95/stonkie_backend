@@ -148,12 +148,13 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
 @app.post("/api/company/analyze")
 async def analyze_financial_data(request: Request):
     """
-    Analyze financial statements for a given ticker symbol based on a specific question
+    Analyze financial statements for a given ticker symbol based on a specific question,
+    streaming the results using Server-Sent Events
     
     Args:
         request (Request): FastAPI request object containing the question and ticker in body
     Returns:
-        dict: Analysis response and status
+        StreamingResponse: Server-sent events stream of analysis results
     """
     try:
         body = await request.json()
@@ -163,12 +164,15 @@ async def analyze_financial_data(request: Request):
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
 
-        analysis_result = analyze_financial_data_from_question(ticker, question)
+        async def generate_analysis():
+            async for chunk in analyze_financial_data_from_question(ticker, question):
+                # Each chunk is just a line of text
+                yield chunk
 
-        return {
-            "status": "success",
-            "data": analysis_result
-        }
+        return StreamingResponse(
+            generate_analysis(),
+            media_type="text/event-stream"
+        )
     except Exception as e:
         logger.error(f"Error during analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
