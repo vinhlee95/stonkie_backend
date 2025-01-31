@@ -74,10 +74,11 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
 
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
-            system_instruction="""
-            You are a professional financial analyst who specializes in anticipating questions from customers.
-            """
+            model_name="gemini-1.5-flash",
+            generation_config=genai.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=150,
+            )
         )
         
         # Generate questions (streaming)
