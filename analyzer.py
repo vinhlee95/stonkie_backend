@@ -41,12 +41,16 @@ super_model = genai.GenerativeModel(
 )
 
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro",
+    model_name="gemini-1.5-flash",
     system_instruction="""
     You are a professional financial analyst who specializes in analyzing company financial statements.
     Only provide the analysis from the source data given in the prompt.
     Do not make up any information or share information that is not provided in the source data.
-    """
+    """,
+    generation_config=genai.GenerationConfig(
+        temperature=0.1,
+        max_output_tokens=150,
+    )
 )
 
 analysis_prompt = """
@@ -66,7 +70,7 @@ def classify_question(question):
     Return the classification as a string.
     """    
 
-    classification_model = genai.GenerativeModel('gemini-1.5-pro')
+    classification_model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = f"""Classify the following question as either '{QuestionType.GENERAL_FINANCE.value}' or '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' or '{QuestionType.COMPANY_GENERAL.value}'.
     Examples:
     - 'What is the average P/E ratio for the tech industry?' -> {QuestionType.GENERAL_FINANCE.value}
@@ -106,7 +110,7 @@ async def analyze_financial_data_from_question(ticker, question):
     if classification == QuestionType.GENERAL_FINANCE.value:
         try:
             general_finance_model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+                model_name="gemini-1.5-flash",
                 system_instruction="""
                 You are a professional financial analyst who specializes in explaining financial concepts.
                 Give a short explanation of the financial question in less than 100 words.
@@ -128,11 +132,15 @@ async def analyze_financial_data_from_question(ticker, question):
     if classification == QuestionType.COMPANY_GENERAL.value:
         try:
             company_general_model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+                model_name="gemini-1.5-flash",
                 system_instruction="""
                     You are a professional investor who has a lot of knowledge about companies.
                     You are able to answer questions about companies in general.
-                """
+                """,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.1,
+                    max_output_tokens=150,
+                )
             )
             response = await company_general_model.generate_content_async([
                 "Please answer this question:",
@@ -150,11 +158,15 @@ async def analyze_financial_data_from_question(ticker, question):
     if not ticker:
         # Ask the model to find the ticker
         ticker_model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name="gemini-1.5-flash",
             system_instruction="""
                 You are a professional financial analyst who specializes in finding stock tickers.
                 Given a company name, find the stock ticker for the company.
-            """
+            """,
+            generation_config=genai.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=150,
+            )
         )
         response = await ticker_model.generate_content_async([
             "Please find the stock ticker for the company that is mentioned in the question:",
