@@ -48,8 +48,7 @@ model = genai.GenerativeModel(
     Do not make up any information or share information that is not provided in the source data.
     """,
     generation_config=genai.GenerationConfig(
-        temperature=0.1,
-        max_output_tokens=150,
+        temperature=0.3,
     )
 )
 
@@ -115,7 +114,7 @@ async def analyze_financial_data_from_question(ticker, question):
                 You are a professional financial analyst who specializes in explaining financial concepts.
                 Give a short explanation of the financial question in less than 100 words.
                 Give an example of how this concept is used in real-world financial scenarios, using well-known companies and their financial statements.
-                """
+                """,
             )
             response = await general_finance_model.generate_content_async([
                 "Please explain this financial concept or answer this question:",
@@ -165,7 +164,7 @@ async def analyze_financial_data_from_question(ticker, question):
             """,
             generation_config=genai.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=150,
+                max_output_tokens=50,
             )
         )
         response = await ticker_model.generate_content_async([
