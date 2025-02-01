@@ -7,6 +7,9 @@ import json
 from google.oauth2 import service_account
 import logging
 from agent.agent import Agent
+import pandas as pd
+from io import StringIO
+from typing import Dict, Any
 
 load_dotenv()
 
@@ -126,8 +129,7 @@ async def analyze_financial_data_from_question(ticker, question):
         return
         
     try:
-        # TODO: cache these files in memory
-        # Read files from GCP bucket
+        # Read files from GCP bucket and convert to pandas DataFrames
         income_blob = bucket.blob(f"{ticker}_income_statement.csv")
         balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
         cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
@@ -136,24 +138,43 @@ async def analyze_financial_data_from_question(ticker, question):
             yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
             return
         
-        income_data = income_blob.download_as_text()
-        balance_data = balance_blob.download_as_text()
-        cash_flow_data = cash_flow_blob.download_as_text()
+        income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
+        balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
+        cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
         
+        # Convert DataFrames to structured dictionaries
+        financial_data = {
+            'income_statement': format_financial_data(income_df),
+            'balance_sheet': format_financial_data(balance_df),
+            'cash_flow': format_financial_data(cash_flow_df)
+        }
+        
+        # Create a structured prompt with the data
+        financial_context = f"""Here are the financial statements for {ticker.upper()}:
+            Income Statement:
+            {json.dumps(financial_data['income_statement'], indent=2)}
+
+            Balance Sheet:
+            {json.dumps(financial_data['balance_sheet'], indent=2)}
+
+            Cash Flow Statement:
+            {json.dumps(financial_data['cash_flow'], indent=2)}
+
+            Please analyze the data with these guidelines:
+            1. Use specific numbers from the statements
+            2. Calculate year-over-year changes when relevant
+            3. Present growth rates as percentages
+            5. Ensure numerical consistency across years
+        """
+
     except Exception as e:
         yield f"❌ Error accessing cloud storage: {e}"
         return
 
-    # Continue with analysis using the loaded data
+    # Continue with analysis using the structured data
     try:
         response = await agent.generate_content([
-            f"Here are financial statements for {ticker.upper()}:",
-            income_data,
-            "This is the income statement.",
-            balance_data,
-            "This is the balance sheet.",
-            cash_flow_data,
-            "This is the cash flow statement.",
+            financial_context,
             analysis_prompt,
             f"\nSpecific question to address: {question}"
         ])
@@ -163,3 +184,19 @@ async def analyze_financial_data_from_question(ticker, question):
 
     except Exception as e:
         yield f"❌ Error during analysis: {e}"
+
+def format_financial_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+    """Convert DataFrame to structured dictionary with years as keys and metrics as nested keys."""
+    data_dict = {}
+    # Assuming first column is metric names and other columns are years
+    for year in df.columns[1:]:
+        data_dict[str(year)] = {}
+        for metric in df.iloc[:, 0].values:
+            value = df.loc[df.iloc[:, 0] == metric, year].iloc[0]
+            # Convert to float if numeric, otherwise keep as string
+            try:
+                value = float(value)
+            except (ValueError, TypeError):
+                pass
+            data_dict[str(year)][str(metric)] = value
+    return data_dict
