@@ -57,6 +57,50 @@ async def classify_question(question):
         print(f"Error during classifying type of question: {e}")
         return None
 
+async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
+    """
+    Retrieve and format financial data for a given ticker from cloud storage.
+    
+    Args:
+        ticker (str): Stock ticker symbol (lowercase)
+        bucket: GCP storage bucket object
+        
+    Returns:
+        Dict containing formatted financial statements or None if data not found
+    
+    Raises:
+        Exception: If there's an error accessing or processing the data
+    """
+    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    if not credentials:
+        return None
+    
+    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
+    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
+    client = storage.Client(credentials=credentials)
+    bucket = client.bucket('stock_agent_financial_report')
+    
+    if not bucket:
+        return None
+    
+    income_blob = bucket.blob(f"{ticker}_income_statement.csv")
+    balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
+    cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
+    
+    if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
+        return None
+    
+    income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
+    balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
+    cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
+    
+    # Convert DataFrames to structured dictionaries
+    return {
+        'income_statement': json.dumps(format_financial_data(income_df), indent=2),
+        'balance_sheet': json.dumps(format_financial_data(balance_df), indent=2),
+        'cash_flow': json.dumps(format_financial_data(cash_flow_df), indent=2)
+    }
+
 async def analyze_financial_data_from_question(ticker, question):
     """
     Analyze financial statements for a given ticker symbol or answer generic financial questions
@@ -88,7 +132,7 @@ async def analyze_financial_data_from_question(ticker, question):
     if classification == QuestionType.COMPANY_GENERAL.value:
         try:
             response = await agent.generate_content([
-                "Please answer this question:",
+                "Please answer this question about general company information:",
                 question
             ])
 
@@ -113,52 +157,23 @@ async def analyze_financial_data_from_question(ticker, question):
 
     # Lower case and strip any whitespace
     ticker = ticker.lower().strip()
-
-    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-    if not credentials:
-        yield "❌ Google Cloud credentials not found in environment variables"
-        return
-    
-    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
-    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-    client = storage.Client(credentials=credentials)
-    bucket = client.bucket('stock_agent_financial_report')
-    
-    if not bucket:
-        yield "❌ GCP bucket name not configured"
-        return
         
     try:
-        # Read files from GCP bucket and convert to pandas DataFrames
-        income_blob = bucket.blob(f"{ticker}_income_statement.csv")
-        balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
-        cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
-        
-        if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
+        financial_data = await get_financial_data_for_ticker(ticker)
+        if financial_data is None:
             yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
             return
-        
-        income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
-        balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
-        cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
-        
-        # Convert DataFrames to structured dictionaries
-        financial_data = {
-            'income_statement': format_financial_data(income_df),
-            'balance_sheet': format_financial_data(balance_df),
-            'cash_flow': format_financial_data(cash_flow_df)
-        }
-        
+            
         # Create a structured prompt with the data
         financial_context = f"""Here are the financial statements for {ticker.upper()}:
             Income Statement:
-            {json.dumps(financial_data['income_statement'], indent=2)}
+            {financial_data.get('income_statement', {})}
 
             Balance Sheet:
-            {json.dumps(financial_data['balance_sheet'], indent=2)}
+            {financial_data.get('balance_sheet', {})}
 
             Cash Flow Statement:
-            {json.dumps(financial_data['cash_flow'], indent=2)}
+            {financial_data.get('cash_flow', {})}
 
             Please analyze the data with these guidelines:
             1. Use specific numbers from the statements
