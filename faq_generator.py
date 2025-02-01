@@ -67,16 +67,8 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
     yield {"type": "status", "message": "Here are some frequently asked questions about this ticker symbol:"}
 
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=genai.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=150,
-            )
-        )
-        
         # Generate questions (streaming)
-        response = model.generate_content(
+        response = agent.generate_content(
             [
                 f"Here is the company's ticker name: {ticker}",
                 "Generate 3 questions that customers would ask about this ticker symbol.",
@@ -85,8 +77,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                 "The questions should be concise and to the point.",
                 "The questions should be in the form of a list of questions.",
                 "The question should be about a financial year instead of quarterly."
-            ],
-            stream=True
+            ]
         )
 
         current_question = ""

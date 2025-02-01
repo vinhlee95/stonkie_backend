@@ -35,20 +35,28 @@ class GeminiModel:
                 system_instruction=system_instruction
             )
 
-    def generate_content(self, prompt, **kwargs):
+
+    def generate_content(self, prompt: str | list[str], stream: bool = True, **kwargs):
         """
         Generate content using the Gemini model
 
         Args:
-            prompt (str): The input prompt for content generation
+            prompt (str | list[str]): The input prompt for content generation. Can be either a single string
+                                     or a list of strings.
             **kwargs: Additional arguments to pass to the generate_content method
 
         Raises:
-            ValueError: If the prompt is empty or None
+            ValueError: If the prompt is empty, None, or contains empty strings
         """
-        if not prompt or not isinstance(prompt, str) or prompt.strip() == "":
-            raise ValueError("Prompt must be a non-empty string")
+        if isinstance(prompt, str):
+            if not prompt or prompt.strip() == "":
+                raise ValueError("Prompt must be a non-empty string")
+        elif isinstance(prompt, list):
+            if not prompt or any(not isinstance(p, str) or not p.strip() for p in prompt):
+                raise ValueError("Prompt list must contain non-empty strings")
+        else:
+            raise ValueError("Prompt must be either a string or a list of strings")
             
-        return self.client.generate_content(prompt, **kwargs)
+        return self.client.generate_content(prompt, stream=stream, **kwargs)
     
 
