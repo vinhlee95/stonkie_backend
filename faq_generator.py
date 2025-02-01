@@ -54,7 +54,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
 
     try:
         # Generate questions (streaming)
-        response = agent.generate_content(
+        response = await agent.generate_content(
             [
                 f"Here is the company's ticker name: {ticker}",
                 "Generate 3 questions that customers would ask about this ticker symbol.",
@@ -69,7 +69,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         current_question = ""
         question_number = 1
         
-        for chunk in response:
+        async for chunk in response:
             if chunk.text:
                 current_question += chunk.text
                 if "\n" in current_question:

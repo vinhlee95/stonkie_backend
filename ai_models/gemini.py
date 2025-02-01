@@ -57,6 +57,6 @@ class GeminiModel:
         else:
             raise ValueError("Prompt must be either a string or a list of strings")
             
-        return self.client.generate_content(prompt, stream=stream, **kwargs)
+        return self.client.generate_content_async(prompt, stream=stream, **kwargs)
     
 
