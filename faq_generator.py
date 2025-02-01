@@ -1,11 +1,4 @@
-import os
-import google.generativeai as genai
-from dotenv import load_dotenv
 from agent.agent import Agent
-
-load_dotenv()
-
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 agent = Agent(model_type="gemini")
 
@@ -17,14 +10,7 @@ DEFAULT_QUESTIONS = [
 
 def get_general_frequent_ask_questions():
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction="""
-            You are a professional financial analyst who specializes in anticipating questions from customers.
-            """
-        )
-        
-        response = model.generate_content([
+        response = agent.generate_content([
             "Generate 3 questions that customers would ask about a particular financial concept such as revenue, net income, cash flow, etc.",
             "The question should be generic and not specific to any particular company.",
             "The questions should be concise and to the point.",
