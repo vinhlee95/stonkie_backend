@@ -45,14 +45,18 @@ async def classify_question(question):
 
     try:
         response = await agent.generate_content([prompt])
-        if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response.text.lower():
+        # Wait for the response to complete
+        await response.resolve()
+        response_text = response.text.lower()
+        
+        if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
             return QuestionType.COMPANY_SPECIFIC_FINANCE.value
-        elif QuestionType.COMPANY_GENERAL.value in response.text.lower():
+        elif QuestionType.COMPANY_GENERAL.value in response_text:
             return QuestionType.COMPANY_GENERAL.value
-        elif QuestionType.GENERAL_FINANCE.value in response.text.lower():
+        elif QuestionType.GENERAL_FINANCE.value in response_text:
             return QuestionType.GENERAL_FINANCE.value
         else:
-            raise ValueError(f"Unknown question type: {response.text}")
+            raise ValueError(f"Unknown question type: {response_text}")
     except Exception as e:
         print(f"Error during classifying type of question: {e}")
         return None
@@ -101,70 +105,51 @@ async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
         'cash_flow': json.dumps(format_financial_data(cash_flow_df), indent=2)
     }
 
-async def analyze_financial_data_from_question(ticker, question):
-    """
-    Analyze financial statements for a given ticker symbol or answer generic financial questions
-    
-    Args:
-        ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
-        question (str): Specific question about the financial data or generic financial concept
-        
-    Yields:
-        str: Chunks of analysis response as they are generated
-    """
-    classification = await classify_question(question)
-    logger.info(f"The question is classified as: {classification}")
+async def handle_general_finance_question(question):
+    """Handle questions about general financial concepts."""
+    try:
+        response = await agent.generate_content([
+            "Please explain this financial concept or answer this question:",
+            question
+        ], stream=True)
 
-    if classification == QuestionType.GENERAL_FINANCE.value:
-        try:
-            response = await agent.generate_content([
-                "Please explain this financial concept or answer this question:",
-                question
-            ], stream=True)
+        async for chunk in response:
+            yield chunk.text if chunk.text else "❌ No explanation generated"
+    except Exception as e:
+        yield f"❌ Error generating explanation: {e}"
 
-            async for chunk in response:
-                yield chunk.text if chunk.text else "❌ No explanation generated"
-            return
-        except Exception as e:
-            yield f"❌ Error generating explanation: {e}"
-            return
+async def handle_company_general_question(question):
+    """Handle general questions about companies."""
+    try:
+        response = await agent.generate_content([
+            "Please answer this question about general company information:",
+            question
+        ], stream=True)
 
-    if classification == QuestionType.COMPANY_GENERAL.value:
-        try:
-            response = await agent.generate_content([
-                "Please answer this question about general company information:",
-                question
-            ])
+        async for chunk in response:
+            yield chunk.text if chunk.text else "❌ No explanation generated"
+    except Exception as e:
+        yield f"❌ Error generating explanation: {e}"
 
-            async for chunk in response:
-                yield chunk.text if chunk.text else "❌ No explanation generated"
-            return
-        except Exception as e:
-            yield f"❌ Error generating explanation: {e}"
-            return
-    
-    # If not generic, proceed with company-specific analysis
+async def handle_company_specific_finance(ticker, question):
+    """Handle company-specific financial questions."""
     if not ticker:
         response = await agent.generate_content([
             "Please find the stock ticker for the company that is mentioned in the question:",
             question,
             "only return the ticker name without any other texts."
         ])
-
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No ticker found"
         return
 
-    # Lower case and strip any whitespace
     ticker = ticker.lower().strip()
-        
     try:
         financial_data = await get_financial_data_for_ticker(ticker)
         if financial_data is None:
             yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
             return
-            
-        # Create a structured prompt with the data
+
         financial_context = f"""Here are the financial statements for {ticker.upper()}:
             Income Statement:
             {financial_data.get('income_statement', {})}
@@ -182,23 +167,44 @@ async def analyze_financial_data_from_question(ticker, question):
             5. Ensure numerical consistency across years
         """
 
-    except Exception as e:
-        yield f"❌ Error accessing cloud storage: {e}"
-        return
-
-    # Continue with analysis using the structured data
-    try:
         response = await agent.generate_content([
             financial_context,
             analysis_prompt,
             f"\nSpecific question to address: {question}"
-        ])
+        ], stream=True)
 
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No analysis generated from the model"
 
     except Exception as e:
         yield f"❌ Error during analysis: {e}"
+
+async def analyze_financial_data_from_question(ticker, question):
+    """
+    Analyze financial statements for a given ticker symbol or answer generic financial questions
+    
+    Args:
+        ticker (str): Stock ticker symbol (e.g., 'TSLA', 'AAPL')
+        question (str): Specific question about the financial data or generic financial concept
+        
+    Yields:
+        str: Chunks of analysis response as they are generated
+    """
+    classification = await classify_question(question)
+    logger.info(f"The question is classified as: {classification}")
+
+    handlers = {
+        QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question),
+        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(question),
+        QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question)
+    }
+
+    handler = handlers.get(classification)
+    if handler:
+        async for chunk in handler():
+            yield chunk
+    else:
+        yield "❌ Unable to classify question type"
 
 def format_financial_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """Convert DataFrame to structured dictionary with years as keys and metrics as nested keys."""
