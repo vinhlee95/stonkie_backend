@@ -1,10 +1,13 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from agent.agent import Agent
 
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+agent = Agent(model_type="gemini")
 
 DEFAULT_QUESTIONS = [
     "What is the company's revenue?",
@@ -40,17 +43,8 @@ def get_frequent_ask_questions_for_ticker(ticker):
     Get 3 frequent ask questions for a given ticker symbol
     """
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction="""
-            You are a professional financial analyst who specializes in anticipating questions from customers.
-            """
-        )
-
-        company_name = model.generate_content(f"What is the company's name in full instead of ticker symbol for {ticker}?")
-        
-        response = model.generate_content([
-            f"Here is the company's name: {company_name.text}",
+        response = agent.generate_content([
+            f"Here is the company's ticker name: {ticker}",
             "Generate 3 questions that customers would ask about this ticker symbol.",
             "We only have balance sheet, income statement, and cash flow statements for this company.",
             "The questions should be related to one of the company's financial statements.",
