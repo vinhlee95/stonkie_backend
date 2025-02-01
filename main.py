@@ -241,6 +241,7 @@ async def get_most_viewed_companies():
         Company(name="Tesla", ticker="TSLA", logo_url=get_company_logo_url("tesla")),
         Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
         Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
+        Company(name="Nordea", ticker="NDA-FI.HE", logo_url=get_company_logo_url("nordea")),
     ]
     
     return {
