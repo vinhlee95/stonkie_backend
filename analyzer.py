@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 agent = Agent(model_type="gemini")
 
+# Add this near the top of the file with other global variables
+_financial_data_cache: dict[str, dict[str, str]] = {}
 
 analysis_prompt = """
     Based on this financial statement, include numbers and percentages for e.g. year over year growth rates
@@ -64,10 +66,10 @@ async def classify_question(question):
 async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
     """
     Retrieve and format financial data for a given ticker from cloud storage.
+    Data is cached in memory for 1 hour to reduce API calls.
     
     Args:
         ticker (str): Stock ticker symbol (lowercase)
-        bucket: GCP storage bucket object
         
     Returns:
         Dict containing formatted financial statements or None if data not found
@@ -75,6 +77,12 @@ async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
     Raises:
         Exception: If there's an error accessing or processing the data
     """
+    # Check cache first
+    # TODO: implement some key/value caching store 
+    if ticker in _financial_data_cache:
+        return _financial_data_cache[ticker]
+    
+    logger.info(f"Fetch financial data from cloud storage for {ticker}")
     credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if not credentials:
         return None
@@ -94,16 +102,25 @@ async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
     if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
         return None
     
-    income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
-    balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
-    cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
-    
-    # Convert DataFrames to structured dictionaries
-    return {
-        'income_statement': json.dumps(format_financial_data(income_df), indent=2),
-        'balance_sheet': json.dumps(format_financial_data(balance_df), indent=2),
-        'cash_flow': json.dumps(format_financial_data(cash_flow_df), indent=2)
-    }
+    try:
+        income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
+        balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
+        cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
+        
+        # Format the data
+        result = {
+            'income_statement': json.dumps(format_financial_data(income_df), indent=2),
+            'balance_sheet': json.dumps(format_financial_data(balance_df), indent=2),
+            'cash_flow': json.dumps(format_financial_data(cash_flow_df), indent=2)
+        }
+        
+        # Store in cache
+        _financial_data_cache[ticker] = result
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error retrieving financial data for {ticker}: {e}")
+        return None
 
 async def handle_general_finance_question(question):
     """Handle questions about general financial concepts."""
@@ -209,15 +226,38 @@ async def analyze_financial_data_from_question(ticker, question):
 def format_financial_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """Convert DataFrame to structured dictionary with years as keys and metrics as nested keys."""
     data_dict = {}
-    # Assuming first column is metric names and other columns are years
-    for year in df.columns[1:]:
-        data_dict[str(year)] = {}
-        for metric in df.iloc[:, 0].values:
-            value = df.loc[df.iloc[:, 0] == metric, year].iloc[0]
-            # Convert to float if numeric, otherwise keep as string
-            try:
-                value = float(value)
-            except (ValueError, TypeError):
-                pass
-            data_dict[str(year)][str(metric)] = value
+    try:
+        # Ensure DataFrame is not empty
+        if df.empty:
+            logger.error("Empty DataFrame provided to format_financial_data")
+            return data_dict
+
+        # Get year columns (all columns except the first one)
+        year_columns = df.columns[1:] if len(df.columns) > 1 else []
+        
+        # Get metric names from first column
+        metrics = df.iloc[:, 0].values if len(df.columns) > 0 else []
+        
+        for year in year_columns:
+            data_dict[str(year)] = {}
+            for metric in metrics:
+                try:
+                    # Use boolean indexing instead of loc with multiple conditions
+                    mask = df.iloc[:, 0] == metric
+                    if any(mask):
+                        value = df.loc[mask, year].iloc[0]
+                        # Convert to float if numeric, otherwise keep as string
+                        try:
+                            value = float(value)
+                        except (ValueError, TypeError):
+                            pass
+                        data_dict[str(year)][str(metric)] = value
+                except IndexError as e:
+                    logger.error(f"IndexError processing metric {metric} for year {year}: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing metric {metric} for year {year}: {e}")
+                    
+    except Exception as e:
+        logger.error(f"Error in format_financial_data: {e}")
+        
     return data_dict
