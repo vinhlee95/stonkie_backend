@@ -7,7 +7,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 class GeminiModel:
-    def __init__(self, temperature=0.3, max_output_tokens=150, system_instruction=None):
+    def __init__(self, system_instruction=None):
         """Initialize the Gemini agent with API key configuration"""
         
         self.api_key = os.getenv("GEMINI_API_KEY")
@@ -20,18 +20,10 @@ class GeminiModel:
         if not system_instruction:
             self.client = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
-                generation_config=genai.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                )
             )
         else:
             self.client = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
-                generation_config=genai.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                ),
                 system_instruction=system_instruction
             )
 
