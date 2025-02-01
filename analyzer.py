@@ -7,12 +7,16 @@ from google.cloud import storage
 import json
 from google.oauth2 import service_account
 import logging
+from agent.agent import Agent
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+agent = Agent(model_type="gemini")
 
 # Very powerful model for investment advice, do not use this yet
 super_model = genai.GenerativeModel(
@@ -215,7 +219,7 @@ async def analyze_financial_data_from_question(ticker, question):
 
     # Continue with analysis using the loaded data
     try:
-        response = await model.generate_content_async([
+        response = await agent.generate_content([
             f"Here are financial statements for {ticker.upper()}:",
             income_data,
             "This is the income statement.",
@@ -225,7 +229,7 @@ async def analyze_financial_data_from_question(ticker, question):
             "This is the cash flow statement.",
             analysis_prompt,
             f"\nSpecific question to address: {question}"
-        ], stream=True)
+        ])
 
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No analysis generated from the model"
