@@ -11,7 +11,6 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from constants import INCOME_STATEMENT_METRICS, BALANCE_SHEET_METRICS, CASH_FLOW_METRICS
 from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
@@ -120,18 +119,6 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
 
         # Process data
         step_start = time.time()
-        metric_mapping = {
-            ReportType.INCOME_STATEMENT: INCOME_STATEMENT_METRICS,
-            ReportType.BALANCE_SHEET: BALANCE_SHEET_METRICS,
-            ReportType.CASH_FLOW: CASH_FLOW_METRICS
-        }
-        
-        selected_metrics = metric_mapping[report_type_enum]
-        first_col_name = df.columns[0]
-        
-        # Filter rows where any metric is contained in the column name
-        df = df[df[first_col_name].str.lower().apply(lambda x: any(metric in str(x) for metric in selected_metrics))]
-        
         result = {
             "data": df.to_dict('records'),
             "columns": columns
