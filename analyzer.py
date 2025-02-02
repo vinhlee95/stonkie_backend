@@ -122,6 +122,23 @@ async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
         logger.error(f"Error retrieving financial data for {ticker}: {e}")
         return None
 
+async def generate_related_questions(question, question_type):
+    """Generate related questions based on the original question and its type."""
+    prompt = f"""
+        Based on this original question: "{question}"
+        Generate 3 related but different follow-up questions that users might want to ask next.
+        These questions should be related to either balance sheet, income statement or cash flow statement.
+        Return only the questions, numbered 1-3, one per line.
+    """
+
+    try:
+        response = await agent.generate_content([prompt])
+        await response.resolve()
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"Error generating related questions: {e}")
+        return None
+
 async def handle_general_finance_question(question):
     """Handle questions about general financial concepts."""
     try:
@@ -132,6 +149,12 @@ async def handle_general_finance_question(question):
 
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No explanation generated"
+        
+        # Add related questions after main response
+        related = await generate_related_questions(question, QuestionType.GENERAL_FINANCE)
+        if related:
+            yield "\n\n📌 Related questions you might want to ask:\n" + related
+
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
 
@@ -145,6 +168,12 @@ async def handle_company_general_question(question):
 
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No explanation generated"
+            
+        # Add related questions after main response
+        related = await generate_related_questions(question, QuestionType.COMPANY_GENERAL)
+        if related:
+            yield "\n\n📌 Related questions you might want to ask:\n" + related
+
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
 
@@ -192,6 +221,11 @@ async def handle_company_specific_finance(ticker, question):
 
         async for chunk in response:
             yield chunk.text if chunk.text else "❌ No analysis generated from the model"
+            
+        # Add related questions after main response
+        related = await generate_related_questions(question, QuestionType.COMPANY_SPECIFIC_FINANCE)
+        if related:
+            yield "\n\n📌 Related questions you might want to ask:\n" + related
 
     except Exception as e:
         yield f"❌ Error during analysis: {e}"
