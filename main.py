@@ -153,8 +153,8 @@ async def analyze_financial_data(request: Request):
 
         async def generate_analysis():
             async for chunk in analyze_financial_data_from_question(ticker, question):
-                # Each chunk is just a line of text
-                yield chunk
+                # Each chunk is now a JSON object with type and body
+                yield json.dumps(chunk) + "\n\n"
 
         return StreamingResponse(
             generate_analysis(),
