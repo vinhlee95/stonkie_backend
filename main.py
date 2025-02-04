@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from faq_generator import get_frequent_ask_questions_for_ticker, get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
+from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
 import time
@@ -174,6 +174,17 @@ async def get_faq(request: Request):
         # Get ticker symbol from query params
         ticker = request.query_params.get('ticker')
         stream = request.query_params.get('stream')
+
+        if not ticker:
+            # Come up with 3 generic questions
+            async def generate_stream():
+                async for item in get_general_frequent_ask_questions():
+                    yield f"data: {json.dumps(item)}\n\n"
+
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/event-stream"
+            )
         
         # If stream parameter is provided and is "true", use streaming response
         if stream and stream.lower() == "true":
@@ -186,18 +197,6 @@ async def get_faq(request: Request):
                 media_type="text/event-stream"
             )
 
-        if not ticker:
-            # Come up with 3 generic questions
-            return {
-                "status": "success",
-                "data": get_general_frequent_ask_questions()
-            }
-        # If the ticker is provided, ask the model to generate 3 FAQs
-        else:
-            return {
-                "status": "success",
-                "data": get_frequent_ask_questions_for_ticker(ticker)
-            }
     except Exception as e:
         logger.error(f"Error during FAQ generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
