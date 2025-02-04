@@ -47,7 +47,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
 
     try:
         # Generate questions (streaming)
-        response = await agent.generate_content(
+        response_generator = agent.generate_content_and_normalize_results(
             [
                 f"Here is the company's ticker name: {ticker}",
                 "Generate 3 questions that customers would ask about this ticker symbol.",
@@ -59,46 +59,16 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
             ]
         )
 
-        current_question = ""
-        question_number = 1
-        
-        async for chunk in response:
-            if chunk.text:
-                current_question += chunk.text
-                if "\n" in current_question:
-                    # Split on newlines and process complete questions
-                    parts = current_question.split("\n")
-                    # Process all complete questions except the last part
-                    for part in parts[:-1]:
-                        if part.strip():
-                            clean_question = part.replace("*", "").strip()
-                            yield {
-                                "type": "question",
-                                "number": question_number,
-                                "text": clean_question
-                            }
-                            question_number += 1
-                    # Keep the incomplete part
-                    current_question = parts[-1]
-        
-        # Handle the last question if there is one
-        if current_question.strip():
-            clean_question = current_question.replace("*", "").strip()
+        async for question in response_generator:
             yield {
                 "type": "question",
-                "number": question_number,
-                "text": clean_question
+                "text": question
             }
-            
-        # Yield completion status
-        yield {"type": "status", "message": "completed"}
-            
     except Exception as e:
-        yield {"type": "error", "message": str(e)}
+        logger.error(f"Error generating frequent ask questions for {ticker}: {e}")
         # After error, yield default questions
-        for i, question in enumerate(DEFAULT_QUESTIONS, 1):
+        for question in DEFAULT_QUESTIONS:
             yield {
                 "type": "question",
-                "number": i,
                 "text": question
             }
