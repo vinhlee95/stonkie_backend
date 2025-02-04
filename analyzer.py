@@ -127,11 +127,37 @@ async def handle_general_finance_question(question):
     try:
         response = await agent.generate_content([
             "Please explain this financial concept or answer this question:",
-            question
-        ], stream=True)
+            question,
+            "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
+        ])
 
+        current_answer = ""
+        
         async for chunk in response:
-            yield chunk.text if chunk.text else "❌ No explanation generated"
+            if chunk.text:
+                current_answer += chunk.text
+                if "\n" in current_answer:
+                    # Split on newlines and process complete questions
+                    parts = current_answer.split("\n")
+                    # Process all complete questions except the last part
+                    for part in parts[:-1]:
+                        if part.strip():
+                            clean_answer = part.replace("*", "").strip()
+                            yield {
+                                "type": "answer",
+                                "body": clean_answer
+                            }
+                    
+                    # Keep the incomplete part
+                    current_answer = parts[-1]
+        
+        # Handle the last question if there is one
+        if current_answer.strip():
+            clean_answer = current_answer.replace("*", "").strip()
+            yield {
+                "type": "answer",
+                "body": clean_answer
+            }
 
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
@@ -238,9 +264,6 @@ async def handle_company_specific_finance(ticker, question):
                 "number": question_number,
                 "body": clean_question
             }
-            
-        # Yield completion status
-        # yield {"type": "status", "body": "completed"}
 
     except Exception as e:
         logger.error(f"Error during analysis: {e}")

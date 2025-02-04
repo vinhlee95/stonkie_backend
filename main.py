@@ -6,7 +6,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
-from google.cloud import storage
 from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
