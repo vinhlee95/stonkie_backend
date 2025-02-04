@@ -1,4 +1,4 @@
-
+from typing import AsyncGenerator
 from ai_models.gemini import GeminiModel
 
 
@@ -18,6 +18,7 @@ class Agent:
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
+    # TODO: deprecate this and use generate_content_and_normalize_results instead
     def generate_content(self, prompt, system_instruction=None, stream=True, **kwargs):
         """
         Generate content using the configured AI model
@@ -39,3 +40,11 @@ class Agent:
             )
         
         return self.model.generate_content(prompt, **kwargs)
+    
+    async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
+        """
+        Generate content using the configured AI model and normalize the results
+        """
+        content_generator = self.model.generate_content_and_normalize_results(prompt, **kwargs)
+        async for content in content_generator:
+            yield content

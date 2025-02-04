@@ -1,4 +1,5 @@
 import os
+from typing import AsyncGenerator
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -51,4 +52,39 @@ class GeminiModel:
             
         return self.client.generate_content_async(prompt, stream=stream, **kwargs)
     
+    async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
+        """
+        Generate content and normalize the streaming results by processing complete lines
+        and cleaning up the output format.
+        
+        Args:
+            prompt: The input prompt
+            **kwargs: Additional parameters for content generation
+            
+        Yields:
+            str: Cleaned and normalized text chunks
+        """
+        response = await self.generate_content(prompt, **kwargs)
+        current_output = ""
+        remainder = ""
+        
+        async for chunk in response:
+            if chunk.text:
+                current_output = remainder + chunk.text
+                if "\n" in current_output:
+                    # Split on newlines and process complete lines
+                    parts = current_output.split("\n")
+                    
+                    # Keep the last incomplete part as remainder
+                    remainder = parts[-1]
+                    
+                    # Process all complete lines except the last part
+                    for part in parts[:-1]:
+                        if part.strip():
+                            clean_output = part.replace("*", "").strip()
+                            yield clean_output
 
+        # Process any remaining content after the stream ends
+        if remainder.strip():
+            clean_output = remainder.replace("*", "").strip()
+            yield clean_output      

@@ -1,4 +1,7 @@
 from agent.agent import Agent
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 agent = Agent(model_type="gemini")
 
@@ -10,49 +13,26 @@ DEFAULT_QUESTIONS = [
 
 async def get_general_frequent_ask_questions():
     try:
-        response = await agent.generate_content([
+        questions_generator = agent.generate_content_and_normalize_results([
             "Generate 3 questions that customers would ask about a particular financial concept such as revenue, net income, cash flow, etc.",
             "The question should be generic and not specific to any particular company.",
             "The questions should be concise and to the point.",
             "The questions should be in the form of a list of questions. Only return the list of questions without the number at the beginning, no other text.",
         ])
-
-        current_question = ""
-        question_number = 1
         
-        async for chunk in response:
-            if chunk.text:
-                current_question += chunk.text
-                if "\n" in current_question:
-                    # Split on newlines and process complete questions
-                    parts = current_question.split("\n")
-                    # Process all complete questions except the last part
-                    for part in parts[:-1]:
-                        if part.strip():
-                            clean_question = part.replace("*", "").strip()
-                            yield {
-                                "type": "question",
-                                "number": question_number,
-                                "text": clean_question
-                            }
-                            question_number += 1
-                    # Keep the incomplete part
-                    current_question = parts[-1]
-        
-        # Handle the last question if there is one
-        if current_question.strip():
-            clean_question = current_question.replace("*", "").strip()
-            yield {
-                "type": "question",
-                "number": question_number,
-                "text": clean_question
-            }
+        async for question in questions_generator:
+            if question.strip():
+                yield {
+                    "type": "question",
+                    "text": question.strip()
+                }
+            
     except Exception as e:
+        logger.error(f"Error generating general frequent ask questions: {e}")
         # Return placeholder questions
-        for i, question in enumerate(DEFAULT_QUESTIONS, 1):
+        for question in DEFAULT_QUESTIONS:
             yield {
                 "type": "question",
-                "number": i,
                 "text": question
             }
             
