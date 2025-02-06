@@ -71,6 +71,7 @@ class GeminiModel:
         async for chunk in response:
             if chunk.text:
                 current_output = remainder + chunk.text
+                
                 if "\n" in current_output:
                     # Split on newlines and process complete lines
                     parts = current_output.split("\n")
@@ -83,6 +84,12 @@ class GeminiModel:
                         if part.strip():
                             clean_output = part.replace("*", "").strip()
                             yield clean_output
+                else:
+                    # If no newlines, yield the cleaned chunk directly
+                    clean_output = current_output.replace("*", "").strip()
+                    if clean_output:
+                        yield clean_output
+                    remainder = ""
 
         # Process any remaining content after the stream ends
         if remainder.strip():

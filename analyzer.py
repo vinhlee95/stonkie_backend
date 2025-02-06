@@ -125,42 +125,23 @@ async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
 async def handle_general_finance_question(question):
     """Handle questions about general financial concepts."""
     try:
-        response = await agent.generate_content([
+        response_generator = agent.generate_content_and_normalize_results([
             "Please explain this financial concept or answer this question:",
             question,
             "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
         ])
 
-        current_answer = ""
-        
-        async for chunk in response:
-            if chunk.text:
-                current_answer += chunk.text
-                if "\n" in current_answer:
-                    # Split on newlines and process complete questions
-                    parts = current_answer.split("\n")
-                    # Process all complete questions except the last part
-                    for part in parts[:-1]:
-                        if part.strip():
-                            clean_answer = part.replace("*", "").strip()
-                            yield {
-                                "type": "answer",
-                                "body": clean_answer
-                            }
-                    
-                    # Keep the incomplete part
-                    current_answer = parts[-1]
-        
-        # Handle the last question if there is one
-        if current_answer.strip():
-            clean_answer = current_answer.replace("*", "").strip()
+        async for answer in response_generator:
             yield {
                 "type": "answer",
-                "body": clean_answer
+                "body": answer
             }
-
     except Exception as e:
-        yield f"❌ Error generating explanation: {e}"
+        logger.error(f"❌ Error generating explanation: {e}")
+        yield {
+            "type": "answer",
+            "body": "❌ Error generating explanation. Please try again later."
+        }
 
 async def handle_company_general_question(question):
     """Handle general questions about companies."""
