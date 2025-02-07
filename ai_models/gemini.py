@@ -12,6 +12,7 @@ class GeminiModel:
         """Initialize the Gemini agent with API key configuration"""
         
         self.api_key = os.getenv("GEMINI_API_KEY")
+        MODEL_NAME = "gemini-2.0-flash-lite-preview-02-05"
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not found")
@@ -20,11 +21,11 @@ class GeminiModel:
 
         if not system_instruction:
             self.client = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name=MODEL_NAME,
             )
         else:
             self.client = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name=MODEL_NAME,
                 system_instruction=system_instruction
             )
 
