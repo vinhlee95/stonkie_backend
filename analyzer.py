@@ -160,29 +160,35 @@ async def handle_general_finance_question(question):
 async def handle_company_general_question(question):
     """Handle general questions about companies."""
     try:
-        response = await agent.generate_content([
+        response = agent.generate_content_and_normalize_results([
             "Please answer this question about general company information:",
             question
-        ], stream=True)
+        ])
 
-        async for chunk in response:
-            yield chunk.text if chunk.text else "❌ No explanation generated"
+        async for answer in response:
+            yield {
+                "type": "answer",
+                "body": answer
+            }
 
+
+        prompt = f"""
+            Based on this original question: "{question}"
+            Generate 3 related but different follow-up questions that users might want to ask next.
+            Return only the questions, do not return the number or order of the question.
+        """
+
+        response_generator = agent.generate_content_and_normalize_results([prompt])
+
+        async for answer in response_generator:
+            yield {
+                "type": "related_question",
+                "body": answer
+            }
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
 
 async def handle_company_specific_finance(ticker, question):
-    """Handle company-specific financial questions."""
-    if not ticker:
-        response = await agent.generate_content([
-            "Please find the stock ticker for the company that is mentioned in the question:",
-            question,
-            "only return the ticker name without any other texts."
-        ])
-        async for chunk in response:
-            yield chunk.text if chunk.text else "❌ No ticker found"
-        return
-
     ticker = ticker.lower().strip()
     try:
         financial_data = await get_financial_data_for_ticker(ticker)
