@@ -136,6 +136,20 @@ async def handle_general_finance_question(question):
                 "type": "answer",
                 "body": answer
             }
+
+        prompt = f"""
+            Based on this original question: "{question}"
+            Generate 3 related but different follow-up questions that users might want to ask next.
+            Return only the questions, do not return the number or order of the question.
+        """
+
+        response_generator = agent.generate_content_and_normalize_results([prompt])
+
+        async for answer in response_generator:
+            yield {
+                "type": "related_question",
+                "body": answer
+            }
     except Exception as e:
         logger.error(f"❌ Error generating explanation: {e}")
         yield {
