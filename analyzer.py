@@ -225,41 +225,14 @@ async def handle_company_specific_finance(ticker, question):
             Generate 3 related but different follow-up questions that users might want to ask next.
             These questions should be related to either balance sheet, income statement or cash flow statement.
             Return only the questions, do not return the number or order of the question.
-            Do not yield individual words, yield the full question in a line once you have it.
         """
 
-        response = await agent.generate_content([prompt])
-        current_question = ""
-        question_number = 1
-        
-        async for chunk in response:
-            if chunk.text:
-                current_question += chunk.text
-                if "\n" in current_question:
-                    # Split on newlines and process complete questions
-                    parts = current_question.split("\n")
-                    # Process all complete questions except the last part
-                    for part in parts[:-1]:
-                        if part.strip():
-                            clean_question = part.replace("*", "").strip()
-                            yield {
-                                "type": "related_question",
-                                "number": question_number,
-                                "body": clean_question
-                            }
-                            question_number += 1
-                    # Keep the incomplete part
-                    current_question = parts[-1]
-        
-        # Handle the last question if there is one
-        if current_question.strip():
-            clean_question = current_question.replace("*", "").strip()
+        response = agent.generate_content_and_normalize_results([prompt])
+        async for answer in response:
             yield {
                 "type": "related_question",
-                "number": question_number,
-                "body": clean_question
+                "body": answer
             }
-
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
         yield {
