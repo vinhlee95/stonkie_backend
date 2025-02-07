@@ -52,10 +52,9 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                 f"Here is the company's ticker name: {ticker}",
                 "Generate 3 questions that customers would ask about this ticker symbol.",
                 "We only have balance sheet, income statement, and cash flow statements for this company.",
-                "The questions should be related to one of the company's financial statements.",
-                "The questions should be concise and to the point.",
-                "The questions should be in the form of a list of questions.",
-                "The question should be about a financial year instead of quarterly."
+                "The questions should be related to one of the company's financial statements in a specific year or time period.",
+                "The question should be about a financial year instead of quarterly. Do not return a variable year. Prefer the latest year.",
+                "Only return the content of the questions. Do not return the number or order of the output."
             ]
         )
 
