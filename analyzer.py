@@ -37,16 +37,33 @@ async def classify_question(question):
     Return the classification as a string.
     """    
 
-    prompt = f"""Classify the following question as either '{QuestionType.GENERAL_FINANCE.value}' or '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' or '{QuestionType.COMPANY_GENERAL.value}'.
+    prompt = f"""Classify the following question into one of these three categories:
+    1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, or questions about individuals that don't require specific company financial statements
+    2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements
+    3. '{QuestionType.COMPANY_GENERAL.value}' - for general questions about a company that don't require financial analysis
+
     Examples:
     - 'What is the average P/E ratio for the tech industry?' -> {QuestionType.GENERAL_FINANCE.value}
+    - 'How does inflation affect stock markets?' -> {QuestionType.GENERAL_FINANCE.value}
+    - 'How does Bill Gates' charitable giving affect his net worth?' -> {QuestionType.GENERAL_FINANCE.value}
     - 'What is Apple's revenue for the last quarter?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
-    - 'What is the company's mission statement?' -> {QuestionType.COMPANY_GENERAL.value}
-    Question:
+    - 'What was Microsoft's profit margin in 2023?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+    - 'What is Tesla's mission statement?' -> {QuestionType.COMPANY_GENERAL.value}
+    - 'Who is the CEO of Amazon?' -> {QuestionType.COMPANY_GENERAL.value}
+
+    Rules:
+    - If the question requires analyzing specific company financial statements or metrics, classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+    - If the question is about general market trends, concepts, or individuals, classify as {QuestionType.GENERAL_FINANCE.value}
+    - If the question is about company information but doesn't need financial analysis, classify as {QuestionType.COMPANY_GENERAL.value}
+
+    Question to classify:
     {question}"""
 
     try:
-        response = await agent.generate_content([prompt])
+        from google.generativeai.types.generation_types import GenerationConfig
+        
+        response = await agent.generate_content([prompt], generation_config=GenerationConfig(temperature=0.1))
+        
         # Wait for the response to complete
         await response.resolve()
         response_text = response.text.lower()
@@ -211,6 +228,8 @@ async def handle_company_specific_finance(ticker, question):
             2. Calculate year-over-year changes when relevant
             3. Present growth rates as percentages
             5. Ensure numerical consistency across years
+
+            If you cannot find the answer from the given data. Do not make up any answer.
         """
 
         response = await agent.generate_content([
