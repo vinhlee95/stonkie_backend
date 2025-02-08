@@ -233,6 +233,14 @@ async def get_most_viewed_companies():
         Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
         Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
         Company(name="Nordea", ticker="NDA-FI.HE", logo_url=get_company_logo_url("nordea")),
+        Company(name="Alphabet", ticker="GOOG", logo_url=get_company_logo_url("google")),
+        Company(name="Amazon", ticker="AMZN", logo_url=get_company_logo_url("amazon")),
+        Company(name="Meta", ticker="META", logo_url=get_company_logo_url("meta")),
+        Company(name="Netflix", ticker="NFLX", logo_url=get_company_logo_url("netflix")),
+        Company(name="Berkshire Hathaway", ticker="BRK.A", logo_url=get_company_logo_url("berkshire")),
+        Company(name="Wallmart", ticker="WMT", logo_url=get_company_logo_url("walmart")),
+        Company(name="AT&T", ticker="T", logo_url=get_company_logo_url("att")),
+        Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
     ]
     
     return {

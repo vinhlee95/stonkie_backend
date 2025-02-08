@@ -50,7 +50,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         response_generator = agent.generate_content_and_normalize_results(
             [
                 f"Here is the company's ticker name: {ticker}",
-                "Generate 3 questions that customers would ask about this ticker symbol.",
+                "Generate 3 questions that customers would ask about this ticker symbol. Using the company name from the ticker name.",
                 "1 question is about the company's general information such as who founded the company, when it was founded, etc.",
                 "1 question is about the company's products, services, business model, competitive advantage, etc.",
                 """
