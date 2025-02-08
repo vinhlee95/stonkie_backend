@@ -11,6 +11,8 @@ import pandas as pd
 from io import StringIO
 from typing import Dict, Any
 
+from external_knowledge.company_fundamental import get_company_fundamental
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -208,13 +210,20 @@ async def handle_company_general_question(ticker, question):
 
 async def handle_company_specific_finance(ticker, question):
     ticker = ticker.lower().strip()
+
+    # Get company fundamental data
+    company_fundamental = get_company_fundamental(ticker)
+    
     try:
         financial_data = await get_financial_data_for_ticker(ticker)
         if financial_data is None:
             yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
             return
 
-        financial_context = f"""Here are the financial statements for {ticker.upper()}:
+        financial_context = f"""Here are the financial statements and company fundamental data for {ticker.upper()}:
+            Company Fundamental Data:
+            {company_fundamental}
+
             Income Statement:
             {financial_data.get('income_statement', {})}
 
