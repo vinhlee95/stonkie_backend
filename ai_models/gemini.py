@@ -66,17 +66,20 @@ class GeminiModel:
             str: Cleaned and normalized text chunks
         """
         response = await self.generate_content(prompt, **kwargs)
-        current_output = ""
+        buffer = ""
         
-        # Accumulate all chunks first
         async for chunk in response:
             if chunk.text:
-                current_output += chunk.text
+                buffer += chunk.text
+                # Process complete lines if we have a newline
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    clean_line = line.replace("*", "").strip()
+                    if clean_line:
+                        yield clean_line
         
-        # Process the complete output
-        if current_output:
-            lines = current_output.split("\n")
-            for line in lines:
-                clean_line = line.replace("*", "").strip()
-                if clean_line:
-                    yield clean_line      
+        # Don't forget to process any remaining text in the buffer
+        if buffer:
+            clean_line = buffer.replace("*", "").strip()
+            if clean_line:
+                yield clean_line      

@@ -175,15 +175,16 @@ async def handle_general_finance_question(question):
 async def handle_company_general_question(question):
     """Handle general questions about companies."""
     try:
-        response = agent.generate_content_and_normalize_results([
+        response = await agent.generate_content([
             "Please answer this question about general company information:",
-            question
+            question,
+            "Try to structure the answer to main points",
         ])
 
         async for answer in response:
             yield {
                 "type": "answer",
-                "body": answer
+                "body": answer.text
             }
 
 
