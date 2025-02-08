@@ -172,13 +172,15 @@ async def handle_general_finance_question(question):
             "body": "❌ Error generating explanation. Please try again later."
         }
 
-async def handle_company_general_question(question):
+async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
     try:
         response = await agent.generate_content([
-            "Please answer this question about general company information:",
+            "Please answer this question about general company information about a company.",
+            f"If the company name is not mentioned in the question, just answer the question assuming it is {ticker.upper()}",
+            "Here is the question:",
             question,
-            "Try to structure the answer to main points",
+            "Just answer the question about that specific company and no need to mention that you are not sure about which company it is."
         ])
 
         async for answer in response:
@@ -280,7 +282,7 @@ async def analyze_financial_data_from_question(ticker, question):
 
     handlers = {
         QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question),
-        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(question),
+        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question),
         QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question)
     }
 
