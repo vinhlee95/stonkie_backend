@@ -60,9 +60,7 @@ async def classify_question(question):
     {question}"""
 
     try:
-        from google.generativeai.types.generation_types import GenerationConfig
-        
-        response = await agent.generate_content([prompt], generation_config=GenerationConfig(temperature=0.1))
+        response = await agent.generate_content([prompt])
         
         # Wait for the response to complete
         await response.resolve()
