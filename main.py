@@ -10,6 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
+from services.company import get_key_stats_for_ticker
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
@@ -246,4 +247,16 @@ async def get_most_viewed_companies():
     return {
         "status": "success",
         "data": most_viewed_companies
+    }
+
+
+@app.get("/api/companies/{ticker}/key-stats")
+async def get_key_stats(ticker: str):
+    """
+    Get key stats for a given ticker symbol
+    """
+    key_stats =  get_key_stats_for_ticker(ticker)
+    return {
+        "status": "success",
+        "data": key_stats
     }
