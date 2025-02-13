@@ -50,6 +50,9 @@ class GeminiModel:
                 raise ValueError("Prompt list must contain non-empty strings")
         else:
             raise ValueError("Prompt must be either a string or a list of strings")
+        
+        if stream == False:
+            return self.client.generate_content(prompt, **kwargs)
             
         return self.client.generate_content_async(prompt, stream=stream, **kwargs)
     

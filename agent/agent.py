@@ -39,7 +39,7 @@ class Agent:
                 **kwargs
             )
         
-        return self.model.generate_content(prompt, **kwargs)
+        return self.model.generate_content(prompt, stream=stream, **kwargs)
     
     async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
         """
