@@ -234,6 +234,8 @@ async def get_most_viewed_companies():
         Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
         Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
         Company(name="Nordea", ticker="NDA-FI.HE", logo_url=get_company_logo_url("nordea")),
+        Company(name="Mandatum", ticker="MANTA.HE", logo_url=get_company_logo_url("mandatum")),
+        Company(name="Fortum", ticker="FORTUM.HE", logo_url=get_company_logo_url("fortum")),
         Company(name="Alphabet", ticker="GOOG", logo_url=get_company_logo_url("google")),
         Company(name="Amazon", ticker="AMZN", logo_url=get_company_logo_url("amazon")),
         Company(name="Meta", ticker="META", logo_url=get_company_logo_url("meta")),
