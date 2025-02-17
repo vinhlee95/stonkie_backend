@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker
+from services.company import get_key_stats_for_ticker, handle_10k_file
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
@@ -263,15 +263,16 @@ async def get_key_stats(ticker: str):
         "data": key_stats
     }
 
-@app.post("/api/companies/10k")
-async def upload_10k_report(file: UploadFile = File(...)):
+@app.post("/api/companies/{ticker}/10k")
+async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
     """
-    Upload a 10-K report PDF file
+    Upload and process a 10-K report PDF file
     
     Args:
         file (UploadFile): The PDF file to be uploaded
+        ticker (str): Company ticker symbol
     Returns:
-        dict: Status message
+        dict: Processed financial data
     """
     try:
         if not file.filename.endswith('.pdf'):
@@ -279,13 +280,20 @@ async def upload_10k_report(file: UploadFile = File(...)):
                 status_code=400,
                 detail="Only PDF files are accepted"
             )
-
-        return {"filename": file.filename, "content_type": file.content_type, "message": "File uploaded successfully"}
+            
+        file_content = await file.read()
+        result = await handle_10k_file(file_content, ticker)
+        
+        return {
+            "status": "success",
+            "data": result,
+            "message": "10-K report processed successfully"
+        }
         
     except Exception as e:
         logger.error(f"Error processing 10-K report: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail="Error processing the uploaded file"
+            detail=f"Error processing the uploaded file: {str(e)}"
         )
 
