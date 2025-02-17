@@ -2,7 +2,7 @@ import base64
 import json
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from typing import Dict
@@ -262,3 +262,30 @@ async def get_key_stats(ticker: str):
         "status": "success",
         "data": key_stats
     }
+
+@app.post("/api/companies/10k")
+async def upload_10k_report(file: UploadFile = File(...)):
+    """
+    Upload a 10-K report PDF file
+    
+    Args:
+        file (UploadFile): The PDF file to be uploaded
+    Returns:
+        dict: Status message
+    """
+    try:
+        if not file.filename.endswith('.pdf'):
+            raise HTTPException(
+                status_code=400,
+                detail="Only PDF files are accepted"
+            )
+
+        return {"filename": file.filename, "content_type": file.content_type, "message": "File uploaded successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error processing 10-K report: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing the uploaded file"
+        )
+
