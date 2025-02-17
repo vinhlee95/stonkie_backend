@@ -73,11 +73,11 @@ def analyze_10k_revenue(content):
     - type: string, either "product" or "region"
     - breakdown: list of objects, if the type is "product", each containing the following fields:
         - product: string
-        - revenue: number
+        - revenue: number. Numbers should be in thousands. Do not include any delimiters.
         - percentage: number
     - breakdown: list of objects, if the type is "region", each containing the following fields:
         - region: string
-        - revenue: number
+        - revenue: number. Numbers should be in thousands. Do not include any delimiters.
         - percentage: number
     
     
