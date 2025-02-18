@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, handle_10k_file
+from services.company import get_key_stats_for_ticker, get_revenue_breakdown_for_company, handle_10k_file
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
@@ -131,6 +131,14 @@ async def get_financial_data(ticker: str, report_type: str) -> Dict:
     except Exception as e:
         logger.error(f"Error occurred after {time.time() - start_time:.3f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/companies/{ticker}/revenue")
+async def get_revenue(ticker: str):
+    """
+    Get revenue for a given ticker symbol
+    """
+    revenue_breakdown = get_revenue_breakdown_for_company(ticker)
+    return {"status": "success", "data": revenue_breakdown}
 
 @app.post("/api/company/analyze")
 async def analyze_financial_data(request: Request):

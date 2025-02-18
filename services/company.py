@@ -1,3 +1,4 @@
+from typing import Literal
 from external_knowledge.company_fundamental import get_company_fundamental
 from pydantic import BaseModel
 import logging
@@ -177,3 +178,44 @@ def get_pdf_content_from_bytes(file_content: bytes) -> str:
         text_content += page.extract_text()
     return text_content
 
+class ProductRevenueBreakdown(BaseModel):
+    product: str
+    revenue: int
+    percentage: float
+
+class RegionRevenueBreakdown(BaseModel):
+    region: str
+    revenue: int
+    percentage: float
+
+class RevenueBreakdown(BaseModel):
+    type: Literal["product"]
+    breakdown: list[ProductRevenueBreakdown]
+
+class RegionBreakdown(BaseModel):
+    type: Literal["region"]
+    breakdown: list[RegionRevenueBreakdown]
+
+class RevenueBreakdownDTO(BaseModel):
+    year: int
+    revenue_breakdown: list[RevenueBreakdown | RegionBreakdown]
+
+def get_revenue_breakdown_for_company(ticker: str) -> RevenueBreakdownDTO | None:
+    """Get revenue breakdown for a given company"""
+    db = SessionLocal()
+    try:
+        financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc()).first()
+        if not financial_data:
+            return None
+        
+        return RevenueBreakdownDTO(
+            year=financial_data.year,
+            revenue_breakdown=financial_data.revenue_breakdown
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting revenue breakdown for company", {
+            "ticker": ticker,
+            "error": str(e)
+        })
+        return None
