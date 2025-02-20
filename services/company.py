@@ -200,19 +200,23 @@ class RevenueBreakdownDTO(BaseModel):
     year: int
     revenue_breakdown: list[RevenueBreakdown | RegionBreakdown]
 
-def get_revenue_breakdown_for_company(ticker: str) -> RevenueBreakdownDTO | None:
+def get_revenue_breakdown_for_company(ticker: str) -> list[RevenueBreakdownDTO] | None:
     """Get revenue breakdown for a given company"""
     db = SessionLocal()
     try:
-        financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc()).first()
+        financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc())
         if not financial_data:
             return None
+
+        revenue_breakdown: list[RevenueBreakdownDTO] = []
+        for data in financial_data:
+            if data.revenue_breakdown:
+                revenue_breakdown.append(RevenueBreakdownDTO(
+                    year=data.year,
+                    revenue_breakdown=data.revenue_breakdown
+                ))
         
-        return RevenueBreakdownDTO(
-            year=financial_data.year,
-            revenue_breakdown=financial_data.revenue_breakdown
-        )
-        
+        return revenue_breakdown
     except Exception as e:
         logger.error(f"Error getting revenue breakdown for company", {
             "ticker": ticker,
