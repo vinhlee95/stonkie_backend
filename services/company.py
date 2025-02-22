@@ -125,7 +125,19 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
                     "breakdown": item.get("breakdown")
                 })
         
+        saved_data = []
         for year, data in revenue_data_by_year.items():
+            # Check if data for this year already exists
+            existing_data = db.query(CompanyFinancials).filter(
+                CompanyFinancials.company_symbol == company_symbol,
+                CompanyFinancials.year == year
+            ).first()
+            
+            if existing_data:
+                logger.info(f"Data for {company_symbol} year {year} already exists, skipping...")
+                saved_data.append(existing_data)
+                continue
+                
             financial_data = CompanyFinancials(
                 company_symbol=company_symbol,
                 year=year,
@@ -134,8 +146,9 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
             db.add(financial_data)
             db.commit()
             db.refresh(financial_data)
+            saved_data.append(financial_data)
 
-        return financial_data
+        return saved_data
     except Exception as e:
         db.rollback()
         raise e
@@ -178,10 +191,10 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         logger.info(f"Total execution time: {total_time:.2f} seconds")
         
         return {
-            "id": saved_data.id,
-            "company_symbol": saved_data.company_symbol,
-            "year": saved_data.year,
-            "revenue_breakdown": saved_data.revenue_breakdown
+            "id": saved_data[0].id,
+            "company_symbol": saved_data[0].company_symbol,
+            "year": saved_data[0].year,
+            "revenue_breakdown": saved_data[0].revenue_breakdown
         }
         
     except Exception as e:
