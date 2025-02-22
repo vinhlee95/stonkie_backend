@@ -85,6 +85,7 @@ def analyze_10k_revenue(content):
         - percentage: number
     
     If you cannot find the percentage in the report. Calculate the percentage on your own based on the revenue breakdown of each product or region.
+    Do not include "total revenue" from the report to the output.
     
     Document content:
     {content}
@@ -125,28 +126,38 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
                     "breakdown": item.get("breakdown")
                 })
         
-        saved_data = []
-        for year, data in revenue_data_by_year.items():
-            # Check if data for this year already exists
-            existing_data = db.query(CompanyFinancials).filter(
+        # Get all existing data for this company in the years we're processing
+        years = list(revenue_data_by_year.keys())
+        existing_data = {
+            (record.company_symbol, record.year): record
+            for record in db.query(CompanyFinancials).filter(
                 CompanyFinancials.company_symbol == company_symbol,
-                CompanyFinancials.year == year
-            ).first()
-            
-            if existing_data:
+                CompanyFinancials.year.in_(years)
+            ).all()
+        }
+        
+        # Prepare batch insert for new records
+        new_records = []
+        saved_data = []
+        
+        for year, data in revenue_data_by_year.items():
+            key = (company_symbol, year)
+            if key in existing_data:
                 logger.info(f"Data for {company_symbol} year {year} already exists, skipping...")
-                saved_data.append(existing_data)
+                saved_data.append(existing_data[key])
                 continue
-                
-            financial_data = CompanyFinancials(
+            
+            new_record = CompanyFinancials(
                 company_symbol=company_symbol,
                 year=year,
                 revenue_breakdown=data
             )
-            db.add(financial_data)
+            new_records.append(new_record)
+            saved_data.append(new_record)
+        
+        if new_records:
+            db.bulk_save_objects(new_records)
             db.commit()
-            db.refresh(financial_data)
-            saved_data.append(financial_data)
 
         return saved_data
     except Exception as e:
