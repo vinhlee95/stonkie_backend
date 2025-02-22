@@ -1,3 +1,4 @@
+from itertools import chain
 from typing import Literal
 from external_knowledge.company_fundamental import get_company_fundamental
 from pydantic import BaseModel
@@ -196,25 +197,36 @@ class RegionBreakdown(BaseModel):
     type: Literal["region"]
     breakdown: list[RegionRevenueBreakdown]
 
+
 class RevenueBreakdownDTO(BaseModel):
     year: int
     revenue_breakdown: list[RevenueBreakdown | RegionBreakdown]
 
-def get_revenue_breakdown_for_company(ticker: str) -> list[RevenueBreakdownDTO] | None:
+class NewRevenueBreakdownDTO(BaseModel):
+    year: int
+    product_breakdown: list[ProductRevenueBreakdown]
+    region_breakdown: list[RegionRevenueBreakdown]
+
+def get_revenue_breakdown_for_company(ticker: str) -> list[NewRevenueBreakdownDTO] | None:
     """Get revenue breakdown for a given company"""
     db = SessionLocal()
     try:
         financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc())
-        if not financial_data:
+        if financial_data.count() == 0:
             return None
 
-        revenue_breakdown: list[RevenueBreakdownDTO] = []
-        for data in financial_data:
-            if data.revenue_breakdown:
-                revenue_breakdown.append(RevenueBreakdownDTO(
-                    year=data.year,
-                    revenue_breakdown=data.revenue_breakdown
-                ))
+        revenue_breakdown: list[NewRevenueBreakdownDTO] = []
+
+        for data in financial_data.all():
+            year = data.year
+            product_breakdown = list(chain.from_iterable([item.get('breakdown') for item in data.revenue_breakdown if item.get('type') == "product"]))
+            region_breakdown = list(chain.from_iterable([item.get('breakdown') for item in data.revenue_breakdown if item.get('type') == "region"]))
+            
+            revenue_breakdown.append(NewRevenueBreakdownDTO(
+                year=year,
+                product_breakdown=[ProductRevenueBreakdown(**item) for item in product_breakdown],
+                region_breakdown=[RegionRevenueBreakdown(**item) for item in region_breakdown]
+            ))
         
         return revenue_breakdown
     except Exception as e:
