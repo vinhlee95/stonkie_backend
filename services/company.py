@@ -98,7 +98,7 @@ def analyze_10k_revenue(content):
 
     return response.text
 
-def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text: str):
+def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
     """Save analysis results to database"""
     db = SessionLocal()
     try:
@@ -166,7 +166,7 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
     finally:
         db.close()
 
-async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
+async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
     """Process 10-K PDF file content and save financial data
     
     Args:
@@ -194,7 +194,7 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         # Save to database
         save_start = time.time()
         
-        saved_data = save_analysis(ticker.upper(), year, analysis, pdf_content)
+        saved_data = save_analysis(ticker.upper(), analysis, pdf_content)
         save_end = time.time()
         logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
         
@@ -203,9 +203,7 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         
         return {
             "id": saved_data[0].id,
-            "company_symbol": saved_data[0].company_symbol,
-            "year": saved_data[0].year,
-            "revenue_breakdown": saved_data[0].revenue_breakdown
+            "company_symbol": saved_data[0].company_symbol
         }
         
     except Exception as e:
