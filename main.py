@@ -271,8 +271,8 @@ async def get_key_stats(ticker: str):
         "data": key_stats
     }
 
-@app.post("/api/companies/{ticker}/10k")
-async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
+@app.post("/api/companies/{ticker}/10k/{year}")
+async def upload_10k_report(ticker: str, year: int, file: UploadFile = File(...)):
     """
     Upload and process a 10-K report PDF file
     
@@ -290,7 +290,7 @@ async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
             )
             
         file_content = await file.read()
-        result = await handle_10k_file(file_content, ticker)
+        result = await handle_10k_file(file_content, ticker, year)
         
         return {
             "status": "success",

@@ -121,7 +121,7 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
     finally:
         db.close()
 
-async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
+async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
     """Process 10-K PDF file content and save financial data
     
     Args:
@@ -148,9 +148,6 @@ async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
         
         # Save to database
         save_start = time.time()
-        
-        # TODO: Extract year from the 10-K content
-        year = 2024  # Temporary hardcoded value
         
         saved_data = save_analysis(ticker.upper(), year, analysis, pdf_content)
         save_end = time.time()
