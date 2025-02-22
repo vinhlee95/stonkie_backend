@@ -69,20 +69,22 @@ def analyze_10k_revenue(content):
     prompt = """
     Analyze the following 10-K document content and provide revenue stream breakdown
     by product, services and regions, with percentage breakdown.
+    Try to find the data for all the years in the report.
 
     Return the response in JSON format.
     The JSON should be a list of objects, each containing the following fields:
+    - year: number, the year in which the sales figure is recorded
     - type: string, either "product" or "region"
     - breakdown: list of objects, if the type is "product", each containing the following fields:
         - product: string
-        - revenue: number. Numbers should be in thousands. Do not include any delimiters.
+        - revenue: number. Numbers should be in thousands. Do not include any delimiters. If the report says that the revenue is in millions, convert it to thousands.
         - percentage: number
     - breakdown: list of objects, if the type is "region", each containing the following fields:
         - region: string
-        - revenue: number. Numbers should be in thousands. Do not include any delimiters.
+        - revenue: number. Numbers should be in thousands. Do not include any delimiters. If the report says that the revenue is in millions, convert it to thousands.
         - percentage: number
     
-    Pay close attention to the revenue number. If the report says that the revenue is in millions, convert it to thousands.
+    If you cannot find the percentage in the report. Calculate the percentage on your own based on the revenue breakdown of each product or region.
     
     Document content:
     {content}
@@ -107,14 +109,32 @@ def save_analysis(company_symbol: str, year: int, analysis_result: str, raw_text
         else:
             raise ValueError("No JSON content found in the analysis result")
 
-        financial_data = CompanyFinancials(
-            company_symbol=company_symbol,
-            year=year,
-            revenue_breakdown=revenue_data
-        )
-        db.add(financial_data)
-        db.commit()
-        db.refresh(financial_data)
+        # Transform the revenue data to have the correct format
+        revenue_data_by_year = {}
+        for item in revenue_data:
+            year = item.get("year")
+            if year not in revenue_data_by_year:
+                revenue_data_by_year[year] = []
+                revenue_data_by_year[year].append({
+                    "type": item.get("type"),
+                    "breakdown": item.get("breakdown")
+                })
+            else:
+                revenue_data_by_year[year].append({
+                    "type": item.get("type"),
+                    "breakdown": item.get("breakdown")
+                })
+        
+        for year, data in revenue_data_by_year.items():
+            financial_data = CompanyFinancials(
+                company_symbol=company_symbol,
+                year=year,
+                revenue_breakdown=data
+            )
+            db.add(financial_data)
+            db.commit()
+            db.refresh(financial_data)
+
         return financial_data
     except Exception as e:
         db.rollback()
