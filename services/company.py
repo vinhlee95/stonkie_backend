@@ -82,6 +82,7 @@ def analyze_10k_revenue(content):
         - revenue: number. Numbers should be in thousands. Do not include any delimiters.
         - percentage: number
     
+    Pay close attention to the revenue number. If the report says that the revenue is in millions, convert it to thousands.
     
     Document content:
     {content}
