@@ -275,3 +275,7 @@ def get_revenue_breakdown_for_company(ticker: str) -> list[NewRevenueBreakdownDT
             "error": str(e)
         })
         return None
+
+
+def get_revenue_insights_for_company(ticker: str):
+    return "The revenue is very good"
