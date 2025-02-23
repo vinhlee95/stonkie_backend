@@ -278,4 +278,78 @@ def get_revenue_breakdown_for_company(ticker: str) -> list[NewRevenueBreakdownDT
 
 
 def get_revenue_insights_for_company(ticker: str):
-    return "The revenue is very good"
+    # Fetch revenue data from DB
+    db = SessionLocal()
+    try:
+        financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc()).all()
+        if not financial_data:
+            return None
+
+        agent = Agent(model_type="gemini")
+        prompt = f"""
+            You are a financial analyst tasked with analyzing revenue data for {ticker}. The data shows revenue breakdowns by product and region over multiple years.
+
+            For each data point:
+            - Revenue numbers are in thousands of USD
+            - Each year contains both product_breakdown and region_breakdown
+            - Each breakdown item has revenue and percentage values
+
+            Analyze the provided revenue data and generate 10 specific insights about {ticker}'s actual performance. Focus on:
+            1. Revenue Growth:
+               - Calculate and mention specific YoY growth rates
+               - Identify highest/lowest growth periods
+               - Compare growth across different products/regions
+
+            2. Product Performance:
+               - Products with consistent growth/decline
+               - Changes in product revenue mix
+               - Top revenue-generating products and their trends
+
+            3. Geographic Analysis:
+               - Regional revenue distribution changes
+               - Fastest/slowest growing regions
+               - Geographic concentration risks
+
+            4. Market Dynamics:
+               - Revenue diversification trends
+               - Dependency on specific products/regions
+               - Seasonal or cyclical patterns if visible
+
+            Be specific and data-driven:
+            - Use exact numbers and percentages
+            - Reference specific years and time periods
+            - Compare actual values between periods
+            - Highlight significant changes with data points
+
+            Do not include generic observations or hypothetical analysis.
+            Each insight must be backed by specific numbers from the data.
+            Do mention in the insights which product and region is the biggest source of revenue.
+
+            Here is the revenue data (each item contains year, product_breakdown, and region_breakdown):
+            {str(financial_data)}.
+
+            Only return a list of insights in the output. Nothing else. 
+            The JSON should be a list of objects, each containing the following fields:
+            - type: string - either "product" or "region"
+            - insight: string - the actual insight for that product or region
+        """
+        
+        response = agent.generate_content(
+            prompt=prompt,
+            # TODO: add support for streaming
+            stream=False,
+        )
+
+        # Remove the Markdown code block markers and parse the JSON
+        json_match = re.search(r'```json\n(.*)\n```', response.text, re.DOTALL)
+        if json_match:
+            json_content = json_match.group(1)
+            return json.loads(json_content)
+        else:
+            raise ValueError("No JSON content found in the analysis result")
+    except Exception as e:
+        logger.error(f"Error getting revenue insights for company", {
+            "ticker": ticker,
+            "error": str(e)
+        })
+        return None
