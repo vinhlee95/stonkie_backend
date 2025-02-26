@@ -285,6 +285,14 @@ def get_revenue_insights_for_company(ticker: str):
         if not financial_data:
             return None
 
+        # Transform SQLAlchemy objects into dictionaries
+        financial_data_list = []
+        for data in financial_data:
+            financial_data_list.append({
+                'year': data.year,
+                'revenue_breakdown': data.revenue_breakdown
+            })
+
         agent = Agent(model_type="gemini")
         prompt = f"""
             You are a financial analyst tasked with analyzing revenue data for {ticker}. The data shows revenue breakdowns by product and region over multiple years.
@@ -318,15 +326,21 @@ def get_revenue_insights_for_company(ticker: str):
             Be specific and data-driven:
             - Use exact numbers and percentages
             - Reference specific years and time periods
-            - Compare actual values between periods
             - Highlight significant changes with data points
+
+            The first insight for each type (product or region) should be a general overview on the income sources:
+            - which product/region is the biggest source of revenue?
+            - how big of a share does it account for?
+            - is there a consistent growth/decline?
+            - are there any shift in revenue mix?
+            - is it dependent on specific products/regions?
 
             Do not include generic observations or hypothetical analysis.
             Each insight must be backed by specific numbers from the data.
             Do mention in the insights which product and region is the biggest source of revenue.
 
-            Here is the revenue data (each item contains year, product_breakdown, and region_breakdown):
-            {str(financial_data)}.
+            Here is the revenue data:
+            {json.dumps(financial_data_list, indent=2)}
 
             Only return a list of insights in the output. Nothing else. 
             The JSON should be a list of objects, each containing the following fields:
