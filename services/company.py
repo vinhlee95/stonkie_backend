@@ -296,48 +296,27 @@ def get_revenue_insights_for_company(ticker: str):
         agent = Agent(model_type="gemini")
         prompt = f"""
             You are a financial analyst tasked with analyzing revenue data for {ticker}. The data shows revenue breakdowns by product and region over multiple years.
+            
+            For each insight, apart from raw numbers taken from the data, provide an overview about the trend.
+            based on your own knowledge about the product and services of that company. 
+            For each product and region, explain why there are increasing or declining trend. Feel free to use general knowledge or news for this. Make sure that each insight has this analysis.
 
             For each data point:
             - Revenue numbers are in thousands of USD
             - Each year contains both product_breakdown and region_breakdown
             - Each breakdown item has revenue and percentage values
 
-            Analyze the provided revenue data and generate 10 specific insights about {ticker}'s actual performance. Focus on:
-            1. Revenue Growth:
-               - Calculate and mention specific YoY growth rates
-               - Identify highest/lowest growth periods
-               - Compare growth across different products/regions
-
-            2. Product Performance:
-               - Products with consistent growth/decline
-               - Changes in product revenue mix
-               - Top revenue-generating products and their trends
-
-            3. Geographic Analysis:
-               - Regional revenue distribution changes
-               - Fastest/slowest growing regions
-               - Geographic concentration risks
-
-            4. Market Dynamics:
-               - Revenue diversification trends
-               - Dependency on specific products/regions
-               - Seasonal or cyclical patterns if visible
-
             Be specific and data-driven:
             - Use exact numbers and percentages
             - Reference specific years and time periods
             - Highlight significant changes with data points
 
-            The first insight for each type (product or region) should be a general overview on the income sources:
+            The first insight for each type (product or region) should be a general overview on all the income sources:
             - which product/region is the biggest source of revenue?
             - how big of a share does it account for?
             - is there a consistent growth/decline?
             - are there any shift in revenue mix?
             - is it dependent on specific products/regions?
-
-            Do not include generic observations or hypothetical analysis.
-            Each insight must be backed by specific numbers from the data.
-            Do mention in the insights which product and region is the biggest source of revenue.
 
             Here is the revenue data:
             {json.dumps(financial_data_list, indent=2)}
