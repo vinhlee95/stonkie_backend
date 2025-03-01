@@ -373,6 +373,7 @@ async def get_revenue_insights_for_company_product(ticker: str):
             For each insight, apart from raw numbers taken from the data, provide an overview about the trend
             based on your own knowledge about the product and services of that company. 
             For each product and service, explain why there are increasing or declining trend. Feel free to use general knowledge or news for this.
+            Each insight has around 100 words.
 
             For each data point:
             - Revenue numbers are in thousands of USD. If the number is billion, just mention billion in the output instead of thousands.
@@ -388,6 +389,7 @@ async def get_revenue_insights_for_company_product(ticker: str):
             - how big of a share it accounts for
             - if there is consistent growth/decline
             - any shifts in revenue mix
+            - no need to points out specific number or percentage in the first insight. Focus on general trend and observation.
 
             Here is the revenue data:
             {json.dumps(financial_data_list, indent=2)}
