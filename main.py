@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, get_revenue_breakdown_for_company, handle_10k_file, get_revenue_insights_for_company, get_revenue_insights_for_company_product
+from services.company import get_key_stats_for_ticker, get_revenue_breakdown_for_company, handle_10k_file, get_revenue_insights_for_company, get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
@@ -150,6 +150,24 @@ async def get_revenue_insights(ticker: str):
 async def get_revenue_insights_product(ticker: str):
     async def generate_insights():
         async for insight in get_revenue_insights_for_company_product(ticker):
+            if insight.get("type") == "error":
+                yield f"data: {json.dumps({'status': 'error', 'error': insight['content']})}\n\n"
+                break
+            elif insight.get("type") == "stream":
+                yield f"data: {json.dumps({'status': 'streaming', 'content': insight['content']})}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'success', 'data': insight['data']})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate_insights(),
+        media_type="text/event-stream"
+    )
+
+@app.get("/api/companies/{ticker}/revenue/insights/region")
+async def get_revenue_insights_region(ticker: str):
+    async def generate_insights():
+        async for insight in get_revenue_insights_for_company_region(ticker):
             if insight.get("type") == "error":
                 yield f"data: {json.dumps({'status': 'error', 'error': insight['content']})}\n\n"
                 break
