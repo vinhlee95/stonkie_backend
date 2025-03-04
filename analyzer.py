@@ -10,6 +10,8 @@ from agent.agent import Agent
 import pandas as pd
 from io import StringIO
 from typing import Dict, Any
+from openai import OpenAI
+from pinecone import Pinecone
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
@@ -208,11 +210,51 @@ async def handle_company_general_question(ticker, question):
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
 
+def get_embeddings(text: str) -> list[float]:
+    """Generate embeddings for text using OpenAI's text-embedding-3-small model."""
+    client = OpenAI()
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text,
+        encoding_format="float"
+    )
+    return response.data[0].embedding
+
+def search_similar_content(query: str, top_k: int = 20):
+    """Search for similar content in Pinecone database."""
+    # Generate embedding for the query
+    query_embedding = get_embeddings(query)
+    
+    # Initialize Pinecone and search
+    pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
+    index = pc.Index("company10k")
+
+    results = index.query(
+        vector=query_embedding,
+        top_k=top_k,
+        include_metadata=True
+    )
+    
+    return results
+
 async def handle_company_specific_finance(ticker, question):
     ticker = ticker.lower().strip()
 
     # Get company fundamental data
     company_fundamental = get_company_fundamental(ticker)
+
+    # Search for relevant context from 10-K documents
+    results = search_similar_content(question)
+    
+    # Format search results into financial context
+    financial_context = ""
+    if results and results['matches']:
+        financial_context = "\nRelevant information from company documents:\n\n"
+        for i, match in enumerate(results['matches'], 1):
+            text = match['metadata']['text'].strip()
+            score = match['score']
+            # if score > 0.7:  # Only include highly relevant matches
+            financial_context += f"{text}\n\n"
     
     try:
         financial_data = await get_financial_data_for_ticker(ticker)
@@ -220,7 +262,7 @@ async def handle_company_specific_finance(ticker, question):
             yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
             return
 
-        financial_context = f"""Here are the financial statements and company fundamental data for {ticker.upper()}:
+        financial_context += f"""Here are the financial statements and company fundamental data for {ticker.upper()}:
             Company Fundamental Data:
             {company_fundamental}
 
@@ -238,6 +280,8 @@ async def handle_company_specific_finance(ticker, question):
             2. Calculate year-over-year changes when relevant
             3. Present growth rates as percentages
             5. Ensure numerical consistency across years
+
+            Apart from numbers and trends, share relevant information about the question from the provided sources.
 
             If you cannot find the answer from the given data. Do not make up any answer.
         """
