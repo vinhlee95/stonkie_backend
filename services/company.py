@@ -10,6 +10,10 @@ from agent.agent import Agent
 from pypdf import PdfReader
 from connectors.database import SessionLocal, Base, engine
 from models.company_financial import CompanyFinancials
+import os
+from typing import List
+from openai import OpenAI
+from pinecone import Pinecone
 
 class CompanyFundamental(BaseModel):
     market_cap: int
@@ -166,6 +170,68 @@ def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
     finally:
         db.close()
 
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
+    """Split text into overlapping chunks of specified size.
+    
+    Args:
+        text (str): Text to split into chunks
+        chunk_size (int): Size of each chunk in characters
+        overlap (int): Number of characters to overlap between chunks
+        
+    Returns:
+        List[str]: List of text chunks
+    """
+    if len(text) <= chunk_size:
+        return [text]
+    
+    chunks = []
+    start = 0
+    
+    while start < len(text):
+        # Find the end of the chunk
+        end = start + chunk_size
+        
+        # If not at the end of text, try to find a good break point
+        if end < len(text):
+            # Try to find the last period or newline in the chunk
+            last_period = text.rfind('.', start, end)
+            last_newline = text.rfind('\n', start, end)
+            break_point = max(last_period, last_newline)
+            
+            # If found a good break point, use it
+            if break_point > start:
+                end = break_point + 1
+        
+        chunks.append(text[start:end].strip())
+        start = end - overlap
+    
+    return chunks
+
+def get_embeddings(text: str) -> List[float]:
+    """Generate embeddings for text using OpenAI's text-embedding-3-small model.
+    
+    Args:
+        text (str): Text to generate embeddings for
+        
+    Returns:
+        List[float]: Embedding vector with 1536 dimensions
+    """
+    client = OpenAI()
+    
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text,
+        encoding_format="float"
+    )
+    
+    return response.data[0].embedding
+
+def init_pinecone():
+    """Initialize Pinecone client."""
+    pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
+    index = pc.Index("company10k")
+    return index
+
 async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
     """Process 10-K PDF file content and save financial data
     
@@ -185,6 +251,47 @@ async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
         pdf_content_end = time.time()
         logger.info(f"PDF content extraction took {pdf_content_end - pdf_content_start:.2f} seconds")
         
+        # Process PDF content into chunks and generate embeddings
+        chunk_start = time.time()
+        chunks = chunk_text(pdf_content)
+        chunk_end = time.time()
+        logger.info(f"Text chunking took {chunk_end - chunk_start:.2f} seconds for {len(chunks)} chunks")
+        
+        
+        # Generate embeddings and store in Pinecone
+        embedding_start = time.time()
+        vectors = []
+        for i, chunk in enumerate(chunks):
+            embedding = get_embeddings(chunk)
+            vectors.append({
+                'id': f"{ticker}-chunk-{i}",
+                'values': embedding,
+                'metadata': {
+                    'ticker': ticker,
+                    'chunk_index': i,
+                    'text': chunk
+                }
+            })
+        embedding_end = time.time()
+        logger.info(f"Generating embeddings took {embedding_end - embedding_start:.2f} seconds for {len(chunks)} chunks")
+        
+        # Upsert vectors in batches
+
+        # Initialize Pinecone
+        index = init_pinecone()
+        pinecone_start = time.time()
+        batch_size = 100
+        for i in range(0, len(vectors), batch_size):
+            batch = vectors[i:i + batch_size]
+            index.upsert(vectors=batch)
+        pinecone_end = time.time()
+        logger.info(f"Uploading to Pinecone took {pinecone_end - pinecone_start:.2f} seconds for {len(vectors)} vectors")
+        
+        # Calculate average time per chunk
+        total_embedding_time = embedding_end - embedding_start
+        avg_time_per_chunk = total_embedding_time / len(chunks)
+        logger.info(f"Average time per chunk: {avg_time_per_chunk:.2f} seconds")
+        
         # Get analysis from AI agent
         analysis_start = time.time()
         analysis = analyze_10k_revenue(pdf_content)
@@ -193,7 +300,6 @@ async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
         
         # Save to database
         save_start = time.time()
-        
         saved_data = save_analysis(ticker.upper(), analysis, pdf_content)
         save_end = time.time()
         logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
