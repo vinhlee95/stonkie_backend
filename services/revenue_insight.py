@@ -3,15 +3,17 @@ from connectors.database import SessionLocal
 from agent.agent import Agent
 from typing import AsyncGenerator
 from logging import getLogger
-from models.company_financial import CompanyFinancials
+from connectors.company_financial import CompanyFinancialConnector
 
 logger = getLogger(__name__)
+
+company_financial_connector = CompanyFinancialConnector()
 
 async def get_filtered_financial_data(ticker: str, filter_type: str):
     """Fetch and filter financial data from the database."""
     db = SessionLocal()
     try:
-        financial_data = db.query(CompanyFinancials).filter(CompanyFinancials.company_symbol == ticker.upper()).order_by(CompanyFinancials.year.desc()).all()
+        financial_data = company_financial_connector.get_company_revenue_data(ticker).all()
         if not financial_data:
             return None
 
