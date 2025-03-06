@@ -11,8 +11,6 @@ from connectors.database import SessionLocal, Base, engine
 from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from models.company_financial import CompanyFinancials
 import os
-from typing import List
-from openai import OpenAI
 from pinecone import Pinecone
 
 class CompanyFundamental(BaseModel):
@@ -214,7 +212,7 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
     Returns:
         dict: Saved financial data record
     """
-    try:
+    try:    
         start_time = time.time()
         
         # Extract PDF content from bytes with page numbers
@@ -232,8 +230,9 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         # Generate embeddings and store in Pinecone
         embedding_start = time.time()
         vectors = []
+        agent = Agent(model_type="openai")
         for i, chunk in enumerate(chunks):
-            embedding = get_embeddings(chunk["text"])
+            embedding = agent.generate_embedding(input=chunk["text"])
             vectors.append({
                 'id': f"{ticker}-chunk-{i}",
                 'values': embedding,
@@ -281,25 +280,6 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
     except Exception as e:
         logger.error(f"Error processing 10-K file: {str(e)}")
         raise
-
-def get_embeddings(text: str) -> List[float]:
-    """Generate embeddings for text using OpenAI's text-embedding-3-small model.
-    
-    Args:
-        text (str): Text to generate embeddings for
-        
-    Returns:
-        List[float]: Embedding vector with 1536 dimensions
-    """
-    client = OpenAI()
-    
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text,
-        encoding_format="float"
-    )
-    
-    return response.data[0].embedding
 
 def init_pinecone():
     """Initialize Pinecone client."""

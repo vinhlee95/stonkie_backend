@@ -1,11 +1,13 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 from ai_models.gemini import GeminiModel
+from ai_models.openai import OpenAIModel
 
+SupportedModel = Literal["gemini", "openai"]
 
 class Agent:
     """Wrapper class to abstract different AI model implementations"""
     
-    def __init__(self, model_type="gemini"):
+    def __init__(self, model_type: SupportedModel="gemini"):
         """
         Initialize the AI model wrapper
         
@@ -15,6 +17,8 @@ class Agent:
         self.model_type = model_type
         if model_type == "gemini":
             self.model = GeminiModel()
+        elif model_type == "openai":
+            self.model = OpenAIModel()
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
@@ -48,3 +52,9 @@ class Agent:
         content_generator = self.model.generate_content_and_normalize_results(prompt, **kwargs)
         async for content in content_generator:
             yield content
+
+    def generate_embedding(self, input: str, model: str = "text-embedding-3-small"):
+        return self.model.generate_embedding(
+            input=input,
+            model=model
+        )
