@@ -7,8 +7,8 @@ import re
 import json
 import time
 from agent.agent import Agent
-from pypdf import PdfReader
 from connectors.database import SessionLocal, Base, engine
+from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from models.company_financial import CompanyFinancials
 import os
 from typing import List
@@ -58,13 +58,46 @@ Base.metadata.create_all(bind=engine)
 
 logger = logging.getLogger(__name__)
 
-def get_pdf_content(pdf_path):
-    """Extract text content from PDF file"""
-    reader = PdfReader(pdf_path)
-    text_content = ""
-    for page in reader.pages:
-        text_content += page.extract_text()
-    return text_content
+def chunk_text(pages_data: list[PageData], chunk_size: int = 1000, overlap: int = 100) -> list[dict]:
+    """Split text into overlapping chunks while preserving page numbers.
+    
+    Args:
+        pages_data (list[dict]): List of dictionaries containing page number and text
+        chunk_size (int): Size of each chunk in characters
+        overlap (int): Number of characters to overlap between chunks
+        
+    Returns:
+        list[dict]: List of chunks with page numbers
+    """
+    chunks = []
+    current_chunk = ""
+    current_page = 0
+    
+    for page_data in pages_data:
+        text = page_data.text
+        page_num = page_data.page_number
+        
+        # If adding this page would exceed chunk size, save current chunk and start new one
+        if len(current_chunk) + len(text) > chunk_size and current_chunk:
+            chunks.append({
+                "text": current_chunk.strip(),
+                "pages": page_num
+            })
+            # Start new chunk with overlap
+            current_chunk = current_chunk[-overlap:] if overlap > 0 else ""
+            current_page += 1
+            
+        current_chunk += text + " "
+        current_page += 1
+    
+    # Add the last chunk if it exists
+    if current_chunk:
+        chunks.append({
+            "text": current_chunk.strip(),
+            "pages": current_page
+        })
+    
+    return chunks
 
 def analyze_10k_revenue(content):
     """Use AI agent to analyze revenue breakdown from 10-K"""
@@ -170,42 +203,84 @@ def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
     finally:
         db.close()
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
-    """Split text into overlapping chunks of specified size.
+async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
+    """Process 10-K PDF file content and save financial data
     
     Args:
-        text (str): Text to split into chunks
-        chunk_size (int): Size of each chunk in characters
-        overlap (int): Number of characters to overlap between chunks
-        
+        file_content (bytes): PDF file content
+        ticker (str): Company ticker symbol
+        year (int): Year of the 10-K report
+    
     Returns:
-        List[str]: List of text chunks
+        dict: Saved financial data record
     """
-    if len(text) <= chunk_size:
-        return [text]
-    
-    chunks = []
-    start = 0
-    
-    while start < len(text):
-        # Find the end of the chunk
-        end = start + chunk_size
+    try:
+        start_time = time.time()
         
-        # If not at the end of text, try to find a good break point
-        if end < len(text):
-            # Try to find the last period or newline in the chunk
-            last_period = text.rfind('.', start, end)
-            last_newline = text.rfind('\n', start, end)
-            break_point = max(last_period, last_newline)
-            
-            # If found a good break point, use it
-            if break_point > start:
-                end = break_point + 1
+        # Extract PDF content from bytes with page numbers
+        pdf_content_start = time.time()
+        pages_data = get_pdf_content_from_bytes(file_content)
+        pdf_content_end = time.time()
+        logger.info(f"PDF content extraction took {pdf_content_end - pdf_content_start:.2f} seconds")
         
-        chunks.append(text[start:end].strip())
-        start = end - overlap
-    
-    return chunks
+        # Process PDF content into chunks with page tracking
+        chunk_start = time.time()
+        chunks = chunk_text(pages_data)
+        chunk_end = time.time()
+        logger.info(f"Text chunking took {chunk_end - chunk_start:.2f} seconds for {len(chunks)} chunks")
+        
+        # Generate embeddings and store in Pinecone
+        embedding_start = time.time()
+        vectors = []
+        for i, chunk in enumerate(chunks):
+            embedding = get_embeddings(chunk["text"])
+            vectors.append({
+                'id': f"{ticker}-chunk-{i}",
+                'values': embedding,
+                'metadata': {
+                    'ticker': ticker,
+                    'year': year,
+                    'chunk_index': i,
+                    'text': chunk["text"],
+                    'page_number': chunk["pages"]
+                }
+            })
+        embedding_end = time.time()
+        logger.info(f"Embedding took {embedding_end - embedding_start:.2f} seconds for {len(vectors)} vectors")
+        
+        # Initialize Pinecone
+        index = init_pinecone()
+        pinecone_start = time.time()
+        batch_size = 100
+        for i in range(0, len(vectors), batch_size):
+            batch = vectors[i:i + batch_size]
+            index.upsert(vectors=batch)
+        pinecone_end = time.time()
+        logger.info(f"Uploading to Pinecone took {pinecone_end - pinecone_start:.2f} seconds for {len(vectors)} vectors")
+        
+        # Get analysis from AI agent
+        analysis_start = time.time()
+        analysis = analyze_10k_revenue("\n".join([chunk["text"] for chunk in chunks]))
+        analysis_end = time.time()
+        logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
+        
+        # Save to database
+        save_start = time.time()
+        saved_data = save_analysis(ticker.upper(), analysis, "\n".join([chunk["text"] for chunk in chunks]))
+        save_end = time.time()
+        logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
+        
+        total_time = time.time() - start_time
+        logger.info(f"Total execution time: {total_time:.2f} seconds")
+        
+        return {
+            "id": saved_data[0].id,
+            "company_symbol": saved_data[0].company_symbol
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing 10-K file: {str(e)}")
+        raise
 
 def get_embeddings(text: str) -> List[float]:
     """Generate embeddings for text using OpenAI's text-embedding-3-small model.
@@ -231,99 +306,6 @@ def init_pinecone():
     pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
     index = pc.Index("company10k")
     return index
-
-async def handle_10k_file(file_content: bytes, ticker: str) -> dict:
-    """Process 10-K PDF file content and save financial data
-    
-    Args:
-        file_content (bytes): PDF file content
-        ticker (str): Company ticker symbol
-    
-    Returns:
-        dict: Saved financial data record
-    """
-    try:
-        start_time = time.time()
-        
-        # Extract PDF content from bytes
-        pdf_content_start = time.time()
-        pdf_content = get_pdf_content_from_bytes(file_content)
-        pdf_content_end = time.time()
-        logger.info(f"PDF content extraction took {pdf_content_end - pdf_content_start:.2f} seconds")
-        
-        # Process PDF content into chunks and generate embeddings
-        chunk_start = time.time()
-        chunks = chunk_text(pdf_content)
-        chunk_end = time.time()
-        logger.info(f"Text chunking took {chunk_end - chunk_start:.2f} seconds for {len(chunks)} chunks")
-        
-        
-        # Generate embeddings and store in Pinecone
-        embedding_start = time.time()
-        vectors = []
-        for i, chunk in enumerate(chunks):
-            embedding = get_embeddings(chunk)
-            vectors.append({
-                'id': f"{ticker}-chunk-{i}",
-                'values': embedding,
-                'metadata': {
-                    'ticker': ticker,
-                    'chunk_index': i,
-                    'text': chunk
-                }
-            })
-        embedding_end = time.time()
-        logger.info(f"Generating embeddings took {embedding_end - embedding_start:.2f} seconds for {len(chunks)} chunks")
-        
-        # Upsert vectors in batches
-
-        # Initialize Pinecone
-        index = init_pinecone()
-        pinecone_start = time.time()
-        batch_size = 100
-        for i in range(0, len(vectors), batch_size):
-            batch = vectors[i:i + batch_size]
-            index.upsert(vectors=batch)
-        pinecone_end = time.time()
-        logger.info(f"Uploading to Pinecone took {pinecone_end - pinecone_start:.2f} seconds for {len(vectors)} vectors")
-        
-        # Calculate average time per chunk
-        total_embedding_time = embedding_end - embedding_start
-        avg_time_per_chunk = total_embedding_time / len(chunks)
-        logger.info(f"Average time per chunk: {avg_time_per_chunk:.2f} seconds")
-        
-        # Get analysis from AI agent
-        analysis_start = time.time()
-        analysis = analyze_10k_revenue(pdf_content)
-        analysis_end = time.time()
-        logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
-        
-        # Save to database
-        save_start = time.time()
-        saved_data = save_analysis(ticker.upper(), analysis, pdf_content)
-        save_end = time.time()
-        logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
-        
-        total_time = time.time() - start_time
-        logger.info(f"Total execution time: {total_time:.2f} seconds")
-        
-        return {
-            "id": saved_data[0].id,
-            "company_symbol": saved_data[0].company_symbol
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing 10-K file: {str(e)}")
-        raise
-
-def get_pdf_content_from_bytes(file_content: bytes) -> str:
-    """Extract text content from PDF bytes"""
-    from io import BytesIO
-    reader = PdfReader(BytesIO(file_content))
-    text_content = ""
-    for page in reader.pages:
-        text_content += page.extract_text()
-    return text_content
 
 class ProductRevenueBreakdown(BaseModel):
     product: str

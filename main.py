@@ -326,7 +326,9 @@ async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
             )
             
         file_content = await file.read()
-        result = await handle_10k_file(file_content, ticker)
+        # Get the year from filename
+        year = int(file.filename.split("_")[0])
+        result = await handle_10k_file(file_content, ticker, year)
         
         return {
             "status": "success",
