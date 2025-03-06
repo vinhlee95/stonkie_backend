@@ -10,8 +10,9 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, get_revenue_breakdown_for_company, handle_10k_file
+from services.company import get_key_stats_for_ticker, handle_10k_file
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
+from services.revenue_data import get_revenue_breakdown_for_company
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from pydantic import BaseModel
 from urllib.parse import urlencode
