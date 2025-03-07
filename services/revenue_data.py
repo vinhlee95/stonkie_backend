@@ -40,12 +40,12 @@ def get_revenue_breakdown_for_company(ticker: str) -> list[NewRevenueBreakdownDT
     """Get revenue breakdown for a given company"""
     try:
         financial_data = company_financial_connector.get_company_revenue_data(ticker)
-        if financial_data.count() == 0:
+        if not financial_data:
             return None
 
         revenue_breakdown: list[NewRevenueBreakdownDTO] = []
 
-        for data in financial_data.all():
+        for data in financial_data:
             year = data.year
             product_breakdown = list(chain.from_iterable([item.get('breakdown') for item in data.revenue_breakdown if item.get('type') == "product"]))
             region_breakdown = list(chain.from_iterable([item.get('breakdown') for item in data.revenue_breakdown if item.get('type') == "region"]))
