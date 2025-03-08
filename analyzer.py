@@ -10,7 +10,7 @@ from agent.agent import Agent
 import pandas as pd
 from io import StringIO
 from typing import Dict, Any
-from connectors.vector_store import search_similar_content
+from connectors.vector_store import search_similar_content_and_format_to_texts
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
@@ -176,7 +176,7 @@ async def handle_general_finance_question(question):
         }
 
 COMMON_SOURCE_PROMPT = """
-    At the end of the answer, state clearly where the source information comes from, whether it is from the 10K document or any financial statements or your own general knowledge.
+    At the end of the answer, state clearly where the source information comes from, whether it is from the 10K document (if so which section and page) or any financial statements or your own general knowledge.
 """
 
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
@@ -185,20 +185,12 @@ async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
     try:
         openai_agent = Agent(model_type="openai")
-        # Search for relevant context from 10-K documents
-        results = search_similar_content(
+        # Format search results into financial context
+        context_from_official_document = search_similar_content_and_format_to_texts(
             query_embeddings=openai_agent.generate_embedding(question),
             index_name=COMPANY_DOCUMENT_INDEX_NAME,
             filter={"ticker": ticker.lower()}
         )
-
-        # Format search results into financial context
-        context_from_official_document = ""
-        if results and results['matches']:
-            context_from_official_document = "\nRelevant information from company documents:\n\n"
-            for match in results['matches']:
-                text = match['metadata']['text'].strip()
-                context_from_official_document += f"{text}\n\n"
 
         response = await agent.generate_content([
             "Please answer this question about general company information about a company.",
@@ -243,7 +235,7 @@ async def handle_company_specific_finance(ticker, question):
 
     # Search for relevant context from 10-K documents
     openai_agent = Agent(model_type="openai")
-    results = search_similar_content(
+    context_from_official_document = search_similar_content_and_format_to_texts(
         query_embeddings=openai_agent.generate_embedding(question),
         index_name=COMPANY_DOCUMENT_INDEX_NAME,
         filter={"ticker": ticker}
@@ -251,11 +243,8 @@ async def handle_company_specific_finance(ticker, question):
     
     # Format search results into financial context
     financial_context = ""
-    if results and results['matches']:
-        financial_context = "\nRelevant information from company documents:\n\n"
-        for match in results['matches']:
-            text = match['metadata']['text'].strip()
-            financial_context += f"{text}\n\n"
+    if context_from_official_document:
+        financial_context = f"\nRelevant information from company's 10K documents:\n\n{context_from_official_document}"
     
     try:
         financial_data = await get_financial_data_for_ticker(ticker)
