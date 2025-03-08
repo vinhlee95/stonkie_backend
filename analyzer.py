@@ -10,8 +10,7 @@ from agent.agent import Agent
 import pandas as pd
 from io import StringIO
 from typing import Dict, Any
-from openai import OpenAI
-from pinecone import Pinecone
+from connectors.vector_store import search_similar_content
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
@@ -180,17 +179,24 @@ COMMON_SOURCE_PROMPT = """
     At the end of the answer, state clearly where the source information comes from, whether it is from the 10K document or any financial statements or your own general knowledge.
 """
 
+COMPANY_DOCUMENT_INDEX_NAME = "company10k"
+
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
     try:
+        openai_agent = Agent(model_type="openai")
         # Search for relevant context from 10-K documents
-        results = search_similar_content(question, ticker)
+        results = search_similar_content(
+            query_embeddings=openai_agent.generate_embedding(question),
+            index_name=COMPANY_DOCUMENT_INDEX_NAME,
+            filter={"ticker": ticker.lower()}
+        )
 
         # Format search results into financial context
         context_from_official_document = ""
         if results and results['matches']:
             context_from_official_document = "\nRelevant information from company documents:\n\n"
-            for i, match in enumerate(results['matches'], 1):
+            for match in results['matches']:
                 text = match['metadata']['text'].strip()
                 context_from_official_document += f"{text}\n\n"
 
@@ -229,44 +235,6 @@ async def handle_company_general_question(ticker, question):
     except Exception as e:
         yield f"❌ Error generating explanation: {e}"
 
-def get_embeddings(text: str) -> list[float]:
-    """Generate embeddings for text using OpenAI's text-embedding-3-small model."""
-    client = OpenAI()
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text,
-        encoding_format="float"
-    )
-    return response.data[0].embedding
-
-def search_similar_content(query: str, ticker: str, top_k: int = 20):
-    """Search for similar content in Pinecone database."""
-    # Generate embedding for the query
-    query_embedding = get_embeddings(query)
-    
-    # Initialize Pinecone and search
-    pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-    index = pc.Index("company10k")
-
-    results = index.query(
-        vector=query_embedding,
-        top_k=top_k,
-        include_metadata=True,
-        filter={"ticker": ticker.lower()}
-    )
-
-    # results = index.search_records(
-    #     namespace="", 
-    #     query={
-    #         "inputs": {"text": query}, 
-    #         "top_k": top_k,
-    #         "filter": {"ticker": ticker},
-    #     },
-    #     # fields=["category", "chunk_text"]
-    # )
-    
-    return results
-
 async def handle_company_specific_finance(ticker, question):
     ticker = ticker.lower().strip()
 
@@ -274,16 +242,19 @@ async def handle_company_specific_finance(ticker, question):
     company_fundamental = get_company_fundamental(ticker)
 
     # Search for relevant context from 10-K documents
-    results = search_similar_content(question, ticker)
+    openai_agent = Agent(model_type="openai")
+    results = search_similar_content(
+        query_embeddings=openai_agent.generate_embedding(question),
+        index_name=COMPANY_DOCUMENT_INDEX_NAME,
+        filter={"ticker": ticker}
+    )
     
     # Format search results into financial context
     financial_context = ""
     if results and results['matches']:
         financial_context = "\nRelevant information from company documents:\n\n"
-        for i, match in enumerate(results['matches'], 1):
+        for match in results['matches']:
             text = match['metadata']['text'].strip()
-            score = match['score']
-            # if score > 0.7:  # Only include highly relevant matches
             financial_context += f"{text}\n\n"
     
     try:
