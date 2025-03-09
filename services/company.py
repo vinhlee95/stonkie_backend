@@ -8,8 +8,8 @@ from agent.agent import Agent
 from connectors.database import SessionLocal, Base, engine
 from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from models.company_financial import CompanyFinancials
-import os
-from pinecone import Pinecone
+from connectors.vector_store import init_vector_record
+from analyzer import COMPANY_DOCUMENT_INDEX_NAME
 
 class CompanyFundamental(BaseModel):
     market_cap: int
@@ -199,6 +199,20 @@ def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
     finally:
         db.close()
 
+def init_vector_record_for_company(ticker: str, year: int, text: str, page_number: int, chunk_index: int):
+    agent = Agent(model_type="openai")
+    return init_vector_record(
+        id=f"{ticker}-chunk-{chunk_index}",
+        embeddings=agent.generate_embedding(text),
+        metadata={
+            "ticker": ticker,
+            "year": year,
+            "chunk_index": chunk_index,
+            "text": text,
+            "page_number": page_number,
+        }
+    )
+
 async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
     """Process 10-K PDF file content and save financial data
     
@@ -228,32 +242,12 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         # Generate embeddings and store in Pinecone
         embedding_start = time.time()
         vectors = []
-        agent = Agent(model_type="openai")
         for i, chunk in enumerate(chunks):
-            embedding = agent.generate_embedding(input=chunk["text"])
-            vectors.append({
-                'id': f"{ticker}-chunk-{i}",
-                'values': embedding,
-                'metadata': {
-                    'ticker': ticker,
-                    'year': year,
-                    'chunk_index': i,
-                    'text': chunk["text"],
-                    'page_number': chunk["pages"]
-                }
-            })
+            vectors.append(init_vector_record_for_company(ticker, year, chunk["text"], chunk["pages"], i))
         embedding_end = time.time()
         logger.info(f"Embedding took {embedding_end - embedding_start:.2f} seconds for {len(vectors)} vectors")
         
-        # Initialize Pinecone
-        index = init_pinecone()
-        pinecone_start = time.time()
-        batch_size = 100
-        for i in range(0, len(vectors), batch_size):
-            batch = vectors[i:i + batch_size]
-            index.upsert(vectors=batch)
-        pinecone_end = time.time()
-        logger.info(f"Uploading to Pinecone took {pinecone_end - pinecone_start:.2f} seconds for {len(vectors)} vectors")
+        add_vector_record_by_batch(COMPANY_DOCUMENT_INDEX_NAME, vectors)
         
         # Get analysis from AI agent
         analysis_start = time.time()
@@ -278,9 +272,3 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
     except Exception as e:
         logger.error(f"Error processing 10-K file: {str(e)}")
         raise
-
-def init_pinecone():
-    """Initialize Pinecone client."""
-    pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-    index = pc.Index("company10k")
-    return index

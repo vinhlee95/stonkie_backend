@@ -25,3 +25,22 @@ def search_similar_content_and_format_to_texts(query_embeddings: list[float], in
       context_from_official_document += f"{text}\n\n"
 
   return context_from_official_document
+
+def init_vector_record(id: str, embeddings: list[float], metadata: dict):
+  return {
+    "id": id,
+    "values": embeddings,
+    "metadata": metadata
+  }
+
+def add_vector_record_by_batch(index_name: str, records: list[dict], batch_size: int = 100) -> None:
+  index = pc.Index(index_name)
+
+  pinecone_start = time.time()
+  
+  for i in range(0, len(records), batch_size):
+    batch = records[i:i + batch_size]
+    index.upsert(records=batch)
+  
+  pinecone_end = time.time()
+  logger.info(f"Uploading to Pinecone index {index_name} took {pinecone_end - pinecone_start:.2f} seconds for {len(records)} records")
