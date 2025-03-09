@@ -8,7 +8,7 @@ from agent.agent import Agent
 from connectors.database import SessionLocal, Base, engine
 from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from models.company_financial import CompanyFinancials
-from connectors.vector_store import init_vector_record
+from connectors.vector_store import init_vector_record, add_vector_record_by_batch
 from analyzer import COMPANY_DOCUMENT_INDEX_NAME
 
 class CompanyFundamental(BaseModel):
@@ -240,6 +240,7 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         logger.info(f"Text chunking took {chunk_end - chunk_start:.2f} seconds for {len(chunks)} chunks")
         
         # Generate embeddings and store in Pinecone
+        logger.info(f"Generate embeddings for {len(chunks)} chunks")
         embedding_start = time.time()
         vectors = []
         for i, chunk in enumerate(chunks):

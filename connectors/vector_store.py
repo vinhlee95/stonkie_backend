@@ -1,5 +1,9 @@
 import os
+import logging
 from pinecone import Pinecone
+import time
+
+logger = logging.getLogger(__name__)
 
 pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
 
@@ -40,7 +44,7 @@ def add_vector_record_by_batch(index_name: str, records: list[dict], batch_size:
   
   for i in range(0, len(records), batch_size):
     batch = records[i:i + batch_size]
-    index.upsert(records=batch)
+    index.upsert(vectors=batch)
   
   pinecone_end = time.time()
   logger.info(f"Uploading to Pinecone index {index_name} took {pinecone_end - pinecone_start:.2f} seconds for {len(records)} records")
