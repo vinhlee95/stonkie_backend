@@ -112,7 +112,8 @@ async def get_revenue_insights_for_company_product(ticker: str):
             3. Make each insight self-contained and complete
             4. End the entire response with "---COMPLETE---"
 
-            Generate insights one at a time, ensuring each is thorough and valuable.
+            Generate insights one at a time, ensuring each is thorough and valuable. 
+            At the end of each insight, specify the source of the insight. Specify the time period of the source.
             Do not include any other text or formatting outside of these markers.
         """
         
@@ -171,6 +172,7 @@ async def get_revenue_insights_for_company_region(ticker: str):
             4. End the entire response with "---COMPLETE---"
 
             Generate insights one at a time, ensuring each is thorough and valuable.
+            At the end of each insight, specify the source of the insight. Specify the time period of the source.
             Do not include any other text or formatting outside of these markers.
         """
         
