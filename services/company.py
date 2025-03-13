@@ -7,6 +7,7 @@ import time
 from agent.agent import Agent
 from connectors.database import SessionLocal, Base, engine
 from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
+from connectors.vector_store import search_similar_content_and_format_to_texts
 from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
 from analyzer import COMPANY_DOCUMENT_INDEX_NAME
@@ -47,6 +48,42 @@ def get_key_stats_for_ticker(ticker: str):
         exchange=company_fundamental["Exchange"],
         dividend_yield=dividend_yield
     )
+
+async def get_swot_analysis_for_ticker(ticker: str):
+    # Get relevant info from 10K file
+    embedding_agent = Agent(model_type="openai")
+    swot_prompt = f"""strengths, weaknesses, opportunities, and threats of {ticker.upper()}?"""
+    relevant_info_from_10k = search_similar_content_and_format_to_texts(
+        query_embeddings=embedding_agent.generate_embedding(swot_prompt),
+        index_name=COMPANY_DOCUMENT_INDEX_NAME,
+        filter={"ticker": ticker.lower()},
+        top_k=20
+    )
+
+    agent = Agent(model_type="gemini")
+    prompt = f"""
+        Generate a SWOT analysis for company {ticker.upper()}.
+        Here are relevant information from 10-K file:
+        {relevant_info_from_10k}.
+        Use your general knowledge to supplement the insights from the 10K file. 
+        Return the response in JSON format. The response is an object with following fields:
+        - strength: list of string
+        - weakness: list of string
+        - opportunity: list of string
+        - threat: list of string
+    """
+    response = await agent.generate_content(prompt)
+
+    async for item in response:
+        print(item.text)
+
+    # analysis_result = response.text
+    # json_match = re.search(r'```json\n(.*)\n```', analysis_result, re.DOTALL)
+    # if json_match:
+    #     json_content = json_match.group(1)
+    #     return json.loads(json_content)
+
+    return None
 
 
 # Create tables

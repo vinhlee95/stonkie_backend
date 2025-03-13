@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, handle_10k_file
+from services.company import get_key_stats_for_ticker, handle_10k_file, get_swot_analysis_for_ticker
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
@@ -344,3 +344,12 @@ async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
             status_code=500,
             detail=f"Error processing the uploaded file: {str(e)}"
         )
+
+
+@app.get("/api/companies/{ticker}/swot")
+async def get_swot(ticker: str):
+    swot = await get_swot_analysis_for_ticker(ticker)
+    return {
+        "status": "success",
+        "data": swot
+    }
