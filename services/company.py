@@ -72,19 +72,26 @@ async def get_swot_analysis_for_ticker(ticker: str):
         - opportunity: list of string
         - threat: list of string
     """
-    response = await agent.generate_content(prompt)
+    accumulated_text = ""
+    response = await agent.generate_content(
+        prompt=prompt,
+        stream=True
+    )
 
-    async for item in response:
-        print(item.text)
-
-    # analysis_result = response.text
-    # json_match = re.search(r'```json\n(.*)\n```', analysis_result, re.DOTALL)
-    # if json_match:
-    #     json_content = json_match.group(1)
-    #     return json.loads(json_content)
-
-    return None
-
+    async for chunk in response:
+        accumulated_text += chunk.text
+        
+    # Parse JSON from accumulated_text
+    json_match = re.search(r'```json\s*(.+?)\s*```', accumulated_text, re.DOTALL)
+    if json_match:
+        json_content = json_match.group(1)
+        return json.loads(json_content)
+    else:
+        logger.error("Failed to extract JSON from response", {
+            "ticker": ticker,
+            "response": accumulated_text
+        })
+        return None
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -132,7 +139,7 @@ def chunk_text(pages_data: list[PageData], chunk_size: int = 1000, overlap: int 
     
     return chunks
 
-def analyze_10k_revenue(content):
+async def analyze_10k_revenue(content):
     """Use AI agent to analyze revenue breakdown from 10-K"""
     agent = Agent(model_type="gemini")
     
@@ -161,12 +168,18 @@ def analyze_10k_revenue(content):
     {content}
     """
     
-    response = agent.generate_content(
+    # Use non-streaming response for simplicity
+    response_obj = await agent.generate_content(
         prompt.format(content=content), 
         stream=False,
     )
-
-    return response.text
+    
+    # For non-streaming responses, we can directly access the text property
+    if hasattr(response_obj, 'text'):
+        return response_obj.text
+    else:
+        # Handle case where response might be a different type
+        return str(response_obj)
 
 def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
     """Save analysis results to database"""
