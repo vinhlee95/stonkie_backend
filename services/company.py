@@ -71,6 +71,8 @@ async def get_swot_analysis_for_ticker(ticker: str):
         - weakness: list of string
         - opportunity: list of string
         - threat: list of string
+
+        Each list should have maximum 3 items. Keep the words amount in each SWOT aspect within 100 words.
     """
     accumulated_text = ""
     response = await agent.generate_content(
