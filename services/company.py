@@ -73,6 +73,7 @@ async def get_swot_analysis_for_ticker(ticker: str):
         - threat: list of string
 
         Each list should have maximum 3 items. Keep the words amount in each SWOT aspect within 100 words.
+        At the end of each list, say explicitly where it the source of your analysis.
     """
     accumulated_text = ""
     response = await agent.generate_content(
@@ -141,7 +142,7 @@ def chunk_text(pages_data: list[PageData], chunk_size: int = 1000, overlap: int 
     
     return chunks
 
-async def analyze_10k_revenue(content):
+def analyze_10k_revenue(content):
     """Use AI agent to analyze revenue breakdown from 10-K"""
     agent = Agent(model_type="gemini")
     
@@ -171,7 +172,7 @@ async def analyze_10k_revenue(content):
     """
     
     # Use non-streaming response for simplicity
-    response_obj = await agent.generate_content(
+    response_obj = agent.generate_content(
         prompt.format(content=content), 
         stream=False,
     )
