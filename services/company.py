@@ -266,7 +266,7 @@ def init_vector_record_for_company(ticker: str, year: int, text: str, page_numbe
         }
     )
 
-async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
+async def handle_company_report(file_content: bytes, ticker: str, year: int, extract_revenue: bool = False, extract_insights: bool = False) -> dict:
     """Process 10-K PDF file content and save financial data
     
     Args:
@@ -292,35 +292,37 @@ async def handle_10k_file(file_content: bytes, ticker: str, year: int) -> dict:
         chunk_end = time.time()
         logger.info(f"Text chunking took {chunk_end - chunk_start:.2f} seconds for {len(chunks)} chunks")
         
-        # Generate embeddings and store in Pinecone
-        logger.info(f"Generate embeddings for {len(chunks)} chunks")
-        embedding_start = time.time()
-        vectors = []
-        for i, chunk in enumerate(chunks):
-            vectors.append(init_vector_record_for_company(ticker, year, chunk["text"], chunk["pages"], i))
-        embedding_end = time.time()
-        logger.info(f"Embedding took {embedding_end - embedding_start:.2f} seconds for {len(vectors)} vectors")
+        if extract_insights:
+            # Generate embeddings and store in Pinecone
+            logger.info(f"Generate embeddings for {len(chunks)} chunks")
+            embedding_start = time.time()
+            vectors = []
+            for i, chunk in enumerate(chunks):
+                vectors.append(init_vector_record_for_company(ticker, year, chunk["text"], chunk["pages"], i))
+            embedding_end = time.time()
+            logger.info(f"Embedding took {embedding_end - embedding_start:.2f} seconds for {len(vectors)} vectors")
+            
+            add_vector_record_by_batch(COMPANY_DOCUMENT_INDEX_NAME, vectors)
         
-        add_vector_record_by_batch(COMPANY_DOCUMENT_INDEX_NAME, vectors)
-        
-        # Get analysis from AI agent
-        analysis_start = time.time()
-        analysis = analyze_10k_revenue("\n".join([chunk["text"] for chunk in chunks]))
-        analysis_end = time.time()
-        logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
-        
-        # Save to database
-        save_start = time.time()
-        saved_data = save_analysis(ticker.upper(), analysis, "\n".join([chunk["text"] for chunk in chunks]))
-        save_end = time.time()
-        logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
+        if extract_revenue:
+            # Get analysis from AI agent
+            analysis_start = time.time()
+            analysis = analyze_10k_revenue("\n".join([chunk["text"] for chunk in chunks]))
+            analysis_end = time.time()
+            logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
+            
+            # Save to database
+            save_start = time.time()
+            saved_data = save_analysis(ticker.upper(), analysis, "\n".join([chunk["text"] for chunk in chunks]))
+            save_end = time.time()
+            logger.info(f"Saving to database took {save_end - save_start:.2f} seconds")
         
         total_time = time.time() - start_time
         logger.info(f"Total execution time: {total_time:.2f} seconds")
         
         return {
-            "id": saved_data[0].id,
-            "company_symbol": saved_data[0].company_symbol
+            "ticker": ticker,
+            "year": year,
         }
         
     except Exception as e:

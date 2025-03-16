@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, handle_10k_file, get_swot_analysis_for_ticker
+from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
@@ -309,14 +309,21 @@ async def get_key_stats(ticker: str):
         "data": key_stats
     }
 
-@app.post("/api/companies/{ticker}/10k")
-async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
+@app.post("/api/companies/{ticker}/upload_report")
+async def upload_10k_report(
+    ticker: str, 
+    file: UploadFile = File(...),
+    extract_revenue: bool = False,
+    extract_insights: bool = False
+):
     """
     Upload and process a 10-K report PDF file
     
     Args:
         file (UploadFile): The PDF file to be uploaded
         ticker (str): Company ticker symbol
+        extract_revenue (bool): Whether to extract revenue data from the report
+        extract_insights (bool): Whether to extract insights from the report
     Returns:
         dict: Processed financial data
     """
@@ -330,7 +337,7 @@ async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
         file_content = await file.read()
         # Get the year from filename
         year = int(file.filename.split("_")[0])
-        result = await handle_10k_file(file_content, ticker, year)
+        result = await handle_company_report(file_content, ticker, year, extract_revenue, extract_insights)
         
         return {
             "status": "success",
@@ -344,7 +351,6 @@ async def upload_10k_report(ticker: str, file: UploadFile = File(...)):
             status_code=500,
             detail=f"Error processing the uploaded file: {str(e)}"
         )
-
 
 @app.get("/api/companies/{ticker}/swot")
 async def get_swot(ticker: str):
