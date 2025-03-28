@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
-from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker
+from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker, get_all_companies
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
@@ -253,49 +253,14 @@ async def get_faq(request: Request):
         logger.error(f"Error during FAQ generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Something went wrong. Please try again later.")
 
-    
-
-def get_company_logo_url(company_name: str):
-    """
-    Proxy endpoint to fetch company logo and return as image response
-    """
-    API_KEY = os.getenv('BRAND_FETCH_API_KEY')
-    params = urlencode({'c': API_KEY })
-    return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
-
-
 @app.get("/api/companies/most-viewed")
 async def get_most_viewed_companies():
     """
     Get the most viewed companies
     """
-    class Company(BaseModel):
-        name: str
-        ticker: str
-        logo_url: str
-
-    most_viewed_companies: list[Company] = [
-        Company(name="Apple", ticker="AAPL", logo_url=get_company_logo_url("apple")),
-        Company(name="Tesla", ticker="TSLA", logo_url=get_company_logo_url("tesla")),
-        Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
-        Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
-        Company(name="Nordea", ticker="NDA-FI.HE", logo_url=get_company_logo_url("nordea")),
-        Company(name="Mandatum", ticker="MANTA.HE", logo_url=get_company_logo_url("mandatum")),
-        Company(name="Fortum", ticker="FORTUM.HE", logo_url=get_company_logo_url("fortum")),
-        Company(name="Alphabet", ticker="GOOG", logo_url=get_company_logo_url("google")),
-        Company(name="Amazon", ticker="AMZN", logo_url=get_company_logo_url("amazon")),
-        Company(name="Meta", ticker="META", logo_url=get_company_logo_url("meta")),
-        Company(name="Netflix", ticker="NFLX", logo_url=get_company_logo_url("netflix")),
-        Company(name="Berkshire Hathaway", ticker="BRK.A", logo_url=get_company_logo_url("berkshire")),
-        Company(name="Wallmart", ticker="WMT", logo_url=get_company_logo_url("walmart")),
-        Company(name="AT&T", ticker="T", logo_url=get_company_logo_url("att")),
-        Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
-        Company(name="ASML Holding", ticker="ASML", logo_url=get_company_logo_url("asml")),
-    ]
-    
     return {
         "status": "success",
-        "data": most_viewed_companies
+        "data": get_all_companies()
     }
 
 
