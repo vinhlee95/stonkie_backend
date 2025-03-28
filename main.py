@@ -290,6 +290,7 @@ async def get_most_viewed_companies():
         Company(name="Wallmart", ticker="WMT", logo_url=get_company_logo_url("walmart")),
         Company(name="AT&T", ticker="T", logo_url=get_company_logo_url("att")),
         Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
+        Company(name="ASML Holding", ticker="ASML", logo_url=get_company_logo_url("asml")),
     ]
     
     return {
