@@ -35,3 +35,11 @@ def get_all() -> list[Company]:
       Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
       Company(name="ASML Holding", ticker="ASML", logo_url=get_company_logo_url("asml")),
     ]
+
+def get_by_ticker(ticker: str) -> Company | None:
+  all_companies = get_all()
+  company = [item for item in all_companies if item.ticker == ticker.upper()]
+  if len(company) == 0:
+    return None
+
+  return company[0]

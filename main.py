@@ -225,7 +225,7 @@ async def get_faq(request: Request):
             # Come up with 3 generic questions
             async def generate_stream():
                 yield f"data: {json.dumps({
-                    'type': 'status', 
+                    'type': 'status',
                     'message': 'Hi! My name is Stonkie. I can help you understand how a company is doing financially. Please pick a ticker symbol to get started.\n\n' + 
                               'I can also help with general finance questions. Here are some frequently asked questions about general financial concepts. Feel free to pick a question to see what I can do.'
                 })}\n\n"

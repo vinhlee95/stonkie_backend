@@ -1,5 +1,6 @@
 from agent.agent import Agent
 from logging import getLogger
+from connectors.company import get_by_ticker
 
 logger = getLogger(__name__)
 
@@ -42,15 +43,15 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
     Streaming version: Get 3 frequent ask questions for a given ticker symbol
     Yields questions as they are generated
     """
-
-    yield {"type": "status", "message": "Here are some frequently asked questions about this ticker symbol:"}
+    company = get_by_ticker(ticker)
+    yield {"type": "status", "message": f"Here are some frequently asked questions about {company.name} ({company.ticker})"}
 
     try:
         # Generate questions (streaming)
         response_generator = agent.generate_content_and_normalize_results(
             [
-                f"Here is the company's ticker name: {ticker}",
-                "Generate 3 questions that customers would ask about this ticker symbol. Using the company name from the ticker name.",
+                f"The company name is {company.name}. Their ticker name is {ticker}",
+                "Generate 3 questions that users would ask about this company.",
                 "1 question is about the company's general information such as who founded the company, when it was founded, etc.",
                 "1 question is about the company's products, services, business model, competitive advantage, etc.",
                 """
