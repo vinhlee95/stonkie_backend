@@ -177,6 +177,7 @@ async def handle_general_finance_question(question):
         }
 
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
+LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 300 words."
 
 # TODO: yield thinking process to the client
 async def handle_company_general_question(ticker, question):
@@ -197,7 +198,8 @@ async def handle_company_general_question(ticker, question):
                 f"Here are relevant information from 10K document: {context_from_official_document}",
                 "Use the relevant information from 10K document first when answering the question. Make sure that the answer includes all the facts given by the 10K document.",
                 "Make the answer as details as possible, including all the facts from the 10K document.",
-                "At the end of the answer, state clearly which section and page from 10K document the answer bases on."
+                "At the end of the answer, state clearly which section and page from 10K document the answer bases on.",
+                LENGTH_LIMIT_PROMPT
             ]
         else:
             prompt = [
@@ -205,7 +207,8 @@ async def handle_company_general_question(ticker, question):
                 question,
                 "Use your general knowledge and Google search results to answer the question.",
                 "Make the answer as details as possible, including all the facts.",
-                "At the end of the answer, state clearly which sources the answer bases on."
+                "At the end of the answer, state clearly which sources the answer bases on.",
+                LENGTH_LIMIT_PROMPT
             ]
 
         response = await agent.generate_content(prompt)
