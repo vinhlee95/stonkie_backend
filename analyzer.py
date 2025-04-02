@@ -11,6 +11,7 @@ import pandas as pd
 from io import StringIO
 from typing import Dict, Any
 from connectors.vector_store import search_similar_content_and_format_to_texts
+from connectors.company import get_by_ticker
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
@@ -175,14 +176,12 @@ async def handle_general_finance_question(question):
             "body": "❌ Error generating explanation. Please try again later."
         }
 
-COMMON_SOURCE_PROMPT = """
-    At the end of the answer, state clearly where the source information comes from, whether it is from the 10K document (if so which section and page) or any financial statements or your own general knowledge.
-"""
-
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 
+# TODO: yield thinking process to the client
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
+    company_name = get_by_ticker(ticker).name
     try:
         openai_agent = Agent(model_type="openai")
         # Format search results into financial context
@@ -191,25 +190,31 @@ async def handle_company_general_question(ticker, question):
             index_name=COMPANY_DOCUMENT_INDEX_NAME,
             filter={"ticker": ticker.lower()}
         )
+        if context_from_official_document:
+            prompt = [
+                f"Answer this question from company {company_name} with ticker {ticker}:",
+                question,
+                f"Here are relevant information from 10K document: {context_from_official_document}",
+                "Use the relevant information from 10K document first when answering the question. Make sure that the answer includes all the facts given by the 10K document.",
+                "Make the answer as details as possible, including all the facts from the 10K document.",
+                "At the end of the answer, state clearly which section and page from 10K document the answer bases on."
+            ]
+        else:
+            prompt = [
+                f"Answer this question from company {company_name} with ticker {ticker}:",
+                question,
+                "Use your general knowledge and Google search results to answer the question.",
+                "Make the answer as details as possible, including all the facts.",
+                "At the end of the answer, state clearly which sources the answer bases on."
+            ]
 
-        response = await agent.generate_content([
-            "Please answer this question about general company information about a company.",
-            f"If the company name is not mentioned in the question, just answer the question assuming it is {ticker.upper()}",
-            "Here is the question:",
-            question,
-            f"Here are relevant information from 10K document: {context_from_official_document}",
-            "Use the relevant information from 10K document first when answering the question. Make sure that the answer includes all the facts given by the 10K document.",
-            "If there is no relevant information from the 10K document, use your general knowledge to answer the question.",
-            COMMON_SOURCE_PROMPT,
-            "Make the answer as details as possible, including all the facts from the 10K document and your own general knowledge.",
-        ])
+        response = await agent.generate_content(prompt)
 
         async for answer in response:
             yield {
                 "type": "answer",
                 "body": answer.text
             }
-
 
         prompt = f"""
             Based on this original question: "{question}"
@@ -274,7 +279,6 @@ async def handle_company_specific_finance(ticker, question):
             Apart from numbers and trends, share relevant information about the question from the provided sources.
 
             If you cannot find the answer from the given data. Do not make up any answer.
-            {COMMON_SOURCE_PROMPT}
         """
 
         response = await agent.generate_content([
