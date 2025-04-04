@@ -182,7 +182,9 @@ LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally be
 # TODO: yield thinking process to the client
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
-    company_name = get_by_ticker(ticker).name
+    company = get_by_ticker(ticker)
+    company_name = company.name if company else ""
+
     try:
         openai_agent = Agent(model_type="openai")
         # Format search results into financial context
@@ -207,7 +209,7 @@ async def handle_company_general_question(ticker, question):
                 question,
                 "Use your general knowledge and Google search results to answer the question.",
                 "Make the answer as details as possible, including all the facts.",
-                "At the end of the answer, state clearly which sources the answer bases on.",
+                "At the end of the answer, state clearly which specific website and their URL do you get the information from.",
                 LENGTH_LIMIT_PROMPT
             ]
 
