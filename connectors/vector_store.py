@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
 
-def search_similar_content(query_embeddings: list[float], index_name: str, filter: dict, top_k: int = 20):
+def search_similar_content(query_embeddings: list[float], index_name: str, filter: dict, top_k: int = 10):
   index = pc.Index(index_name)
   results = index.query(
       vector=query_embeddings,
@@ -25,8 +25,9 @@ def search_similar_content_and_format_to_texts(query_embeddings: list[float], in
   context_from_official_document = ""
   if results and results['matches']:
     for match in results['matches']:
-      text = match['metadata']['text'].strip()
-      context_from_official_document += f"{text}\n\n"
+      if match.get('score') >= 0.5:
+        text = match['metadata']['text'].strip()
+        context_from_official_document += f"{text}\n\n"
 
   return context_from_official_document
 
