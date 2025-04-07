@@ -294,7 +294,7 @@ async def upload_10k_report(
         dict: Processed financial data
     """
     try:
-        if not file.filename.endswith('.pdf'):
+        if not file.filename or not file.filename.endswith('.pdf'):
             raise HTTPException(
                 status_code=400,
                 detail="Only PDF files are accepted"
