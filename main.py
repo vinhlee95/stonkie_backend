@@ -13,9 +13,8 @@ from enum import Enum
 from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker, get_all_companies
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
+from services.company import get_company_financial_statements
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
-from pydantic import BaseModel
-from urllib.parse import urlencode
 import time
 from functools import lru_cache
 from google.api_core import retry
@@ -93,6 +92,11 @@ def get_cached_financial_data(ticker: str, report_type: str) -> tuple:
     except Exception as e:
         logger.error(f"Error downloading blob: {str(e)}")
         return None, None
+
+@app.get("/api/companies/{ticker}/statements")
+def get_financial_statements(ticker: str):
+    statements = get_company_financial_statements(ticker)
+    return statements
 
 @app.get("/api/financial-data/{ticker}/{report_type}")
 async def get_financial_data(ticker: str, report_type: str) -> Dict:

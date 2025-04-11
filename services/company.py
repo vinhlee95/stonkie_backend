@@ -1,4 +1,3 @@
-import os
 from external_knowledge.company_fundamental import get_company_fundamental
 from pydantic import BaseModel
 import logging
@@ -12,7 +11,10 @@ from connectors.vector_store import search_similar_content_and_format_to_texts
 from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
 from connectors.company import get_all
+from connectors.company_financial import CompanyFinancialConnector
 from analyzer import COMPANY_DOCUMENT_INDEX_NAME
+
+company_financial_connector = CompanyFinancialConnector()
 
 class CompanyFundamental(BaseModel):
     market_cap: int
@@ -334,3 +336,12 @@ async def handle_company_report(file_content: bytes, ticker: str, year: int, ext
 def get_all_companies():
     # Return hard-coded data for now. Move to DB later
     return get_all()
+
+
+def get_company_financial_statements(ticker: str):
+    try:
+        statements = company_financial_connector.get_company_financial_statements(ticker)
+        return statements
+    except Exception as e:
+        logger.error(f"Error getting company financial statements: {str(e)}")
+        return None
