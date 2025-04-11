@@ -21,6 +21,7 @@ from functools import lru_cache
 from google.api_core import retry
 from google.cloud.storage import Client
 from fastapi.responses import StreamingResponse
+from datetime import datetime
 
 load_dotenv()
 
@@ -325,3 +326,57 @@ async def get_swot(ticker: str):
         "status": "success",
         "data": swot
     }
+
+def is_number(value):
+    try:
+        float(value)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+def parse_financial_statements(df):
+    """
+    Parse financial statements data into a standardized format.
+    
+    Args:
+        df: List of dictionaries containing financial metrics with TTM and yearly values
+        
+    Returns:
+        List of dictionaries with standardized financial statement format
+    """
+    # Initialize a dictionary to store metrics by year
+    yearly_metrics = {}
+    
+    # First pass: collect all metrics for each year
+    for item in df:
+        metric_name = item['Breakdown']
+        
+        # Process TTM data
+        if 'TTM' in item and item['TTM'] is not None and is_number(item['TTM']):
+            if 'TTM' not in yearly_metrics:
+                yearly_metrics['TTM'] = {}
+            yearly_metrics['TTM'][metric_name] = int(item['TTM'])
+        
+        # Process yearly data
+        for date_str, value in item.items():
+            if date_str not in ['Breakdown', 'TTM'] and value is not None and is_number(value):
+                # Convert date string to year
+                date = datetime.strptime(date_str, '%m/%d/%Y')
+                year = date.year
+                
+                if year not in yearly_metrics:
+                    yearly_metrics[year] = {}
+                yearly_metrics[year][metric_name] = int(value)
+    
+    # Second pass: convert to desired output format
+    result = []
+    for period_end_year, metrics in yearly_metrics.items():
+        item = {
+            'period_end_year': period_end_year,
+            'is_ttm': period_end_year == 'TTM',
+            'period_type': 'annually',
+            'income_statement': metrics
+        }
+        result.append(item)
+    
+    return result
