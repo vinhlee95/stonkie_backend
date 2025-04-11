@@ -143,8 +143,7 @@ def save_financial_statements(ticker: str, financial_statements: list[dict]):
         db.close()
 
 def main():
-    # ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
-    ticker = "NVDA"
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
     
     REPORT_TYPES = ["income_statement", "balance_sheet", "cash_flow"]
     financial_statements = {}
