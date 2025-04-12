@@ -1,13 +1,8 @@
-import base64
 import json
-import os
+import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-from typing import Dict
-from google.oauth2 import service_account
-import logging
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
 from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker, get_all_companies
@@ -15,17 +10,10 @@ from services.revenue_insight import get_revenue_insights_for_company_product, g
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
-import time
-from functools import lru_cache
-from google.api_core import retry
-from google.cloud.storage import Client
 from fastapi.responses import StreamingResponse
 from datetime import datetime
 
 load_dotenv()
-
-OUTPUT_DIR = "outputs"
-BUCKET_NAME = "stock_agent_financial_report"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -58,40 +46,6 @@ class ReportType(Enum):
     INCOME_STATEMENT = "income_statement"
     BALANCE_SHEET = "balance_sheet"
     CASH_FLOW = "cash_flow"
-
-# Cache the storage client initialization
-@lru_cache(maxsize=1)
-def get_storage_client():
-    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-    if not credentials:
-        print("❌ Google credentials not found in environment variables")
-        return None
-    
-    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
-    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-    return Client(credentials=credentials)
-
-# TODO: this is now cached forever in a lifetime of the process
-# TODO: use Redis
-# @lru_cache(maxsize=100)
-def get_cached_financial_data(ticker: str, report_type: str) -> tuple:
-    storage_client = get_storage_client()
-    if not storage_client:
-        return None, None
-    
-    # Configure retry with exponential backoff
-    retry_config = retry.Retry(initial=1.0, maximum=60.0, multiplier=2.0)
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(f"{ticker.lower()}_{report_type}.csv")
-    
-    try:
-        # Use retry for blob operations
-        csv_content = blob.download_as_string(retry=retry_config)
-        df = pd.read_csv(pd.io.common.BytesIO(csv_content))
-        return df, df.columns.tolist()
-    except Exception as e:
-        logger.error(f"Error downloading blob: {str(e)}")
-        return None, None
 
 @app.get("/api/companies/{ticker}/statements")
 def get_financial_statements(ticker: str, report_type: str | None = None):
@@ -136,47 +90,6 @@ def get_financial_statements(ticker: str, report_type: str | None = None):
                 })
         return filtered_statements
     return statements
-
-@app.get("/api/financial-data/{ticker}/{report_type}")
-async def get_financial_data(ticker: str, report_type: str) -> Dict:
-    """
-    Get financial data for a specific ticker and report type
-    report_type can be: income_statement, balance_sheet, or cash_flow
-    """
-    start_time = time.time()
-    try:
-        # Validate and convert report_type to enum
-        step_start = time.time()
-        try:
-            report_type_enum = ReportType(report_type)
-        except ValueError:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
-            )
-        logger.info(f"Report type validation took: {time.time() - step_start:.3f} seconds")
-
-        # Get data from cache or download
-        step_start = time.time()
-        df, columns = get_cached_financial_data(ticker, report_type)
-        if df is None:
-            return {"data": [], "columns": []}
-        logger.info(f"Data retrieval took: {time.time() - step_start:.3f} seconds")
-
-        # Process data
-        step_start = time.time()
-        result = {
-            "data": df.to_dict('records'),
-            "columns": columns
-        }
-        logger.info(f"Data processing took: {time.time() - step_start:.3f} seconds")
-        
-        logger.info(f"Total execution time: {time.time() - start_time:.3f} seconds")
-        return result
-    
-    except Exception as e:
-        logger.error(f"Error occurred after {time.time() - start_time:.3f} seconds")
-        raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/api/companies/{ticker}/revenue")
 async def get_revenue(ticker: str):

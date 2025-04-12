@@ -9,7 +9,7 @@ from google.api_core import retry
 import logging
 from dotenv import load_dotenv
 from datetime import datetime
-from connectors.database import SessionLocal, Base, engine
+from connectors.database import SessionLocal
 from models.company_financial_statement import CompanyFinancialStatement
 
 BUCKET_NAME = "stock_agent_financial_report"
