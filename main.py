@@ -94,8 +94,47 @@ def get_cached_financial_data(ticker: str, report_type: str) -> tuple:
         return None, None
 
 @app.get("/api/companies/{ticker}/statements")
-def get_financial_statements(ticker: str):
+def get_financial_statements(ticker: str, report_type: str | None = None):
+    # Validate report_type if provided
+    if report_type:
+        try:
+            ReportType(report_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
+            )
+
     statements = get_company_financial_statements(ticker)
+    if not statements:
+        return []
+        
+    if report_type:
+        # Filter statements by report type
+        filtered_statements = []
+        for statement in statements:
+            if report_type == "balance_sheet" and statement.balance_sheet is not None:
+                filtered_statements.append({
+                    "period_end_year": statement.period_end_year,
+                    "is_ttm": statement.is_ttm,
+                    "period_type": statement.period_type,
+                    "data": statement.balance_sheet
+                })
+            elif report_type == "income_statement" and statement.income_statement is not None:
+                filtered_statements.append({
+                    "period_end_year": statement.period_end_year,
+                    "is_ttm": statement.is_ttm,
+                    "period_type": statement.period_type,
+                    "data": statement.income_statement
+                })
+            elif report_type == "cash_flow" and statement.cash_flow is not None:
+                filtered_statements.append({
+                    "period_end_year": statement.period_end_year,
+                    "is_ttm": statement.is_ttm,
+                    "period_type": statement.period_type,
+                    "data": statement.cash_flow
+                })
+        return filtered_statements
     return statements
 
 @app.get("/api/financial-data/{ticker}/{report_type}")
