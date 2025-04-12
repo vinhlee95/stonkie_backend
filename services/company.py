@@ -10,7 +10,7 @@ from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
-from connectors.company import get_all
+from connectors.company import get_all, get_company_logo_url_from_ticker
 from connectors.company_financial import CompanyFinancialConnector
 from analyzer import COMPANY_DOCUMENT_INDEX_NAME
 
@@ -28,6 +28,7 @@ class CompanyFundamental(BaseModel):
     country: str
     exchange: str
     dividend_yield: float
+    logo_url: str | None
 
 def get_key_stats_for_ticker(ticker: str):
     """
@@ -50,7 +51,8 @@ def get_key_stats_for_ticker(ticker: str):
         description=company_fundamental["Description"],
         country=company_fundamental["Country"],
         exchange=company_fundamental["Exchange"],
-        dividend_yield=dividend_yield
+        dividend_yield=dividend_yield,
+        logo_url=get_company_logo_url_from_ticker(ticker)
     )
 
 async def get_swot_analysis_for_ticker(ticker: str):

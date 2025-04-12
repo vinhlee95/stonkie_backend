@@ -15,6 +15,15 @@ def get_company_logo_url(company_name: str):
     params = urlencode({'c': API_KEY })
     return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
 
+def get_company_logo_url_from_ticker(ticker: str):
+    """
+    Get company logo URL from ticker
+    """
+    company = get_by_ticker(ticker)
+    if company:
+        return company.logo_url
+    return None
+
 def get_all() -> list[Company]:
     # Return hard-coded data for now. Move to DB later
     return [
