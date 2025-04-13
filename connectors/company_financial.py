@@ -17,3 +17,8 @@ class CompanyFinancialConnector:
             return db.query(CompanyFinancialStatement)\
                 .filter(CompanyFinancialStatement.company_symbol == ticker.upper())\
                 .order_by(CompanyFinancialStatement.period_end_year.desc()).all()
+
+    def get_company_tickers_having_financial_data(self) -> List[str]:
+        """Get company tickers having financial data using a fresh session for each request"""
+        with SessionLocal() as db:
+            return [row[0] for row in db.query(CompanyFinancialStatement.company_symbol).distinct().all()]

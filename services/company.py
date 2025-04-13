@@ -336,8 +336,9 @@ async def handle_company_report(file_content: bytes, ticker: str, year: int, ext
         raise
 
 def get_all_companies():
-    # Return hard-coded data for now. Move to DB later
-    return get_all()
+    companies_having_financial_data = company_financial_connector.get_company_tickers_having_financial_data()
+    all_companies = get_all()
+    return [company for company in all_companies if company.ticker in companies_having_financial_data]
 
 
 def get_company_financial_statements(ticker: str):
