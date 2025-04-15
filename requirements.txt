@@ -16,3 +16,4 @@ python-multipart==0.0.20
 pinecone==6.0.1
 openai==1.65.2
 alembic==1.15.2
+pillow==11.2.1
