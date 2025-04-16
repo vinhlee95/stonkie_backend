@@ -98,7 +98,8 @@ def save_to_database(ticker, statement_type, data):
             # Check if record exists
             existing_record = db.query(CompanyFinancialStatement).filter(
                 CompanyFinancialStatement.company_symbol == ticker.upper(),
-                CompanyFinancialStatement.period_end_year == period_end_year
+                CompanyFinancialStatement.period_end_year == period_end_year,
+                CompanyFinancialStatement.period_type == 'annually'
             ).first()
             
             if existing_record:
