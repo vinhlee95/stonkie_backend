@@ -71,21 +71,18 @@ def get_financial_statements(ticker: str, report_type: str | None = None):
                 filtered_statements.append({
                     "period_end_year": statement.period_end_year,
                     "is_ttm": statement.is_ttm,
-                    "period_type": statement.period_type,
                     "data": statement.balance_sheet
                 })
             elif report_type == "income_statement" and statement.income_statement is not None:
                 filtered_statements.append({
                     "period_end_year": statement.period_end_year,
                     "is_ttm": statement.is_ttm,
-                    "period_type": statement.period_type,
                     "data": statement.income_statement
                 })
             elif report_type == "cash_flow" and statement.cash_flow is not None:
                 filtered_statements.append({
                     "period_end_year": statement.period_end_year,
                     "is_ttm": statement.is_ttm,
-                    "period_type": statement.period_type,
                     "data": statement.cash_flow
                 })
         return filtered_statements
