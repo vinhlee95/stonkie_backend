@@ -19,14 +19,18 @@ def export_financial_data_to_image(url, file_name):
     print(f"💲➡️🏞️ Exporting financial data to {file_name} image...")
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(headless=False)
             page = browser.new_page(viewport={'width': 1920, 'height': 1080})
             page.goto(url)
 
             page.wait_for_selector('.accept-all')
             page.click('.accept-all')
-
             page.wait_for_timeout(1500)
+
+            # Click the quarterly tab
+            page.wait_for_selector('button#tab-quarterly')
+            page.click('button#tab-quarterly')
+            page.wait_for_timeout(2500)  # Wait for data to load
 
             page.wait_for_selector('span.expand')
             page.click('span.expand')
@@ -141,10 +145,10 @@ def save_to_database(ticker, statement_type, data):
         return
 
 def export_financial_data_to_db(url, ticker, statement_type):
-    print(f"💲🗂️ Exporting financial data for {ticker} {statement_type} to database...")
+    print(f"💲🗂️ Exporting quarterly financial data for {ticker} {statement_type} to database...")
     
     # Export the financial data to an image
-    file_name = f"{ticker.lower()}_{statement_type}"
+    file_name = f"{ticker.lower()}_{statement_type}_quarterly"
     image_path = os.path.join(OUTPUT_DIR, f"{file_name}.png")
     export_financial_data_to_image(url, file_name)
     
@@ -185,7 +189,8 @@ def export_financial_data_to_db(url, ticker, statement_type):
         
         data = parse_financial_data(json_text)
         if data:
-            save_to_database(ticker, statement_type, data)
+            return
+            # save_to_database(ticker, statement_type, data)
         else:
             print("❌❌❌ Failed to parse financial data")
     else:
@@ -204,7 +209,8 @@ def get_financial_urls(ticker):
 
 def main():
     # Get ticker symbol from user
-    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
+    # ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
+    ticker = "TSLA"
     
     # Generate URLs for the given ticker
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
@@ -216,17 +222,17 @@ def main():
         "income_statement"
     )
 
-    export_financial_data_to_db(
-        balance_sheet_url, 
-        ticker,
-        "balance_sheet"
-    )
+    # export_financial_data_to_db(
+    #     balance_sheet_url, 
+    #     ticker,
+    #     "balance_sheet"
+    # )
 
-    export_financial_data_to_db(
-        cash_flow_url, 
-        ticker,
-        "cash_flow"
-    )
+    # export_financial_data_to_db(
+    #     cash_flow_url, 
+    #     ticker,
+    #     "cash_flow"
+    # )
 
 if __name__ == "__main__":
     main()
