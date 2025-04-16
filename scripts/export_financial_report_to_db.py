@@ -78,7 +78,6 @@ def save_to_database(ticker, statement_type, data):
     """
     try:
         db = next(get_db())
-        records_to_save = []
         
         # Find the most recent non-TTM year
         most_recent_year = None
@@ -96,28 +95,45 @@ def save_to_database(ticker, statement_type, data):
             if is_ttm and most_recent_year is not None:
                 period_end_year = most_recent_year + 1
             
-            # Create the record
-            record = CompanyFinancialStatement(
-                company_symbol=ticker.upper(),
-                period_end_year=period_end_year,
-                is_ttm=is_ttm,
-                period_type='annually',
-            )
+            # Check if record exists
+            existing_record = db.query(CompanyFinancialStatement).filter(
+                CompanyFinancialStatement.company_symbol == ticker.upper(),
+                CompanyFinancialStatement.period_end_year == period_end_year
+            ).first()
             
-            # Set the appropriate statement type
-            if statement_type == 'income_statement':
-                record.income_statement = item['metrics']
-            elif statement_type == 'balance_sheet':
-                record.balance_sheet = item['metrics']
-            elif statement_type == 'cash_flow':
-                record.cash_flow = item['metrics']
-            
-            records_to_save.append(record)
+            if existing_record:
+                print(f"🔄 Updating existing record for {ticker} {statement_type} {period_end_year}")
+                # Update existing record
+                if statement_type == 'income_statement':
+                    existing_record.income_statement = item['metrics']
+                elif statement_type == 'balance_sheet':
+                    existing_record.balance_sheet = item['metrics']
+                elif statement_type == 'cash_flow':
+                    existing_record.cash_flow = item['metrics']
+                existing_record.is_ttm = is_ttm
+            else:
+                print(f"🔄 Creating new record for {ticker} {statement_type} {period_end_year}")
+                # Create new record
+                record = CompanyFinancialStatement(
+                    company_symbol=ticker.upper(),
+                    period_end_year=period_end_year,
+                    is_ttm=is_ttm,
+                    period_type='annually',
+                )
+                
+                # Set the appropriate statement type
+                if statement_type == 'income_statement':
+                    record.income_statement = item['metrics']
+                elif statement_type == 'balance_sheet':
+                    record.balance_sheet = item['metrics']
+                elif statement_type == 'cash_flow':
+                    record.cash_flow = item['metrics']
+                
+                db.add(record)
         
-        # Save all records
-        db.add_all(records_to_save)
+        # Commit all changes
         db.commit()
-        print(f"✅✅✅ Financial data for {ticker} has been saved to the database")
+        print(f"✅✅✅ Financial data for {ticker} {statement_type} has been saved to the database")
         
     except Exception as e:
         print(f"❌❌❌ Failed to save financial data to the database: {e}")
@@ -187,8 +203,7 @@ def get_financial_urls(ticker):
 
 def main():
     # Get ticker symbol from user
-    # ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
-    ticker = "TSLA"
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
     
     # Generate URLs for the given ticker
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
@@ -200,17 +215,17 @@ def main():
         "income_statement"
     )
 
-    # export_financial_data_to_db(
-    #     balance_sheet_url, 
-    #     ticker,
-    #     "balance_sheet"
-    # )
+    export_financial_data_to_db(
+        balance_sheet_url, 
+        ticker,
+        "balance_sheet"
+    )
 
-    # export_financial_data_to_db(
-    #     cash_flow_url, 
-    #     ticker,
-    #     "cash_flow"
-    # )
+    export_financial_data_to_db(
+        cash_flow_url, 
+        ticker,
+        "cash_flow"
+    )
 
 if __name__ == "__main__":
     main()
