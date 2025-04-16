@@ -18,6 +18,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_financial import CompanyFinancials
+from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 from connectors.database import Base
 target_metadata = Base.metadata
 
