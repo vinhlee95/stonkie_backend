@@ -341,10 +341,49 @@ def get_all_companies():
     return [company for company in all_companies if company.ticker in companies_having_financial_data]
 
 
-def get_company_financial_statements(ticker: str):
+def get_company_financial_statements(ticker: str, report_type: str | None = None, period_type: str | None = None):
     try:
-        statements = company_financial_connector.get_company_financial_statements(ticker)
-        return statements
+        # Get statements based on period type
+        statements = (
+            company_financial_connector.get_company_quarterly_financial_statements(ticker)
+            if period_type == "quarterly"
+            else company_financial_connector.get_company_financial_statements(ticker)
+        )
+        
+        if not report_type:
+            return statements
+            
+        # Map report types to their corresponding fields
+        report_type_to_field = {
+            "balance_sheet": "balance_sheet",
+            "cash_flow": "cash_flow",
+            "income_statement": "income_statement"
+        }
+        
+        # Filter and transform statements based on report type
+        filtered_statements = []
+        for statement in statements:
+            data_field = getattr(statement, report_type_to_field[report_type])
+            if data_field is None:
+                continue
+                
+            # Create statement data based on period type
+            statement_data = {
+                "data": data_field
+            }
+            
+            if period_type == "quarterly":
+                statement_data["period_end_quarter"] = statement.period_end_quarter
+            else:
+                statement_data.update({
+                    "period_end_year": statement.period_end_year,
+                    "is_ttm": statement.is_ttm
+                })
+            
+            filtered_statements.append(statement_data)
+            
+        return filtered_statements
+        
     except Exception as e:
         logger.error(f"Error getting company financial statements: {str(e)}")
         return None

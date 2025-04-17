@@ -47,8 +47,13 @@ class ReportType(Enum):
     BALANCE_SHEET = "balance_sheet"
     CASH_FLOW = "cash_flow"
 
+
+class PeriodType(Enum):
+    ANNUALLY = "annually"
+    QUARTERLY = "quarterly"
+
 @app.get("/api/companies/{ticker}/statements")
-def get_financial_statements(ticker: str, report_type: str | None = None):
+def get_financial_statements(ticker: str, report_type: str | None = None, period_type: str | None = None):
     # Validate report_type if provided
     if report_type:
         try:
@@ -59,33 +64,17 @@ def get_financial_statements(ticker: str, report_type: str | None = None):
                 detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
             )
 
-    statements = get_company_financial_statements(ticker)
-    if not statements:
-        return []
-        
-    if report_type:
-        # Filter statements by report type
-        filtered_statements = []
-        for statement in statements:
-            if report_type == "balance_sheet" and statement.balance_sheet is not None:
-                filtered_statements.append({
-                    "period_end_year": statement.period_end_year,
-                    "is_ttm": statement.is_ttm,
-                    "data": statement.balance_sheet
-                })
-            elif report_type == "income_statement" and statement.income_statement is not None:
-                filtered_statements.append({
-                    "period_end_year": statement.period_end_year,
-                    "is_ttm": statement.is_ttm,
-                    "data": statement.income_statement
-                })
-            elif report_type == "cash_flow" and statement.cash_flow is not None:
-                filtered_statements.append({
-                    "period_end_year": statement.period_end_year,
-                    "is_ttm": statement.is_ttm,
-                    "data": statement.cash_flow
-                })
-        return filtered_statements
+    # Validate period_type if provided
+    if period_type:
+        try:
+            PeriodType(period_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid period type. Must be one of: {[pt.value for pt in PeriodType]}"
+            )
+
+    statements = get_company_financial_statements(ticker, report_type, period_type)
     return statements
     
 @app.get("/api/companies/{ticker}/revenue")
