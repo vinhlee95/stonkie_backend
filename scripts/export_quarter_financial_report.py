@@ -6,7 +6,7 @@ import json
 from PIL import Image
 
 from connectors.database import get_db
-from models.company_financial_statement import CompanyFinancialStatement
+from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
 load_dotenv()
 
@@ -63,19 +63,6 @@ model = genai.GenerativeModel(
   model_name="gemini-2.5-pro-preview-03-25"
 )
 
-def get_prompt_from_ocr_text(ocr_text):
-  return f"""
-    You are an expert at converting financial tables from text to JSON format. You will receive text extracted from an image of a financial table. Your task is to output the data in a JSON format of a list. Each item in the list is an object with the following keys:
-    - period_end_year: number
-    - metrics: object
-      - metric_name: value of the metric in given period
-
-    Here's the extracted text:
-    {ocr_text}
-
-    Output ONLY the JSON object that matches the structure above. Do not include any other text.
-  """
-
 def save_to_database(ticker, statement_type, data):
     """
     Save financial data to the database
@@ -83,31 +70,18 @@ def save_to_database(ticker, statement_type, data):
     try:
         db = next(get_db())
         
-        # Find the most recent non-TTM year
-        most_recent_year = None
-        for item in data:
-            if isinstance(item['period_end_year'], int):
-                if most_recent_year is None or item['period_end_year'] > most_recent_year:
-                    most_recent_year = item['period_end_year']
-        
         # Process each item
         for item in data:
-            period_end_year = item['period_end_year']
-            is_ttm = period_end_year == 'TTM'
-            
-            # If it's TTM, use the most recent year + 1
-            if is_ttm and most_recent_year is not None:
-                period_end_year = most_recent_year + 1
+            period_end_quarter = item['period_end_quarter']
             
             # Check if record exists
-            existing_record = db.query(CompanyFinancialStatement).filter(
-                CompanyFinancialStatement.company_symbol == ticker.upper(),
-                CompanyFinancialStatement.period_end_year == period_end_year,
-                CompanyFinancialStatement.period_type == 'quarterly'
+            existing_record = db.query(CompanyQuarterlyFinancialStatement).filter(
+                CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper(),
+                CompanyQuarterlyFinancialStatement.period_end_quarter == period_end_quarter,
             ).first()
             
             if existing_record:
-                print(f"🔄 Updating existing record for {ticker} {statement_type} {period_end_year}")
+                print(f"🔄 Updating existing record for {ticker} {statement_type} {period_end_quarter}")
                 # Update existing record
                 if statement_type == 'income_statement':
                     existing_record.income_statement = item['metrics']
@@ -115,15 +89,12 @@ def save_to_database(ticker, statement_type, data):
                     existing_record.balance_sheet = item['metrics']
                 elif statement_type == 'cash_flow':
                     existing_record.cash_flow = item['metrics']
-                existing_record.is_ttm = is_ttm
             else:
-                print(f"🔄 Creating new record for {ticker} {statement_type} {period_end_year}")
+                print(f"🔄 Creating new record for {ticker} {statement_type} {period_end_quarter}")
                 # Create new record
-                record = CompanyFinancialStatement(
+                record = CompanyQuarterlyFinancialStatement(
                     company_symbol=ticker.upper(),
-                    period_end_year=period_end_year,
-                    is_ttm=is_ttm,
-                    period_type='quarterly',
+                    period_end_quarter=period_end_quarter,
                 )
                 
                 # Set the appropriate statement type
@@ -162,7 +133,7 @@ def export_financial_data_to_db(url, ticker, statement_type):
     # Create the prompt
     prompt = """
     You are an expert at converting financial tables from images to JSON format. Your task is to output the data in a JSON format of a list. Each item in the list is an object with the following keys:
-    - period_end_year: number (extract from the date, e.g., 2024 from "12/31/2024"). If the date is TTM, put 'TTM' as period_end_year.
+    - period_end_quarter: string (e.g. "12/31/2024").
     - metrics: object
       - metric_name: value of the metric in given period (all numbers should be in thousands, remove commas)
 
@@ -189,8 +160,7 @@ def export_financial_data_to_db(url, ticker, statement_type):
         
         data = parse_financial_data(json_text)
         if data:
-            return
-            # save_to_database(ticker, statement_type, data)
+            save_to_database(ticker, statement_type, data)
         else:
             print("❌❌❌ Failed to parse financial data")
     else:
@@ -209,8 +179,7 @@ def get_financial_urls(ticker):
 
 def main():
     # Get ticker symbol from user
-    # ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
-    ticker = "TSLA"
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
     
     # Generate URLs for the given ticker
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
@@ -222,17 +191,17 @@ def main():
         "income_statement"
     )
 
-    # export_financial_data_to_db(
-    #     balance_sheet_url, 
-    #     ticker,
-    #     "balance_sheet"
-    # )
+    export_financial_data_to_db(
+        balance_sheet_url, 
+        ticker,
+        "balance_sheet"
+    )
 
-    # export_financial_data_to_db(
-    #     cash_flow_url, 
-    #     ticker,
-    #     "cash_flow"
-    # )
+    export_financial_data_to_db(
+        cash_flow_url, 
+        ticker,
+        "cash_flow"
+    )
 
 if __name__ == "__main__":
     main()
