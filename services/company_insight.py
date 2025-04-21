@@ -65,11 +65,8 @@ async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
 
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
-      annual_financial_statements = company_financial_connector.get_company_financial_statements(ticker)
-      quarterly_financial_statements = company_financial_connector.get_company_quarterly_financial_statements(ticker)
-      
-      annual_financial_statements_json = [to_dict(item) for item in annual_financial_statements]
-      quarterly_financial_statements_json = [to_dict(item) for item in quarterly_financial_statements]
+      annual_financial_statements_json = company_financial_connector.get_annual_income_statements(ticker)
+      quarterly_financial_statements_json = company_financial_connector.get_quarterly_income_statements(ticker)
 
       prompt = f"""
             You are a seasoned financial analyst specializing in growth analysis. Your task is to analyze {ticker}'s growth trajectory and provide unique, actionable insights.
