@@ -282,7 +282,7 @@ async def get_insights(ticker: str, type: InsightType):
 
     async def generate_insights():
         async for insight in get_growth_insights_for_ticker(ticker):
-            yield f"data: {json.dumps(insight)}\n\n"
+            yield f"{json.dumps(insight)}\n\n"
 
     return StreamingResponse(
         generate_insights(),

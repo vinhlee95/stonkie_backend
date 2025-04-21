@@ -22,6 +22,47 @@ def to_dict(model_instance) -> Dict[str, Any]:
         result[c.key] = value
     return result
 
+async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
+    """Process streaming insights from the AI response."""
+    accumulated_text = ""
+    current_insight = ""
+    in_insight = False
+    
+    async for chunk in response:
+        chunk_text = chunk.text
+        accumulated_text += chunk_text
+        
+        # Process any complete insights
+        while "---INSIGHT_START---" in accumulated_text and "---INSIGHT_END---" in accumulated_text:
+            start_idx = accumulated_text.find("---INSIGHT_START---") + len("---INSIGHT_START---")
+            end_idx = accumulated_text.find("---INSIGHT_END---")
+            
+            if start_idx > 0 and end_idx > start_idx:
+                insight_text = accumulated_text[start_idx:end_idx].strip()
+                yield {"type": "success", "data": {"content": insight_text}}
+                
+                # Remove processed insight from accumulated text
+                accumulated_text = accumulated_text[end_idx + len("---INSIGHT_END---"):]
+                current_insight = ""
+                in_insight = False
+        
+        # Handle streaming content between insights
+        if "---INSIGHT_START---" in accumulated_text and not in_insight:
+            in_insight = True
+            start_idx = accumulated_text.rfind("---INSIGHT_START---") + len("---INSIGHT_START---")
+            current_insight = accumulated_text[start_idx:]
+        elif in_insight:
+            current_insight += chunk_text
+        
+        # Stream current insight if it's meaningful and doesn't contain markers
+        if current_insight.strip() and not any(marker in current_insight for marker in ["---INSIGHT_START---", "---INSIGHT_END---", "---COMPLETE---"]):
+            yield {"type": "stream", "content": current_insight.strip()}
+            current_insight = ""
+        
+        # Check if we're done
+        if "---COMPLETE---" in accumulated_text:
+            break
+
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
       annual_financial_statements = company_financial_connector.get_company_financial_statements(ticker)
@@ -31,25 +72,56 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
       quarterly_financial_statements_json = [to_dict(item) for item in quarterly_financial_statements]
 
       prompt = f"""
-          You are a financial analyst tasked with analyzing growth data for {ticker}. 
-          The data shows revenue, net income, and other financial metrics over multiple years.
-          Generate insights for following metrics:
-          - revenue
-          - net income
-          - net margin
-          - profits
-          
-          Here is the annual financial data:
-          {json.dumps(annual_financial_statements_json, indent=2)}
+            You are a seasoned financial analyst specializing in growth analysis. Your task is to analyze {ticker}'s growth trajectory and provide unique, actionable insights.
 
-          Here is the quarterly financial data:
-          {json.dumps(quarterly_financial_statements_json, indent=2)}
+            Focus on these key growth dimensions:
+            1. Revenue Growth Dynamics
+               - Analyze growth patterns, seasonality, and acceleration/deceleration
+               - Identify growth drivers and their sustainability
+               - Consider both organic and inorganic growth factors
+
+            2. Profitability Growth
+               - Examine margin expansion/contraction trends
+               - Analyze operating leverage and efficiency improvements
+               - Evaluate cost structure and scalability
+
+            3. Market Position & Competitive Growth
+               - Assess market share dynamics
+               - Evaluate competitive advantages and moats
+               - Analyze growth relative to industry peers
+
+            4. Future Growth Potential
+               - Identify emerging growth opportunities
+               - Assess risks to growth sustainability
+               - Evaluate growth runway and potential catalysts
+
+            Guidelines for your analysis:
+            - Have 4 insights in total for all the growth dimensions
+            - Be specific about time periods and trends
+            - Connect insights across different growth dimensions
+            - Highlight both positive and concerning patterns
+            - Support insights with relevant data points
+            - Consider both quantitative and qualitative factors
+
+            Format each insight as follows:
+            ---INSIGHT_START---
+            [Your creative, well-supported insight]
+            Source: [Specific data source and time period]
+            ---INSIGHT_END---
+
+            Generate insights one at a time, ensuring each is thorough and valuable.
+            End your analysis with "---COMPLETE---"
+
+            Here is the annual financial data:
+            {json.dumps(annual_financial_statements_json, indent=2)}
+
+            Here is the quarterly financial data:
+            {json.dumps(quarterly_financial_statements_json, indent=2)}
       """
 
       response = await agent.generate_content(prompt=prompt, stream=True)
-      async for chunk in response:
-          if hasattr(chunk, 'text'):
-              yield {"type": "insight", "content": chunk.text}
+      async for insight in process_streaming_insights(response):
+          yield insight
     
     except Exception as e:
         logger.error(f"Error getting growth insights for company", {
