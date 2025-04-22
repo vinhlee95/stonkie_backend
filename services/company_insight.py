@@ -5,11 +5,14 @@ import json
 from sqlalchemy.inspection import inspect
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any
+from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto
+import uuid
 
 logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 agent = Agent(model_type="gemini")
+company_insight_connector = CompanyInsightConnector()
 
 def to_dict(model_instance) -> Dict[str, Any]:
     """Convert SQLAlchemy model to dictionary, handling datetime fields"""
@@ -22,7 +25,25 @@ def to_dict(model_instance) -> Dict[str, Any]:
         result[c.key] = value
     return result
 
-async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
+async def persist_insight(ticker: str, insight_type: str, content: str) -> None:
+    """Persist an insight to the database."""
+    try:
+        slug = f"{ticker}-{insight_type}-{uuid.uuid4().hex[:8]}"
+        insight_dto = CreateCompanyInsightDto(
+            company_symbol=ticker,
+            slug=slug,
+            insight_type=insight_type,
+            content=content
+        )
+        company_insight_connector.create_one(insight_dto)
+    except Exception as e:
+        logger.error(f"Error persisting insight to database", {
+            "ticker": ticker,
+            "insight_type": insight_type,
+            "error": str(e)
+        })
+
+async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[dict, None]:
     """Process streaming insights from the AI response."""
     accumulated_text = ""
     current_insight = ""
@@ -39,6 +60,8 @@ async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
             
             if start_idx > 0 and end_idx > start_idx:
                 insight_text = accumulated_text[start_idx:end_idx].strip()
+                # Persist the insight before yielding
+                await persist_insight(ticker, "growth", insight_text)
                 yield {"type": "success", "data": {"content": insight_text}}
                 
                 # Remove processed insight from accumulated text
@@ -117,7 +140,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
       """
 
       response = await agent.generate_content(prompt=prompt, stream=True)
-      async for insight in process_streaming_insights(response):
+      async for insight in process_streaming_insights(response, ticker):
           yield insight
     
     except Exception as e:
