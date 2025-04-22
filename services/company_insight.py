@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Dict, Any
 from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto
 import uuid
+from enum import Enum
 
 logger = getLogger(__name__)
 
@@ -86,12 +87,34 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
         if "---COMPLETE---" in accumulated_text:
             break
 
-async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
-    try:
-      annual_financial_statements_json = company_financial_connector.get_annual_income_statements(ticker)
-      quarterly_financial_statements_json = company_financial_connector.get_quarterly_income_statements(ticker)
+class InsightType(Enum):
+    GROWTH = "growth"
+    EARNINGS = "earning"
+    CASH_FLOW = "cash_flow"
 
-      prompt = f"""
+async def get_growth_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:
+    try:
+        # First check for existing insights
+        existing_insights = company_insight_connector.get_all_by_ticker(ticker)
+        if existing_insights:
+            # Filter for growth insights and sort by creation date
+            growth_insights = sorted(
+                [insight for insight in existing_insights if insight.insight_type == type.value],
+                key=lambda x: x.created_at,
+                reverse=True
+            )
+            
+            if growth_insights:
+                # Stream existing insights in the same format
+                for insight in growth_insights:
+                    yield {"type": "success", "data": {"content": insight.content, "cached": True}}
+                return
+
+        # If no existing insights, generate new ones
+        annual_financial_statements_json = company_financial_connector.get_annual_income_statements(ticker)
+        quarterly_financial_statements_json = company_financial_connector.get_quarterly_income_statements(ticker)
+
+        prompt = f"""
             You are a seasoned financial analyst specializing in growth analysis. Your task is to analyze {ticker}'s growth trajectory and provide unique, actionable insights.
 
             Focus on these key growth dimensions:
@@ -137,11 +160,11 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
             Here is the quarterly financial data:
             {json.dumps(quarterly_financial_statements_json, indent=2)}
-      """
+        """
 
-      response = await agent.generate_content(prompt=prompt, stream=True)
-      async for insight in process_streaming_insights(response, ticker):
-          yield insight
+        response = await agent.generate_content(prompt=prompt, stream=True)
+        async for insight in process_streaming_insights(response, ticker):
+            yield insight
     
     except Exception as e:
         logger.error(f"Error getting growth insights for company", {
