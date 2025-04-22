@@ -93,7 +93,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
                - Evaluate growth runway and potential catalysts
 
             Guidelines for your analysis:
-            - Have 4 insights in total for all the growth dimensions
+            - Have 4 insights in total for all the growth dimensions. Each insight should have less than 200 words.
             - Be specific about time periods and trends
             - Connect insights across different growth dimensions
             - Highlight both positive and concerning patterns
@@ -102,8 +102,8 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
             Format each insight as follows:
             ---INSIGHT_START---
+            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
             [Your creative, well-supported insight]
-            Source: [Specific data source and time period]
             ---INSIGHT_END---
 
             Generate insights one at a time, ensuring each is thorough and valuable.
