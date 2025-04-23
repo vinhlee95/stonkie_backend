@@ -101,7 +101,6 @@ async def get_growth_insights_for_ticker(ticker: str, type: InsightType) -> Asyn
             growth_insights = sorted(
                 [insight for insight in existing_insights if insight.insight_type == type.value],
                 key=lambda x: x.created_at,
-                reverse=True
             )
             
             if growth_insights:
