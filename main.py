@@ -10,6 +10,7 @@ from services.revenue_insight import get_revenue_insights_for_company_product, g
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
 from services.company_insight import get_growth_insights_for_ticker, InsightType
+from services.company_report import generate_detailed_report_for_insight
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
 
@@ -284,3 +285,16 @@ async def get_insights(ticker: str, type: InsightType):
         media_type="text/event-stream"
     )
 
+@app.get("/api/companies/{ticker}/reports/{slug}")
+async def generate_report_for_insight(ticker: str, slug: str):
+    """
+    Generate a report for a given insight already persisted in the database
+    """
+    async def generate_report():
+        async for report in generate_detailed_report_for_insight(ticker.upper(), slug):
+            yield f"{json.dumps(report)}\n\n"
+
+    return StreamingResponse(
+        generate_report(),
+        media_type="text/event-stream"
+    )

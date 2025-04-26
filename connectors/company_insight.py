@@ -46,3 +46,8 @@ class CompanyInsightConnector:
             db.refresh(company_insight)
 
             return CompanyInsightDto(**self._to_dict(company_insight))
+
+    def get_by_slug(self, slug: str) -> CompanyInsightDto | None:
+        with SessionLocal() as db:
+            company_insight = db.query(CompanyInsight).filter(CompanyInsight.slug == slug).first()
+            return CompanyInsightDto(**self._to_dict(company_insight)) if company_insight else None
