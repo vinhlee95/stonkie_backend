@@ -10,4 +10,5 @@ class CompanyInsight(Base):
     slug = Column(String, index=True)
     insight_type = Column(String)
     content = Column(String)
+    thumbnail_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
