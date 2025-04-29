@@ -12,6 +12,7 @@ import requests
 from urllib.parse import urlencode
 import os
 from connectors.company import get_by_ticker
+import random
 
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
 
@@ -20,6 +21,9 @@ logger = getLogger(__name__)
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
 agent = Agent(model_type="gemini")
+
+# Cache to store used queries for each ticker
+_query_cache: Dict[str, set[str]] = {}
 
 async def fetch_unsplash_image(ticker: str) -> str:
     """
@@ -31,18 +35,65 @@ async def fetch_unsplash_image(ticker: str) -> str:
     
     async def generate_image_query(company_name: str) -> str:
         agent = Agent(model_type="gemini")
+        # Add randomization to the prompt to ensure different queries
+        aspects = [
+            "product",
+            "headquarters",
+            "technology",
+            "innovation",
+            "manufacturing",
+            "research",
+            "development",
+            "facility",
+            "store",
+            "office",
+            "customer",
+            "employee",
+            "supply chain",
+            "logistics",
+            "distribution",
+            "retail",
+        ]
+        
+        # Initialize cache for this ticker if not exists
+        if ticker not in _query_cache:
+            _query_cache[ticker] = set()
+            
+        already_used_queries = _query_cache[ticker]
+        print("already_used_queries", already_used_queries)
+        
+        aspect = random.choice(aspects)
         prompt = f"""
-            Generate a query to search for an image of {company_name} from an API.
-            The query should be a single sentence and less than 5 words. No need to have "image" in the query.
-            The query should be a product or a service that the company offers.
-            For example, if the company is Apple, the query should be "Apple iPhone".
-            If the company is Tesla, the query should be "Tesla Gigafactory".
+            You are a creative image search expert. Generate a search query for finding a relevant image of {company_name}.
+            
+            Requirements:
+            - The query should be 2-3 words
+            - Focus on the {aspect} aspect of the company
+            - Be specific and descriptive
+            - Avoid generic terms like "company" or "business"
+            - Make it visually interesting and unique
+            - The query should be something that would return high-quality, professional images
+            
+            Examples for different companies:
+            - Apple: "Apple Vision Pro", "Apple Park aerial", "Apple Store interior"
+            - Tesla: "Tesla Gigafactory", "Tesla Cybertruck", "Tesla charging station"
+            - Microsoft: "Microsoft Surface Studio", "Microsoft campus aerial", "Microsoft data center"
+            
+            Previously used queries for this company (avoid repeating these):
+            {already_used_queries}
+            
+            Generate a unique, creative query that hasn't been used before.
         """
         response = await agent.generate_content(prompt)
         await response.resolve()
-        return response.text 
+        query = response.text.strip()
+        
+        # Add the new query to cache
+        _query_cache[ticker].add(query)
+        return query
 
     query = await generate_image_query(company_name)
+    print(query)
 
     if company_name:
         params = {
@@ -121,7 +172,7 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
                 # Persist the insight before yielding
                 new_insight = await persist_insight(ticker, "growth", insight_text)
                 if new_insight:
-                    yield {"type": "success", "data": {"content": insight_text, "slug": new_insight.slug}}
+                    yield {"type": "success", "data": {"content": insight_text, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}}
                 else:
                     yield {"type": "success", "data": {"content": insight_text}}
 
