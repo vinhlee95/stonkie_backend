@@ -8,12 +8,65 @@ from typing import AsyncGenerator, Dict, Any
 from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto, CompanyInsightDto
 import uuid
 from enum import Enum
+import requests
+from urllib.parse import urlencode
+import os
+from connectors.company import get_by_ticker
+
+UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
 
 logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
-agent = Agent(model_type="gemini")
 company_insight_connector = CompanyInsightConnector()
+agent = Agent(model_type="gemini")
+
+async def fetch_unsplash_image(ticker: str) -> str:
+    """
+    Fetch a thumbnail image from Unsplash for a given company ticker.
+    Return the full url of the image for now. 
+    Store different sizes if further optimizations are needed.
+    """
+    company_name = get_by_ticker(ticker).name
+    
+    async def generate_image_query(company_name: str) -> str:
+        agent = Agent(model_type="gemini")
+        prompt = f"""
+            Generate a query to search for an image of {company_name} from an API.
+            The query should be a single sentence and less than 5 words. No need to have "image" in the query.
+            The query should be a product or a service that the company offers.
+            For example, if the company is Apple, the query should be "Apple iPhone".
+            If the company is Tesla, the query should be "Tesla Gigafactory".
+        """
+        response = await agent.generate_content(prompt)
+        await response.resolve()
+        return response.text 
+
+    query = await generate_image_query(company_name)
+
+    if company_name:
+        params = {
+            'query': query,
+            'page': 1,
+            'per_page': 1,
+            'orientation': 'landscape'
+        }
+    
+    headers = {
+        'Authorization': f'Client-ID {UNSPLASH_ACCESS_KEY}'
+    }
+    
+    response = requests.get(
+        f'https://api.unsplash.com/search/photos?{urlencode(params)}',
+        headers=headers
+    )
+    
+    res = response.json()
+    result = res.get("results")[0]
+    url = result.get("urls").get("full")
+
+    return url
+    
 
 def to_dict(model_instance) -> Dict[str, Any]:
     """Convert SQLAlchemy model to dictionary, handling datetime fields"""
@@ -26,15 +79,18 @@ def to_dict(model_instance) -> Dict[str, Any]:
         result[c.key] = value
     return result
 
-def persist_insight(ticker: str, insight_type: str, content: str) -> CompanyInsightDto | None:
+async def persist_insight(ticker: str, insight_type: str, content: str) -> CompanyInsightDto | None:
     """Persist an insight to the database."""
     try:
         slug = f"{ticker}-{insight_type}-{uuid.uuid4().hex[:8]}"
+        thumbnail_url = await fetch_unsplash_image(ticker)
+
         insight_dto = CreateCompanyInsightDto(
             company_symbol=ticker,
             slug=slug,
             insight_type=insight_type,
-            content=content
+            content=content,
+            thumbnail_url=thumbnail_url
         )
         new_insight = company_insight_connector.create_one(insight_dto)
         return new_insight
@@ -63,7 +119,7 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
             if start_idx > 0 and end_idx > start_idx:
                 insight_text = accumulated_text[start_idx:end_idx].strip()
                 # Persist the insight before yielding
-                new_insight = persist_insight(ticker, "growth", insight_text)
+                new_insight = await persist_insight(ticker, "growth", insight_text)
                 if new_insight:
                     yield {"type": "success", "data": {"content": insight_text, "slug": new_insight.slug}}
                 else:

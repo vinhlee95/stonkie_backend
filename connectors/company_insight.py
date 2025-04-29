@@ -13,6 +13,7 @@ class CompanyInsightDto:
     insight_type: str
     content: str
     created_at: datetime
+    thumbnail_url: str
 
 @dataclass(frozen=True)
 class CreateCompanyInsightDto:
@@ -20,6 +21,7 @@ class CreateCompanyInsightDto:
     slug: str
     insight_type: str
     content: str
+    thumbnail_url: str
 
 class CompanyInsightConnector:
     def _to_dict(self, model_instance) -> dict[str, Any]:
