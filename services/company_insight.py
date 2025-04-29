@@ -166,7 +166,15 @@ async def get_growth_insights_for_ticker(ticker: str, type: InsightType) -> Asyn
             if growth_insights:
                 # Stream existing insights in the same format
                 for insight in growth_insights:
-                    yield {"type": "success", "data": {"content": insight.content, "cached": True, "slug": insight.slug}}
+                    yield {
+                        "type": "success", 
+                        "data": {
+                            "content": insight.content, 
+                            "cached": True, 
+                            "slug": insight.slug,
+                            "imageUrl": insight.thumbnail_url
+                        }
+                    }
                 return
 
         # If no existing insights, generate new ones
