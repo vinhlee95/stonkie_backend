@@ -12,7 +12,7 @@ class GeminiModel:
         """Initialize the Gemini agent with API key configuration"""
         
         self.api_key = os.getenv("GEMINI_API_KEY")
-        MODEL_NAME = "gemini-2.0-flash-lite"
+        MODEL_NAME = "gemini-2.5-pro-preview-03-25"
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not found")
