@@ -39,7 +39,7 @@ async def generate_detailed_report_for_insight(ticker: str, slug: str):
       {annual_income_statements}
       {quarterly_income_statements}
 
-      The report should start from the insight contents themselves.
+      The report should start from the first section of the report. No need for any background information.
       No need to start with "Here's a financial analysis report based on the provided information:".
 
       Focus on following dimensions. Each dimension should be a title having a separate section in the report. 
