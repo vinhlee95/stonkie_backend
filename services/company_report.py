@@ -68,17 +68,22 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
 
         Here's an example of the 'data' structure for a simple time series chart:
         "data": [
-            {{"period": "2023", "value": 100}},
+            {{"period": "2023", "value": 100, "metric": "revenue"}}, // for annual data
+            {{"period": "Q1 2023", "value": 20, "metric": "revenue"}}, // for quarterly data
             // ... more data points
         ]
+        Make sure to strictly follow the key names: period, value, metric and data structure.
 
-      Provide insights in the described JSON format. Do not make up any numbers.
+      Do not make up any numbers in the insights.
 
       Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone, and use text to explain the charts, provide context, or offer other observations.
       
       Ideally, the "chart" type should follow the "text" type to illustrate the insights.
 
       For "text" type, make sure to have insightful contents. Have around 200 words for each text section.
+      For "chart" type, separate annual and quarterly data to separate charts.
+
+      Only return the data in the JSON format. Do not include any other text or comments.
     """
     response = openai_agent.generate_content(prompt=prompt)
     yield response
