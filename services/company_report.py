@@ -10,6 +10,7 @@ import re
 company_insight_connector = CompanyInsightConnector()
 company_financial_connector = CompanyFinancialConnector()
 agent = Agent(model_type="gemini")
+openai_agent = Agent(model_type="openai")
 
 class ContentType(str, Enum):
     TEXT = "text"
@@ -54,6 +55,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
         [
             {{
                 "type": "text" | "chart",
+                "title": "string", // This will be the title of the section
                 "content": "string", // This will be the text insight or a description/title for the chart
                 "data": {{...}} | null // This will be the data for the chart if type is 'chart', otherwise null
             }},
@@ -66,84 +68,20 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
 
         Here's an example of the 'data' structure for a simple time series chart:
         "data": [
-            {{"period": "2023-01", "value": 100}},
-            {{"period": "2023-02", "value": 120}},
-            {{"period": "2023-03", "value": 110}},
+            {{"period": "2023", "value": 100}},
             // ... more data points
         ]
 
-      Provide insights in the described JSON format. Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone, and use text to explain the charts, provide context, or offer other observations.
-    """
+      Provide insights in the described JSON format. Do not make up any numbers.
 
-    try:
-      response = await agent.generate_content(prompt=prompt, stream=True)
-      buffer = ""
+      Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone, and use text to explain the charts, provide context, or offer other observations.
       
-      async for chunk in response:
-          try:
-              # Clean the chunk and add to buffer
-              cleaned_chunk = chunk.text.replace('```json', '').replace('```', '').strip()
-              buffer += cleaned_chunk
-              
-              # Look for complete JSON objects in the buffer
-              while True:
-                  # Find the first complete JSON object
-                  match = re.search(r'\{.*?\}', buffer, re.DOTALL)
-                  if not match:
-                      break
-                      
-                  json_str = match.group(0)
-                  try:
-                      # Try to parse the JSON
-                      content_data = json.loads(json_str)
-                      
-                      # Validate the required fields
-                      if not all(key in content_data for key in ['type', 'content']):
-                          raise ValueError("Missing required fields in JSON")
-                      
-                      # Yield the content
-                      yield Content(
-                          type=ContentType[content_data.get("type", "TEXT").upper()],
-                          content=content_data.get("content", ""),
-                          data=content_data.get("data")
-                      ).__dict__
-                      
-                      # Remove the processed JSON from the buffer
-                      buffer = buffer[match.end():].strip()
-                  except (json.JSONDecodeError, ValueError) as e:
-                      # If parsing fails, try to find the next JSON object
-                      buffer = buffer[match.start() + 1:].strip()
-                      continue
-                      
-          except Exception as e:
-              print(f"Error processing chunk: {str(e)}")
-              yield Content(
-                  type=ContentType.TEXT,
-                  content=f"Error processing content: {str(e)}"
-              ).__dict__
-              buffer = ""  # Reset buffer on error
-      
-      # Handle any remaining content in the buffer
-      if buffer.strip():
-          try:
-              # Try to parse any remaining content as JSON
-              content_data = json.loads(buffer)
-              yield Content(
-                  type=ContentType[content_data.get("type", "TEXT").upper()],
-                  content=content_data.get("content", ""),
-                  data=content_data.get("data")
-              ).__dict__
-          except (json.JSONDecodeError, ValueError):
-              # If it's not valid JSON, yield it as text
-              yield Content(
-                  type=ContentType.TEXT,
-                  content=buffer
-              ).__dict__
-    except Exception as e:
-        yield Content(
-            type=ContentType.TEXT,
-            content=f"Error generating report: {str(e)}"
-        ).__dict__
+      Ideally, the "chart" type should follow the "text" type to illustrate the insights.
+
+      For "text" type, make sure to have insightful contents. Have around 200 words for each text section.
+    """
+    response = openai_agent.generate_content(prompt=prompt)
+    yield response
 
 async def generate_detailed_report_for_insight(ticker: str, slug: str):
     """
