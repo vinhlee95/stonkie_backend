@@ -4,17 +4,6 @@ from typing import Optional, Any
 from pydantic import BaseModel
 from enum import Enum
 
-class ContentType(str, Enum):
-    TEXT = "text"
-    CHART = "chart"
-
-class ReportModel(BaseModel):
-  type: ContentType
-  content: str
-  data: Optional[dict[str, Any]] = None
-
-ReportOutput = list[ReportModel]
-
 # Only support generate embedding for now
 class OpenAIModel:
   # Use o3 mini model for output generation
@@ -31,7 +20,7 @@ class OpenAIModel:
     
     return response.data[0].embedding
 
-  def generate_content(self, user_input: str, stream: bool = False):
+  def _generate_content_sync(self, user_input: str):
     with self.client.responses.stream(
         model=self.model,
         input=[
@@ -40,7 +29,6 @@ class OpenAIModel:
                 "content": user_input,
             },
         ],
-        # text_format=ReportOutput,
     ) as stream:
         for event in stream:
             if event.type == "response.refusal.delta":
@@ -70,4 +58,34 @@ class OpenAIModel:
             print(f"Error parsing JSON: {e}")
             return None
 
-        
+  async def _generate_content_async(self, user_input: str):
+    with self.client.responses.stream(
+        model=self.model,
+        input=[
+            {
+                "role": "user",
+                "content": user_input,
+            },
+        ],
+    ) as stream:
+        for event in stream:
+            if event.type == "response.refusal.delta":
+                print(event.delta, end="")
+            elif event.type == "response.output_text.delta":
+                cleaned_text = event.delta
+                if cleaned_text.startswith('```json'):
+                    cleaned_text = cleaned_text[7:]  # Remove '```json'
+                if cleaned_text.endswith('```'):
+                    cleaned_text = cleaned_text[:-3]  # Remove '```'
+
+                yield cleaned_text
+            elif event.type == "response.error":
+                print(event.error, end="")
+            elif event.type == "response.completed":
+                print("Completed")
+
+  def generate_content(self, user_input: str, stream: bool = True):
+    if stream:
+      return self._generate_content_async(user_input)
+    else:
+      return self._generate_content_sync(user_input)

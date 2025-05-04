@@ -61,7 +61,6 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
       If the data is available, make the analysis over the last 5 years or 4 quarters.
 
       Follow this JSON format precisely:
-        [
             {{
                 "type": "text" | "chart",
                 "title": "string", // This will be the title of the section
@@ -70,7 +69,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
                 "source": list[string] // This list all the sources of the information you used to generate the insight. This is a must and make them as precise as possible.
             }},
             ... // More content blocks
-        ]
+        Do not include the array brackets in the response. Start with the first object and end with the last object.
 
         For "type": "text", the "content" field should contain the textual insight or analysis, and "data" should be null.
         Each text section should be 150-200 words and provide deep analysis of a specific aspect of the insight. Avoid quoting the numbers from the financial statements if possible because the numbers will be shown in the following chart sections. Focus on the analysis and future potential as well as concerns.
@@ -96,8 +95,47 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
 
       Only return the data in the JSON format. Do not include any other text or comments.
     """
-    response = openai_agent.generate_content(prompt=prompt)
-    yield response
+    response = openai_agent.generate_content(prompt=prompt, stream=True)
+    current_text = ""
+    async for chunk in response:
+        if isinstance(chunk, str):
+            current_text += chunk
+            
+            # Look for complete JSON objects
+            while True:
+                # Find the start of a JSON object (first '{')
+                start_idx = current_text.find('{')
+                if start_idx == -1:
+                    break
+                
+                # Try to find a complete JSON object
+                json_str = ""
+                brace_count = 0
+                for i in range(start_idx, len(current_text)):
+                    char = current_text[i]
+                    json_str += char
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Found a complete JSON object
+                            try:
+                                json_obj = json.loads(json_str)
+                                if isinstance(json_obj, dict) and 'type' in json_obj:
+                                    yield json_obj
+                                    # Remove the parsed object from current_text
+                                    current_text = current_text[i+1:].strip()
+                                    break
+                            except json.JSONDecodeError:
+                                # If parsing fails, continue looking
+                                pass
+                
+                # If we didn't find a complete valid JSON object, wait for more chunks
+                if brace_count != 0:
+                    break
+        else:
+            print(f"Received non-string chunk: {chunk}")  # Debug: show non-string chunks
 
 async def generate_detailed_report_for_insight(ticker: str, slug: str):
     """
