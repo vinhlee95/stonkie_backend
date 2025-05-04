@@ -49,7 +49,15 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
       You are given the following insight:
       {insight.content}
 
-      Generate a comprehensive report that analyzes the key metrics mentioned in the insight. Focus on the most relevant financial indicators and trends that support or explain the insight.
+      Generate a comprehensive report that analyzes the key metrics mentioned in the insight. Focus on the most relevant financial indicators and trends that support or explain the insight. To generate the report, use following sources:
+      - Financial statements
+      - Company website
+      - Industry reports
+      - News articles
+      - Analyst reports
+      - Company filings
+      - Other sources
+
       If the data is available, make the analysis over the last 5 years or 4 quarters.
 
       Follow this JSON format precisely:
@@ -59,6 +67,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
                 "title": "string", // This will be the title of the section
                 "content": "string", // This will be the text insight or a description/title for the chart. For the chart, use 20-50 words to describe key insights from the chart.
                 "data": {{...}} | null // This will be the data for the chart if type is 'chart', otherwise null
+                "source": list[string] // This list all the sources of the information you used to generate the insight. This is a must and make them as precise as possible.
             }},
             ... // More content blocks
         ]
