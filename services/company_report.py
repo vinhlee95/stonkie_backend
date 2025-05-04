@@ -40,7 +40,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
     quarterly_income_statements = company_financial_connector.get_quarterly_income_statements(ticker)
 
     prompt = f"""
-      You are a financial analyst. Analyze the revenue trends from the following data:
+      You are a financial analyst. Analyze the company's performance based on the following data and insight:
 
       FINANCIAL DATA:
       Annual Statements: {annual_income_statements}
@@ -49,7 +49,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
       You are given the following insight:
       {insight.content}
 
-      Generate a report for the insight.
+      Generate a comprehensive report that analyzes the key metrics mentioned in the insight. Focus on the most relevant financial indicators and trends that support or explain the insight.
 
       Follow this JSON format precisely:
         [
@@ -63,6 +63,7 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
         ]
 
         For "type": "text", the "content" field should contain the textual insight or analysis, and "data" should be null.
+        Each text section should be 150-200 words and provide deep analysis of a specific aspect of the insight.
 
         For "type": "chart", the "content" field should contain a descriptive title or summary of what the chart illustrates. The "data" field should contain a JSON object suitable for generating a chart. This 'data' object should be a list of dictionaries, where each dictionary represents a data point or category. Structure this data in a way that is commonly used for charting libraries (e.g., a list of objects with keys for categories/labels and values).
 
@@ -74,14 +75,14 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
         ]
         Make sure to strictly follow the key names: period, value, metric and data structure.
 
-      Do not make up any numbers in the insights.
-
-      Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone, and use text to explain the charts, provide context, or offer other observations.
-      
-      Ideally, the "chart" type should follow the "text" type to illustrate the insights.
-
-      For "text" type, make sure to have insightful contents. Have around 200 words for each text section.
-      For "chart" type, separate annual and quarterly data to separate charts.
+      Guidelines:
+      1. Generate at least 2 distinct insights/sections in the report
+      2. Focus on metrics that are most relevant to the given insight
+      3. Do not make up any numbers in the insights
+      4. Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone
+      5. Ideally, each "chart" type should follow a "text" type to illustrate the insights
+      6. For "chart" type, separate annual and quarterly data into separate charts when appropriate
+      7. Each text section should be 150-200 words and provide meaningful analysis
 
       Only return the data in the JSON format. Do not include any other text or comments.
     """
