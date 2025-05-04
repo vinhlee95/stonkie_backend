@@ -101,7 +101,6 @@ def parse_financial_statements(df: list[dict]):
         item = {
             'period_end_year': period_end_year,
             'is_ttm': False,
-            'period_type': 'annually',
             'income_statement': metrics
         }
         result.append(item)
@@ -113,7 +112,6 @@ def parse_financial_statements(df: list[dict]):
             ttm_item = {
                 'period_end_year': most_recent_year + 1,
                 'is_ttm': True,
-                'period_type': 'annually',
                 'income_statement': ttm_metrics
             }
             result.append(ttm_item)
@@ -128,7 +126,6 @@ def save_financial_statements(ticker: str, financial_statements: list[dict]):
                 company_symbol=statement['company_symbol'],
                 period_end_year=statement['period_end_year'],
                 is_ttm=statement['is_ttm'],
-                period_type=statement['period_type'],
                 income_statement=statement['income_statement'],
                 balance_sheet=statement['balance_sheet'],
                 cash_flow=statement['cash_flow']
@@ -168,7 +165,6 @@ def main():
                     'company_symbol': ticker,
                     'period_end_year': year,
                     'is_ttm': statement['is_ttm'],
-                    'period_type': statement['period_type'],
                     'income_statement': None,
                     'balance_sheet': None,
                     'cash_flow': None
