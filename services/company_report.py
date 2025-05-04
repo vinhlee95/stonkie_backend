@@ -50,39 +50,40 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
       {insight.content}
 
       Generate a comprehensive report that analyzes the key metrics mentioned in the insight. Focus on the most relevant financial indicators and trends that support or explain the insight.
+      If the data is available, make the analysis over the last 5 years or 4 quarters.
 
       Follow this JSON format precisely:
         [
             {{
                 "type": "text" | "chart",
                 "title": "string", // This will be the title of the section
-                "content": "string", // This will be the text insight or a description/title for the chart
+                "content": "string", // This will be the text insight or a description/title for the chart. For the chart, use 20-50 words to describe key insights from the chart.
                 "data": {{...}} | null // This will be the data for the chart if type is 'chart', otherwise null
             }},
             ... // More content blocks
         ]
 
         For "type": "text", the "content" field should contain the textual insight or analysis, and "data" should be null.
-        Each text section should be 150-200 words and provide deep analysis of a specific aspect of the insight.
+        Each text section should be 150-200 words and provide deep analysis of a specific aspect of the insight. Avoid quoting the numbers from the financial statements if possible because the numbers will be shown in the following chart sections. Focus on the analysis and future potential as well as concerns.
 
         For "type": "chart", the "content" field should contain a descriptive title or summary of what the chart illustrates. The "data" field should contain a JSON object suitable for generating a chart. This 'data' object should be a list of dictionaries, where each dictionary represents a data point or category. Structure this data in a way that is commonly used for charting libraries (e.g., a list of objects with keys for categories/labels and values).
 
         Here's an example of the 'data' structure for a simple time series chart:
         "data": [
-            {{"period": "2023", "value": 100, "metric": "revenue"}}, // for annual data
-            {{"period": "Q1 2023", "value": 20, "metric": "revenue"}}, // for quarterly data
+            {{"period": "2023", "value": 100, "metric": "revenue", "value_type": "currency" or "percentage"}}, // for annual data
+            {{"period": "12/31/2024", "value": 20, "metric": "revenue", "value_type": "currency" or "percentage"}}, // for quarterly data
             // ... more data points
         ]
         Make sure to strictly follow the key names: period, value, metric and data structure.
+        The period should be in exactly similar format as in the financial statements.
 
       Guidelines:
       1. Generate at least 2 distinct insights/sections in the report
       2. Focus on metrics that are most relevant to the given insight
-      3. Do not make up any numbers in the insights
+      3. Do not make up any numbers in the insights. Return the numbers as they are in the financial statements without any formatting or rounding.
       4. Be smart about when to use charts versus text – use charts to show trends or comparisons that are hard to convey in text alone
       5. Ideally, each "chart" type should follow a "text" type to illustrate the insights
       6. For "chart" type, separate annual and quarterly data into separate charts when appropriate
-      7. Each text section should be 150-200 words and provide meaningful analysis
 
       Only return the data in the JSON format. Do not include any other text or comments.
     """
