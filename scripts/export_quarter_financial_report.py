@@ -187,11 +187,11 @@ def main():
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
     
     # Process financial data
-    # export_financial_data_to_db(
-    #     financial_statement_url, 
-    #     ticker,
-    #     "income_statement"
-    # )
+    export_financial_data_to_db(
+        financial_statement_url, 
+        ticker,
+        "income_statement"
+    )
 
     export_financial_data_to_db(
         balance_sheet_url, 
@@ -199,11 +199,11 @@ def main():
         "balance_sheet"
     )
 
-    # export_financial_data_to_db(
-    #     cash_flow_url, 
-    #     ticker,
-    #     "cash_flow"
-    # )
+    export_financial_data_to_db(
+        cash_flow_url, 
+        ticker,
+        "cash_flow"
+    )
 
 if __name__ == "__main__":
     main()
