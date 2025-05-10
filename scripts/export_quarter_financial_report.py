@@ -137,7 +137,9 @@ def export_financial_data_to_db(url, ticker, statement_type):
     - metrics: object
       - metric_name: value of the metric in given period (all numbers should be in thousands, remove commas)
 
-    The output should be a valid JSON array. Do not include any explanatory text or markdown formatting.
+    The output should be a valid JSON array. 
+    Do not include any explanatory text or markdown formatting.
+    Do not include "TTM" or "TTM (Trailing Twelve Months)" in the output.
     """
     
     # Generate content with the image
@@ -185,11 +187,11 @@ def main():
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
     
     # Process financial data
-    export_financial_data_to_db(
-        financial_statement_url, 
-        ticker,
-        "income_statement"
-    )
+    # export_financial_data_to_db(
+    #     financial_statement_url, 
+    #     ticker,
+    #     "income_statement"
+    # )
 
     export_financial_data_to_db(
         balance_sheet_url, 
@@ -197,11 +199,11 @@ def main():
         "balance_sheet"
     )
 
-    export_financial_data_to_db(
-        cash_flow_url, 
-        ticker,
-        "cash_flow"
-    )
+    # export_financial_data_to_db(
+    #     cash_flow_url, 
+    #     ticker,
+    #     "cash_flow"
+    # )
 
 if __name__ == "__main__":
     main()
