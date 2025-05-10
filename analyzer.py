@@ -2,8 +2,6 @@ from dotenv import load_dotenv
 from enum import Enum
 import logging
 from agent.agent import Agent
-import pandas as pd
-from typing import Dict, Any
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from connectors.company import get_by_ticker
 from connectors.company_financial import CompanyFinancialConnector
@@ -78,6 +76,10 @@ async def classify_question(question):
 async def handle_general_finance_question(question):
     """Handle questions about general financial concepts."""
     try:
+        yield {
+            "type": "thinking_status",
+            "body": "Structuring the answer..."
+        }
         response_generator = agent.generate_content_and_normalize_results([
             "Please explain this financial concept or answer this question:",
             question,
@@ -90,6 +92,10 @@ async def handle_general_finance_question(question):
                 "body": answer
             }
 
+        yield {
+            "type": "thinking_status",
+            "body": "Now generating related questions you might want to ask next..."
+        }
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
@@ -194,6 +200,11 @@ async def handle_company_specific_finance(ticker, question):
     company_fundamental = get_company_fundamental(ticker)
 
     # Search for relevant context from 10-K documents
+    yield {
+        "type": "thinking_status",
+        "body": "Searching for relevant information from 10K document..."
+    }
+
     openai_agent = Agent(model_type="openai")
     context_from_official_document = search_similar_content_and_format_to_texts(
         query_embeddings=openai_agent.generate_embedding(question),
@@ -207,6 +218,11 @@ async def handle_company_specific_finance(ticker, question):
         financial_context = f"\nRelevant information from company's 10K documents:\n\n{context_from_official_document}"
     
     try:
+        yield {
+            "type": "thinking_status",
+            "body": f"Searching for relevant information from financial statements for {ticker.upper()}..."
+        }
+
         annual_financial_statements = [
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_financial_statements(ticker)
         ]
@@ -234,6 +250,11 @@ async def handle_company_specific_finance(ticker, question):
             At the end of the analysis, state clear which source you get the information from.
         """
 
+        yield {
+            "type": "thinking_status",
+            "body": "Relevant context found. Structuring the answers..."
+        }
+
         response = await agent.generate_content([
             financial_context,
             analysis_prompt,
@@ -247,6 +268,11 @@ async def handle_company_specific_finance(ticker, question):
             }
             
         # Add related questions after main response
+        yield {
+            "type": "thinking_status",
+            "body": "Now generating related questions you might want to ask next..."
+        }
+
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
@@ -293,42 +319,3 @@ async def analyze_financial_data_from_question(ticker, question):
             yield chunk
     else:
         yield "❌ Unable to classify question type"
-
-def format_financial_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
-    """Convert DataFrame to structured dictionary with years as keys and metrics as nested keys."""
-    data_dict = {}
-    try:
-        # Ensure DataFrame is not empty
-        if df.empty:
-            logger.error("Empty DataFrame provided to format_financial_data")
-            return data_dict
-
-        # Get year columns (all columns except the first one)
-        year_columns = df.columns[1:] if len(df.columns) > 1 else []
-        
-        # Get metric names from first column
-        metrics = df.iloc[:, 0].values if len(df.columns) > 0 else []
-        
-        for year in year_columns:
-            data_dict[str(year)] = {}
-            for metric in metrics:
-                try:
-                    # Use boolean indexing instead of loc with multiple conditions
-                    mask = df.iloc[:, 0] == metric
-                    if any(mask):
-                        value = df.loc[mask, year].iloc[0]
-                        # Convert to float if numeric, otherwise keep as string
-                        try:
-                            value = float(value)
-                        except (ValueError, TypeError):
-                            pass
-                        data_dict[str(year)][str(metric)] = value
-                except IndexError as e:
-                    logger.error(f"IndexError processing metric {metric} for year {year}: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing metric {metric} for year {year}: {e}")
-                    
-    except Exception as e:
-        logger.error(f"Error in format_financial_data: {e}")
-        
-    return data_dict
