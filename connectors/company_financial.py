@@ -8,6 +8,18 @@ from sqlalchemy.inspection import inspect
 from datetime import datetime
 
 class CompanyFinancialConnector:
+    @classmethod
+    def to_dict(cls, model_instance) -> dict[str, Any]:
+        """Convert SQLAlchemy model to dictionary, handling datetime fields"""
+        result = {}
+        for c in inspect(model_instance).mapper.column_attrs:
+            value = getattr(model_instance, c.key)
+            # Convert datetime objects to ISO format strings
+            if isinstance(value, datetime):
+                value = value.isoformat()
+            result[c.key] = value
+        return result
+
     def _to_dict(self, model_instance) -> dict[str, Any]:
         """Convert SQLAlchemy model to dictionary, handling datetime fields"""
         result = {}

@@ -1,17 +1,12 @@
-import base64
-import os
 from dotenv import load_dotenv
 from enum import Enum
-from google.cloud import storage
-import json
-from google.oauth2 import service_account
 import logging
 from agent.agent import Agent
 import pandas as pd
-from io import StringIO
 from typing import Dict, Any
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from connectors.company import get_by_ticker
+from connectors.company_financial import CompanyFinancialConnector
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
@@ -20,9 +15,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 agent = Agent(model_type="gemini")
-
-# Add this near the top of the file with other global variables
-_financial_data_cache: dict[str, dict[str, str]] = {}
+company_financial_connector = CompanyFinancialConnector()
 
 analysis_prompt = """
     Based on this financial statement, include numbers and percentages for e.g. year over year growth rates
@@ -82,65 +75,6 @@ async def classify_question(question):
         print(f"Error during classifying type of question: {e}")
         return None
 
-async def get_financial_data_for_ticker(ticker: str) -> dict[str, str] | None:
-    """
-    Retrieve and format financial data for a given ticker from cloud storage.
-    Data is cached in memory for 1 hour to reduce API calls.
-    
-    Args:
-        ticker (str): Stock ticker symbol (lowercase)
-        
-    Returns:
-        Dict containing formatted financial statements or None if data not found
-    
-    Raises:
-        Exception: If there's an error accessing or processing the data
-    """
-    # Check cache first
-    # TODO: implement some key/value caching store 
-    if ticker in _financial_data_cache:
-        return _financial_data_cache[ticker]
-    
-    logger.info(f"Fetch financial data from cloud storage for {ticker}")
-    credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-    if not credentials:
-        return None
-    
-    credentials_dict = json.loads(base64.b64decode(credentials).decode('utf-8'))
-    credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-    client = storage.Client(credentials=credentials)
-    bucket = client.bucket('stock_agent_financial_report')
-    
-    if not bucket:
-        return None
-    
-    income_blob = bucket.blob(f"{ticker}_income_statement.csv")
-    balance_blob = bucket.blob(f"{ticker}_balance_sheet.csv")
-    cash_flow_blob = bucket.blob(f"{ticker}_cash_flow.csv")
-    
-    if not (income_blob.exists() and balance_blob.exists() and cash_flow_blob.exists()):
-        return None
-    
-    try:
-        income_df = pd.read_csv(StringIO(income_blob.download_as_text()))
-        balance_df = pd.read_csv(StringIO(balance_blob.download_as_text()))
-        cash_flow_df = pd.read_csv(StringIO(cash_flow_blob.download_as_text()))
-        
-        # Format the data
-        result = {
-            'income_statement': json.dumps(format_financial_data(income_df), indent=2),
-            'balance_sheet': json.dumps(format_financial_data(balance_df), indent=2),
-            'cash_flow': json.dumps(format_financial_data(cash_flow_df), indent=2)
-        }
-        
-        # Store in cache
-        _financial_data_cache[ticker] = result
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error retrieving financial data for {ticker}: {e}")
-        return None
-
 async def handle_general_finance_question(question):
     """Handle questions about general financial concepts."""
     try:
@@ -179,15 +113,19 @@ async def handle_general_finance_question(question):
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 300 words."
 
-# TODO: yield thinking process to the client
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
     company = get_by_ticker(ticker)
     company_name = company.name if company else ""
 
     try:
+        yield {
+            "type": "thinking_status",
+            "body": f"Searching for relevant information from 10K document for {company_name} with ticker {ticker}..."
+        }
         openai_agent = Agent(model_type="openai")
         # Format search results into financial context
+
         context_from_official_document = search_similar_content_and_format_to_texts(
             query_embeddings=openai_agent.generate_embedding(question),
             index_name=COMPANY_DOCUMENT_INDEX_NAME,
@@ -213,6 +151,11 @@ async def handle_company_general_question(ticker, question):
                 LENGTH_LIMIT_PROMPT
             ]
 
+        yield {
+            "type": "thinking_status",
+            "body": "Relevant context found. Generating answer..."
+        }
+
         response = await agent.generate_content(prompt)
 
         async for answer in response:
@@ -221,6 +164,10 @@ async def handle_company_general_question(ticker, question):
                 "body": answer.text
             }
 
+        yield {
+            "type": "thinking_status",
+            "body": "Now generating related questions you might want to ask next..."
+        }
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
@@ -235,7 +182,10 @@ async def handle_company_general_question(ticker, question):
                 "body": answer
             }
     except Exception as e:
-        yield f"❌ Error generating explanation: {e}"
+        yield {
+            "type": "answer",
+            "body": f"❌ Error generating answer."
+        }
 
 async def handle_company_specific_finance(ticker, question):
     ticker = ticker.lower().strip()
@@ -257,33 +207,31 @@ async def handle_company_specific_finance(ticker, question):
         financial_context = f"\nRelevant information from company's 10K documents:\n\n{context_from_official_document}"
     
     try:
-        financial_data = await get_financial_data_for_ticker(ticker)
-        if financial_data is None:
-            yield f"❌ Financial statements for {ticker.upper()} not found in cloud storage."
-            return
+        annual_financial_statements = [
+            CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_financial_statements(ticker)
+        ]
+        quarterly_financial_statements = [
+            CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
+        ]
 
         financial_context += f"""Here are the financial statements and company fundamental data for {ticker.upper()}:
             Company Fundamental Data:
             {company_fundamental}
 
-            Income Statement:
-            {financial_data.get('income_statement', {})}
-
-            Balance Sheet:
-            {financial_data.get('balance_sheet', {})}
-
-            Cash Flow Statement:
-            {financial_data.get('cash_flow', {})}
+            Company Financial Statements:
+            Annual Financial Statements:
+            {annual_financial_statements}
+            Quarterly Financial Statements:
+            {quarterly_financial_statements}
 
             Please analyze the data with these guidelines:
-            1. Use specific numbers from the statements
+            1. Use specific numbers from the statements. Use billions or millions as appropriate.
             2. Calculate year-over-year changes when relevant
             3. Present growth rates as percentages
-            5. Ensure numerical consistency across years
+            4. Ensure numerical consistency across years
 
-            Apart from numbers and trends, share relevant information about the question from the provided sources.
-
-            If you cannot find the answer from the given data. Do not make up any answer.
+            Combine the analysis with relevant news and trends of the company to provide a comprehensive answer.
+            At the end of the analysis, state clear which source you get the information from.
         """
 
         response = await agent.generate_content([
