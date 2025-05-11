@@ -132,14 +132,27 @@ def export_financial_data_to_db(url, ticker, statement_type):
     
     # Create the prompt
     prompt = """
-    You are an expert at converting financial tables from images to JSON format. Your task is to output the data in a JSON format of a list. Each item in the list is an object with the following keys:
-    - period_end_quarter: string (e.g. "12/31/2024").
-    - metrics: object
-      - metric_name: value of the metric in given period (all numbers should be in thousands, remove commas)
-
-    The output should be a valid JSON array. 
-    Do not include any explanatory text or markdown formatting.
-    Do not include "TTM" or "TTM (Trailing Twelve Months)" in the output.
+        You are an expert at converting financial tables from images into a structured JSON format. Your primary goal is to accurately extract financial metrics and their corresponding values for specific periods presented as columns in the table image.
+        Follow these steps precisely:
+        1. Identify Valid Periods: Scan the top row(s) of the table to identify the exact column headers representing the financial periods (e.g., "12/31/2023", "09/30/2023", etc.). Create an internal list of only these valid period_end_quarter strings. These are the ONLY periods you should include in the final output.
+        2. Process Rows: Go through each row of the table that contains financial metric data.
+        3. Identify Metric Name: For each row, identify the name of the financial metric (e.g., "Total Revenue", "Net Income").
+        4. Extract and Align Data: For the current metric row, iterate through the columns you identified in step 1. For each valid period_end_quarter column:
+            - Find the value in the same row that aligns vertically with that specific period_end_quarter header.
+            - Ensure the value found truly corresponds to the identified metric for that specific period's column.
+            - Convert the numerical value: remove any commas and assume the value is in thousands (as per your original instruction).
+            - Associate this processed value with the current metric name and the exact period_end_quarter string from step 1.
+        5. Construct JSON: Build the final JSON output as a list of objects. Each object in the list represents a single period and must have the following structure:
+            - period_end_quarter: string. This MUST be one of the exact valid period strings identified in step 1.
+            - metrics: object. This object contains key-value pairs where the Key is the metric name (string) and the Value is the processed numerical value (number, without commas, representing thousands) extracted for that metric in that specific period_end_quarter column.
+        
+        Constraints and Exclusions:
+            - The output must be a valid JSON array.
+            - Do not include any introductory or explanatory text outside the JSON.
+            - Do not include any markdown formatting (like ```json).
+            - CRITICALLY IMPORTANT: Do not include data for any period not explicitly present as a column header in the image. Absolutely do not hallucinate or infer data for periods like "12/31/2022" if it's not a column header.
+            - Do not include data from "TTM" or "TTM (Trailing Twelve Months)" columns. Identify and ignore these columns.
+            - Ensure the numerical values are correctly associated with the exact column header they appear under in the image. Double-check the vertical alignment.
     """
     
     # Generate content with the image
@@ -181,7 +194,7 @@ def get_financial_urls(ticker):
 
 def main():
     # Get ticker symbol from user
-    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip().upper()
     
     # Generate URLs for the given ticker
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
