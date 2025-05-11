@@ -99,7 +99,6 @@ def save_to_database(ticker, statement_type, data):
             existing_record = db.query(CompanyFinancialStatement).filter(
                 CompanyFinancialStatement.company_symbol == ticker.upper(),
                 CompanyFinancialStatement.period_end_year == period_end_year,
-                CompanyFinancialStatement.period_type == 'annually'
             ).first()
             
             if existing_record:
@@ -119,7 +118,6 @@ def save_to_database(ticker, statement_type, data):
                     company_symbol=ticker.upper(),
                     period_end_year=period_end_year,
                     is_ttm=is_ttm,
-                    period_type='annually',
                 )
                 
                 # Set the appropriate statement type
