@@ -8,12 +8,12 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 class GeminiModel:
-    def __init__(self, system_instruction=None):
+    def __init__(self, model_name: str | None=None, system_instruction=None):
         """Initialize the Gemini agent with API key configuration"""
         
         self.api_key = os.getenv("GEMINI_API_KEY")
         # MODEL_NAME = "gemini-2.5-flash-preview-04-17"
-        MODEL_NAME = "gemini-2.0-flash"
+        MODEL_NAME = model_name or "gemini-2.0-flash"
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not found")

@@ -7,7 +7,7 @@ SupportedModel = Literal["gemini", "openai"]
 class Agent:
     """Wrapper class to abstract different AI model implementations"""
     
-    def __init__(self, model_type: SupportedModel="gemini"):
+    def __init__(self, model_type: SupportedModel="gemini", model_name: str | None=None):
         """
         Initialize the AI model wrapper
         
@@ -16,7 +16,7 @@ class Agent:
         """
         self.model_type = model_type
         if model_type == "gemini":
-            self.model = GeminiModel()
+            self.model = GeminiModel(model_name=model_name)
         elif model_type == "openai":
             self.model = OpenAIModel()
         else:

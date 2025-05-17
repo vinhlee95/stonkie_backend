@@ -30,17 +30,6 @@ class OpenAIModel:
             },
         ],
     ) as stream:
-        for event in stream:
-            if event.type == "response.refusal.delta":
-                print(event.delta, end="")
-            elif event.type == "response.output_text.delta":
-                print(event.delta, end="")
-            elif event.type == "response.error":
-                print(event.error, end="")
-            elif event.type == "response.completed":
-                print("Completed")
-                # print(event.response.output)
-
         final_response = stream.get_final_response()
         
         try:
