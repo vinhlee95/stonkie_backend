@@ -11,7 +11,7 @@ load_dotenv()
 def export_financial_data_to_text(url):
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=True)
 
             # Create a fresh incognito-like context
             context = browser.new_context(
@@ -120,31 +120,45 @@ def export_financial_data_to_db(url, ticker, statement_type):
     final_prompt = f"""
         Extract financial data from the following HTML table and format it as a JSON list.
         Each object in the list must represent a single period and have the following structure:
-        ```json
         {{
             "period_end_quarter": "string",
-            "metrics": {{
-                "Metric Name 1": numerical_value,
-                "Metric Name 2": numerical_value,
-                ...
-            }}
+            "metrics": {{"metric_name": number}}
         }}
         
-        Here are the strict instructions for the extraction:
+        Follow these strict instructions:
 
-        1. The periods are: {periods}. 
-        2. For each period object, create a metrics object.
-        3. In the table body, each metric and its values over the periods are in the same row. In the HTML content they are in a div with class "row".
-            Identify the metric names in the HTML content. It is in a div element having class name "rowTitle" in each row above.
-            Make sure to include all metric names that are present in the HTML content.
-        4. For each metric name, find the corresponding values in each period. The metric value is in a div element having "column" class.
-        5. Process each numerical value:
-            * The final value must be a number without commas. Keep the number as is, but remove any commas.
-            * If the value for a specific metric and period is exactly '--', completely omit that metric from the metrics object for that period. Do NOT include metrics with '--' values.
-        7. The final output must be only the JSON list. Do not include any introductory or concluding text, explanations, or code block formatting outside of the JSON itself.
-        8. Only extract data and periods that are explicitly present in the provided HTML table. Do not infer, assume, or generate any data or periods not directly found in the HTML.
+        - The periods are: {periods}.
+        - Each period object must contain a metrics object.
+        - The table rows are represented by <div> elements with class "row". Inside each row:
+            - The metric name is located in a child <div> with class "rowTitle".
+            - The values for the periods are in child <div> elements with class "column" (excluding the one containing the title).
+        - You must include every metric found in a rowTitle element exactly as it appears in the text (including symbols, spacing, and casing). Do not skip or merge similar rows. Treat duplicate names as separate metrics if they appear as distinct rows in the HTML.
+        - For each metric, extract its corresponding values from the following "column" elements. They are ordered left to right and align with the period order provided.
+        - Clean each numerical value as follows:
+            - Remove any commas.
+            - Convert the string to a number.
+            - If the value is exactly "--", omit that metric entirely from the corresponding period's metrics. Do not include it with null or zero.
+        - Even if a metric has -- for all periods, still include its name and row position when processing. It may have valid data in the future or in other contexts.
+        - Do not infer or assume any data. Only extract what is explicitly present in the provided HTML.
+        - The final output must be a JSON array only (no explanation, no code block markers). Example output:
+        [
+            {{
+                "period_end_quarter": "3/31/2025",
+                "metrics": {{
+                    "Revenue": 1000000,
+                    "Net Income": 500000
+                }}
+            }},
+            {{
+                "period_end_quarter": "12/31/2024",
+                "metrics": {{
+                    "Revenue": 900000,
+                    "Net Income": 450000
+                }}
+            }}
+        ]
 
-        Here is the HTML content of the table body:
+        Now process the following HTML table:
         {table_body_html}
     """
 
