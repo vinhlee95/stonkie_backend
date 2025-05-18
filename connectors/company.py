@@ -43,6 +43,7 @@ def get_all() -> list[Company]:
       Company(name="AT&T", ticker="T", logo_url=get_company_logo_url("att")),
       Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
       Company(name="ASML Holding", ticker="ASML", logo_url=get_company_logo_url("asml")),
+      Company(name="DoorDash", ticker="DASH", logo_url=get_company_logo_url("doordash"))
     ]
 
 def get_by_ticker(ticker: str) -> Company | None:
