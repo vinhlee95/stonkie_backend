@@ -9,7 +9,7 @@ from services.company import get_key_stats_for_ticker, handle_company_report, ge
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
-from services.company_insight import get_growth_insights_for_ticker, InsightType
+from services.company_insight import get_insights_for_ticker, InsightType
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
@@ -277,7 +277,7 @@ async def get_insights(ticker: str, type: InsightType):
         raise HTTPException(status_code=400, detail="Invalid insight type")
 
     async def generate_insights():
-        async for insight in get_growth_insights_for_ticker(ticker, type):
+        async for insight in get_insights_for_ticker(ticker, type):
             yield f"{json.dumps(insight)}\n\n"
 
     return StreamingResponse(

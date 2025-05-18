@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Dict, Any
 from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto, CompanyInsightDto
 import uuid
-from enum import Enum
+from enum import Enum, StrEnum
 import requests
 from urllib.parse import urlencode
 import os
@@ -198,19 +198,19 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
         if "---COMPLETE---" in accumulated_text:
             break
 
-class InsightType(Enum):
+class InsightType(StrEnum):
     GROWTH = "growth"
     EARNINGS = "earning"
     CASH_FLOW = "cash_flow"
 
-async def get_growth_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:
+async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
         # First check for existing insights
         existing_insights = company_insight_connector.get_all_by_ticker(ticker)
         if existing_insights:
             # Filter for growth insights and sort by creation date
             growth_insights = sorted(
-                [insight for insight in existing_insights if insight.insight_type == type.value],
+                [insight for insight in existing_insights if insight.insight_type == InsightType.GROWTH],
                 key=lambda x: x.created_at,
             )
             
@@ -290,6 +290,11 @@ async def get_growth_insights_for_ticker(ticker: str, type: InsightType) -> Asyn
             "error": str(e)
         })
         yield {"type": "error", "content": "Error getting growth insights for company"}
+
+def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:
+    if type == InsightType.GROWTH:
+        return get_growth_insights_for_ticker(ticker)
+
 
 def get_earnings_insights_for_ticker(ticker: str):
     pass
