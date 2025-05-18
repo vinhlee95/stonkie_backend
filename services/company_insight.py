@@ -5,9 +5,8 @@ import json
 from sqlalchemy.inspection import inspect
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any
-from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto, CompanyInsightDto
+from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto, CompanyInsightDto, InsightType
 import uuid
-from enum import Enum, StrEnum
 import requests
 from urllib.parse import urlencode
 import os
@@ -152,7 +151,8 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
             "error": str(e)
         })
         return None
-async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[dict, None]:
+
+async def process_streaming_insights(response, ticker: str, insight_type: InsightType) -> AsyncGenerator[dict, None]:
     """Process streaming insights from the AI response."""
     accumulated_text = ""
     current_insight = ""
@@ -170,7 +170,7 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
             if start_idx > 0 and end_idx > start_idx:
                 insight_text = accumulated_text[start_idx:end_idx].strip()
                 # Persist the insight before yielding
-                new_insight = await persist_insight(ticker, "growth", insight_text)
+                new_insight = await persist_insight(ticker, insight_type, insight_text)
                 if new_insight:
                     yield {"type": "success", "data": {"content": insight_text, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}}
                 else:
@@ -197,11 +197,6 @@ async def process_streaming_insights(response, ticker: str) -> AsyncGenerator[di
         # Check if we're done
         if "---COMPLETE---" in accumulated_text:
             break
-
-class InsightType(StrEnum):
-    GROWTH = "growth"
-    EARNINGS = "earning"
-    CASH_FLOW = "cash_flow"
 
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -281,7 +276,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
         """
 
         response = await agent.generate_content(prompt=prompt, stream=True)
-        async for insight in process_streaming_insights(response, ticker):
+        async for insight in process_streaming_insights(response, ticker, InsightType.GROWTH):
             yield insight
     
     except Exception as e:
@@ -291,9 +286,95 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
         })
         yield {"type": "error", "content": "Error getting growth insights for company"}
 
+
+async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
+    try:
+        # First check for existing insights
+        existing_insights = company_insight_connector.get_by_type(ticker, InsightType.EARNINGS)
+        if existing_insights:
+            # Stream existing insights in the same format
+            for insight in existing_insights:
+                yield {
+                    "type": "success", 
+                    "data": {
+                        "content": insight.content, 
+                        "cached": True, 
+                        "slug": insight.slug,
+                        "imageUrl": insight.thumbnail_url
+                    }
+                }
+            return
+
+        # If no existing insights, generate new ones
+        annual_financial_statements_json = company_financial_connector.get_annual_income_statements(ticker)
+        quarterly_financial_statements_json = company_financial_connector.get_quarterly_income_statements(ticker)
+
+        prompt = f"""
+            You are a seasoned financial analyst specializing in earnings analysis. 
+            Your task is to analyze {ticker}'s earning trajectory and provide unique, actionable insights.
+
+            Focus on these key earnings dimensions:
+            1. Net Income & Profitability
+               - Analyze net income trends and growth patterns. Check if they are consistent over time.
+               - Examine net profit margin evolution. Check if the company is having decent profits over time.
+               - Evaluate quality and sustainability of earnings. Whether the company is growing by good or bad debt. Does it reinvest its earnings for future growth.
+
+            2. Earnings Per Share (EPS)
+               - Track EPS growth and consistency
+               - Analyze impact of share buybacks/dilution. Check if it is a concern when the company buybacks share to artificially boost EPS without actual earnings improvement.
+
+            3. Operating Performance
+               - Examine operating income trends
+               - Analyze operating margin dynamics
+               - Operating income (EBIT) and operating margin = Operating Income / Revenue.
+               - Evaluate operational efficiency. Watch out for: Significant fluctuations may indicate problems with cost control or declining efficiency.
+
+            4. Earnings Quality & Sustainability
+               - Assess earnings quality and reliability
+               - Identify one-time items and their impact
+               - Evaluate earnings sustainability
+
+            Guidelines for your analysis:
+            - Have 4 insights in total for all the earnings dimensions. Each insight should have less than 200 words.
+            - Be specific about time periods and trends
+            - Connect insights across different earnings metrics
+            - Highlight both positive and concerning patterns
+            - Support insights with relevant data points
+            - Consider both quantitative and qualitative factors
+
+            Format each insight as follows:
+            ---INSIGHT_START---
+            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
+            [Your creative, well-supported insight]
+            ---INSIGHT_END---
+
+            Generate insights one at a time, ensuring each is thorough and valuable.
+            End your analysis with "---COMPLETE---"
+
+            Here is the annual financial data:
+            {json.dumps(annual_financial_statements_json, indent=2)}
+
+            Here is the quarterly financial data:
+            {json.dumps(quarterly_financial_statements_json, indent=2)}
+        """
+
+        response = await agent.generate_content(prompt=prompt, stream=True)
+        async for insight in process_streaming_insights(response, ticker, InsightType.EARNINGS):
+            yield insight
+    
+    except Exception as e:
+        logger.error(f"Error getting growth insights for company", {
+            "ticker": ticker,
+            "error": str(e)
+        })
+        yield {"type": "error", "content": "Error getting growth insights for company"}
+
+
 def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:
     if type == InsightType.GROWTH:
         return get_growth_insights_for_ticker(ticker)
+    if type == InsightType.EARNINGS:
+        return get_earning_insights_for_ticker(ticker)
 
 
 def get_earnings_insights_for_ticker(ticker: str):
