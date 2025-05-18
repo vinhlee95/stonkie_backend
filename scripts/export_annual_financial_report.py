@@ -1,76 +1,12 @@
-import os
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
-import google.generativeai as genai
-import json
-from PIL import Image
+import re
 
 from connectors.database import get_db
 from models.company_financial_statement import CompanyFinancialStatement
+from agent.agent import Agent
 
 load_dotenv()
-
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-OUTPUT_DIR = "outputs"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-def export_financial_data_to_image(url, file_name):
-    print(f"💲➡️🏞️ Exporting financial data to {file_name} image...")
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page(viewport={'width': 1920, 'height': 1080})
-            page.goto(url)
-
-            page.wait_for_selector('.accept-all')
-            page.click('.accept-all')
-
-            page.wait_for_timeout(1500)
-
-            page.wait_for_selector('span.expand')
-            page.click('span.expand')
-
-            page.screenshot(path=os.path.join(OUTPUT_DIR, f"{file_name}.png"), full_page=True)
-            browser.close()
-    except Exception as e:
-        print(f"Error processing URL: {e}")
-
-def is_number(s):
-    try:
-      float(s)
-      return True
-    except ValueError:
-      return False
-
-def parse_financial_data(text_data):
-    """
-    Parse the financial data from JSON text into a structured format
-    Returns a dictionary with the financial data
-    """
-    try:
-        return json.loads(text_data)
-    except json.JSONDecodeError as e:
-        print(f"❌ Failed to parse JSON data: {e}")
-        return None
-
-model = genai.GenerativeModel(
-  #  model_name="gemini-1.5-pro"
-  model_name="gemini-2.5-pro-preview-03-25"
-)
-
-def get_prompt_from_ocr_text(ocr_text):
-  return f"""
-    You are an expert at converting financial tables from text to JSON format. You will receive text extracted from an image of a financial table. Your task is to output the data in a JSON format of a list. Each item in the list is an object with the following keys:
-    - period_end_year: number
-    - metrics: object
-      - metric_name: value of the metric in given period
-
-    Here's the extracted text:
-    {ocr_text}
-
-    Output ONLY the JSON object that matches the structure above. Do not include any other text.
-  """
 
 def save_to_database(ticker, statement_type, data):
     """
@@ -138,54 +74,111 @@ def save_to_database(ticker, statement_type, data):
         print(f"❌❌❌ Failed to save financial data to the database: {e}")
         return
 
-def export_financial_data_to_db(url, ticker, statement_type):
-    print(f"💲🗂️ Exporting financial data for {ticker} {statement_type} to database...")
-    
-    # Export the financial data to an image
-    file_name = f"{ticker.lower()}_{statement_type}"
-    image_path = os.path.join(OUTPUT_DIR, f"{file_name}.png")
-    export_financial_data_to_image(url, file_name)
-    
-    print("✅📘 Done capturing the image. Now feeding it to the model...")
-    
-    # Create the model with image processing capability
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-pro-preview-03-25",
-    )
-    
-    # Create the prompt
-    prompt = """
-    You are an expert at converting financial tables from images to JSON format. Your task is to output the data in a JSON format of a list. Each item in the list is an object with the following keys:
-    - period_end_year: number (extract from the date, e.g., 2024 from "12/31/2024"). If the date is TTM, put 'TTM' as period_end_year.
-    - metrics: object
-      - metric_name: value of the metric in given period (all numbers should be in thousands, remove commas)
+def export_financial_data_to_text(url):
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
 
-    The output should be a valid JSON array. Do not include any explanatory text or markdown formatting.
+            # Create a fresh incognito-like context
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                java_script_enabled=True,
+                user_agent="Mozilla/5.0",  # Optional: customize user agent
+                ignore_https_errors=True,  # Optional: for sites with cert issues
+                locale='en-US',  # Optional: set preferred language
+                storage_state=None  # ensures no session storage/cookies
+            )
+            page = context.new_page()
+            page.goto(url)
+
+            page.wait_for_selector('.accept-all')
+            page.click('.accept-all')
+            page.wait_for_timeout(2500)
+
+            expand_button = page.locator('span.expand')
+            expand_button.wait_for(state="visible")
+            expand_button.click()
+            page.wait_for_timeout(2500)
+
+            table_header = page.locator('div[class*="tableHeader"]')
+            table_body = page.locator('div[class*="tableBody"]')
+
+            header_html = table_header.inner_html()
+            body_html = table_body.inner_html()
+
+            browser.close()
+            return (header_html, body_html)
+    except Exception as e:
+        print(f"Error processing URL: {e}")
+
+def export_financial_data_to_db(url, ticker, statement_type):
+    print(f"💲🗂️ Exporting annual financial data for {ticker} {statement_type} to database...")
+    
+    result = export_financial_data_to_text(url)
+    if not result:
+        print("❌❌❌ Failed to extract financial data from URL")
+        return
+        
+    table_header_html, table_body_html = result
+
+    periods = re.findall(r'>([^<]+)<\/div>', table_header_html)
+    periods = [p.strip() for p in periods]
+    periods = [p for p in periods if p != 'Breakdown' and p != '']
+    print(f"✅📘 Extracted periods: {periods}")
+    print("✅📘 Done getting HTML content of the financial statement. Now feeding it to the model...")
+    
+    openai_agent = Agent(model_type="openai")
+
+    final_prompt = f"""
+        Extract financial data from the following HTML table and format it as a JSON list.
+        Each object in the list must represent a single period and have the following structure:
+        {{
+            "period_end_year": number,
+            "metrics": {{"metric_name": number}}
+        }}
+        
+        Follow these strict instructions:
+
+        - The periods are: {periods}.
+        - Each period object must contain a metrics object.
+        - The table rows are represented by <div> elements with class "row". Inside each row:
+            - The metric name is located in a child <div> with class "rowTitle".
+            - The values for the periods are in child <div> elements with class "column" (excluding the one containing the title).
+        - You must include every metric found in a rowTitle element exactly as it appears in the text (including symbols, spacing, and casing). Do not skip or merge similar rows. Treat duplicate names as separate metrics if they appear as distinct rows in the HTML.
+        - For each metric, extract its corresponding values from the following "column" elements. They are ordered left to right and align with the period order provided.
+        - Clean each numerical value as follows:
+            - Remove any commas.
+            - Convert the string to a number.
+            - If the value is exactly "--", omit that metric entirely from the corresponding period's metrics. Do not include it with null or zero.
+        - Even if a metric has -- for all periods, still include its name and row position when processing. It may have valid data in the future or in other contexts.
+        - Do not infer or assume any data. Only extract what is explicitly present in the provided HTML.
+        - For period_end_year, extract the year from the date (e.g., "12/31/2024" becomes 2024). If the period is "TTM", use "TTM" as the period_end_year.
+        - The final output must be a JSON array only (no explanation, no code block markers). Example output:
+        [
+            {{
+                "period_end_year": 'TTM',
+                "metrics": {{
+                    "Revenue": 1000000,
+                    "Net Income": 500000
+                }}
+            }},
+            {{
+                "period_end_year": 2024,
+                "metrics": {{
+                    "Revenue": 900000,
+                    "Net Income": 450000
+                }}
+            }}
+        ]
+
+        Now process the following HTML table:
+        {table_body_html}
     """
-    
-    # Generate content with the image
-    response = model.generate_content([prompt, Image.open(image_path)])
-    
-    # Convert response to structured data and save to database
-    if response.text:
-        # Try to extract JSON from the response if it's wrapped in markdown
-        json_text = response.text.strip()
-        if json_text.startswith('```json'):
-            json_text = json_text[7:]
-        if json_text.startswith('```'):
-            json_text = json_text[3:]
-        if json_text.endswith('```'):
-            json_text = json_text[:-3]
-        json_text = json_text.strip()
-        
-        print("📊 Cleaned JSON text:")
-        print(json_text)
-        
-        data = parse_financial_data(json_text)
-        if data:
-            save_to_database(ticker, statement_type, data)
-        else:
-            print("❌❌❌ Failed to parse financial data")
+
+    json_response = openai_agent.generate_content(prompt=final_prompt, stream=False)
+    if json_response:
+        print(json_response)
+        save_to_database(ticker, statement_type, json_response)
     else:
         print("❌❌❌ No data received from the model")
 
@@ -202,28 +195,27 @@ def get_financial_urls(ticker):
 
 def main():
     # Get ticker symbol from user
-    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
+    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip().upper()
     
     # Generate URLs for the given ticker
     financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
     
-    # Process financial data
     export_financial_data_to_db(
         financial_statement_url, 
         ticker,
-        "income_statement"
+        'income_statement'
     )
 
     export_financial_data_to_db(
         balance_sheet_url, 
         ticker,
-        "balance_sheet"
+        'balance_sheet'
     )
 
     export_financial_data_to_db(
         cash_flow_url, 
         ticker,
-        "cash_flow"
+        'cash_flow'
     )
 
 if __name__ == "__main__":
