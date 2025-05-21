@@ -72,7 +72,10 @@ async def generate_dynamic_report_for_insight(ticker: str, slug: str):
         Do not include the array brackets in the response. Start with the first object and end with the last object.
 
         For "type": "text", the "content" field should contain the textual insight or analysis, and "data" should be null.
-        Each text section should be 150-200 words and provide deep analysis of a specific aspect of the insight. Avoid quoting the numbers from the financial statements if possible because the numbers will be shown in the following chart sections. Focus on the analysis and future potential as well as concerns.
+            - Each text section should be 100-150 words and provide deep analysis of a specific aspect of the insight. 
+            - Avoid quoting the numbers from the financial statements if possible because the numbers will be shown in the following chart sections. 
+            - Focus on the analysis and future potential as well as concerns.
+            - Use linebreaks to break the insights to 2-3 parts so that it is easier to read.
 
         For "type": "chart", the "content" field should contain a descriptive title or summary of what the chart illustrates. The "data" field should contain a JSON object suitable for generating a chart. This 'data' object should be a list of dictionaries, where each dictionary represents a data point or category. Structure this data in a way that is commonly used for charting libraries (e.g., a list of objects with keys for categories/labels and values).
 

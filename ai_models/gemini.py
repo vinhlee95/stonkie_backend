@@ -2,6 +2,7 @@ import os
 from typing import AsyncGenerator
 import google.generativeai as genai
 from dotenv import load_dotenv
+from ai_models.model_name import ModelName
 
 load_dotenv()
 
@@ -12,8 +13,8 @@ class GeminiModel:
         """Initialize the Gemini agent with API key configuration"""
         
         self.api_key = os.getenv("GEMINI_API_KEY")
-        # MODEL_NAME = "gemini-2.5-flash-preview-04-17"
-        MODEL_NAME = model_name or "gemini-2.0-flash"
+
+        MODEL_NAME = model_name or ModelName.GeminiFlash
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not found")

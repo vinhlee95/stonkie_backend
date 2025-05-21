@@ -87,6 +87,25 @@ class CompanyFinancialConnector:
 
             return results
 
+    def get_annual_cash_flow_statements(self, ticker: str) -> list[dict[str, Any]]:
+            annual_financial_statements = self.get_company_financial_statements(ticker)
+            results = []
+            for item in annual_financial_statements:
+                data = self.get_company_statement_by_type(self._to_dict(item), 'cash_flow')
+                results.append(data)
+
+            return results
+
+    def get_quarterly_cash_flow_statements(self, ticker: str) -> list[dict[str, Any]]:
+            quarterly_financial_statements = self.get_company_quarterly_financial_statements(ticker)
+
+            results = []
+            for item in quarterly_financial_statements:
+                data = self.get_company_statement_by_type(self._to_dict(item), 'cash_flow')
+                results.append(data)
+
+            return results
+
     def get_company_tickers_having_financial_data(self) -> List[str]:
         with SessionLocal() as db:
             return [row[0] for row in db.query(CompanyFinancialStatement.company_symbol).distinct().all()]

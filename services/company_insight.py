@@ -1,6 +1,7 @@
 from logging import getLogger
 from connectors.company_financial import CompanyFinancialConnector
 from agent.agent import Agent
+from ai_models.model_name import ModelName
 import json
 from sqlalchemy.inspection import inspect
 from datetime import datetime
@@ -19,7 +20,7 @@ logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
-agent = Agent(model_type="gemini")
+agent = Agent(model_type="gemini", model_name=ModelName.GemimiPro)
 
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
@@ -369,16 +370,87 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
         })
         yield {"type": "error", "content": "Error getting growth insights for company"}
 
+async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
+    try:
+        logger.info("Get cash flow insights for ticker", extra={"ticker": ticker})
+        # First check for existing insights
+        existing_insights = company_insight_connector.get_by_type(ticker, InsightType.CASH_FLOW)
+        if existing_insights:
+            # Stream existing insights in the same format
+            for insight in existing_insights:
+                yield {
+                    "type": "success", 
+                    "data": {
+                        "content": insight.content, 
+                        "cached": True, 
+                        "slug": insight.slug,
+                        "imageUrl": insight.thumbnail_url
+                    }
+                }
+            return
+
+        # If no existing insights, generate new ones
+        annual_cash_flow_statements_json = company_financial_connector.get_annual_cash_flow_statements(ticker)
+        quarterly_cash_flow_statements_json = company_financial_connector.get_quarterly_cash_flow_statements(ticker)
+
+        logger.info("Found cash flow statements. Getting insights from model", {"ticker": ticker})
+        prompt = f"""
+            You are a seasoned financial analyst specializing in cash flow analysis. 
+            Your task is to analyze {ticker}'s cash flow and provide unique, actionable insights.
+
+            Focus on these key cash flow dimensions:
+            1. Operating cash flow
+            2. Capital expenditure
+            3. Free cash flow
+            4. Cash flow from financing activities
+
+            Guidelines for your analysis:
+            - Have 4 insights in total for all the cash flow dimensions. Each insight should have less than 200 words. Use linebreaks in the insights so that it is easier to read with smaller paragraphs.
+            - Be specific about time periods and trends
+            - Connect insights across different cash flow metrics
+            - Highlight both positive and concerning patterns
+            - Support insights with relevant data points from the provided financial data. Do not make up any quantitative data or metrics that are not provided in the financial statements.
+            - Consider both quantitative and qualitative factors
+
+            Format each insight as follows:
+            ---INSIGHT_START---
+            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
+            [Your creative, well-supported insight]
+            ---INSIGHT_END---
+
+            Generate insights one at a time, ensuring each is thorough and valuable.
+            End your analysis with "---COMPLETE---"
+
+            Here is the annual financial data:
+            {json.dumps(annual_cash_flow_statements_json, indent=2)}
+
+            Here is the quarterly financial data:
+            {json.dumps(quarterly_cash_flow_statements_json, indent=2)}
+
+            All metrics from the financial data have values in thousands. In the insights, use billions when possible.
+        """
+        response = await agent.generate_content(prompt=prompt, stream=True)
+        async for insight in process_streaming_insights(response, ticker, InsightType.CASH_FLOW):
+            logger.info("Insight generated for ticker", {"ticker": ticker})
+            yield insight
+    
+    except Exception as e:
+        logger.error(f"Error getting cash flow insights for company", {
+            "ticker": ticker,
+            "error": str(e)
+        })
+        yield {"type": "error", "content": "Error getting cash flow insights for company"}
+
 
 def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:
     if type == InsightType.GROWTH:
         return get_growth_insights_for_ticker(ticker)
     if type == InsightType.EARNINGS:
         return get_earning_insights_for_ticker(ticker)
+    if type == InsightType.CASH_FLOW:
+        return get_cash_flow_insights_for_ticker(ticker)
+    
+    raise Exception(f"Invalid insight type: {type}")
 
 
-def get_earnings_insights_for_ticker(ticker: str):
-    pass
 
-def get_cash_flow_insights_for_ticker(ticker: str):
-    pass
