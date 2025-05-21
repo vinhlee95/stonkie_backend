@@ -230,23 +230,27 @@ async def handle_company_specific_finance(ticker, question):
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
         ]
 
-        financial_context += f"""Here are the financial statements and company fundamental data for {ticker.upper()}:
-            Company Fundamental Data:
-            {company_fundamental}
+        financial_context += f"""
+            You are a financial expert who can give in-depth answer for company finance related questions based on financial data.
+            Here is the question: {question}.
+            Here are the financial statements and company fundamental data for {ticker.upper()}:
+                Company Fundamental Data:
+                {company_fundamental}
+                Company Financial Statements:
+                Annual Financial Statements:
+                {annual_financial_statements}
+                Quarterly Financial Statements:
+                {quarterly_financial_statements}
 
-            Company Financial Statements:
-            Annual Financial Statements:
-            {annual_financial_statements}
-            Quarterly Financial Statements:
-            {quarterly_financial_statements}
-
-            Please analyze the data with these guidelines:
+            To answer the question, analyse the data with these guidelines:
             1. Use specific numbers from the statements. Use billions or millions as appropriate.
             2. Calculate year-over-year changes when relevant
             3. Present growth rates as percentages
             4. Ensure numerical consistency across years
-
             Combine the analysis with relevant news and trends of the company to provide a comprehensive answer.
+
+            At the beginning of the analysis, have a summary of 50-100 words of the analysis.
+            Then have a follow-up section of 150-200 words in total with more in-depth analysis.
             At the end of the analysis, state clear which source you get the information from.
         """
 
@@ -258,7 +262,6 @@ async def handle_company_specific_finance(ticker, question):
         response = await agent.generate_content([
             financial_context,
             analysis_prompt,
-            f"\nSpecific question to address: {question}"
         ], stream=True)
 
         async for chunk in response:
