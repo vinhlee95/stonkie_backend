@@ -14,15 +14,12 @@ import os
 from connectors.company import get_by_ticker
 import random
 from pydantic import BaseModel
-from google import genai
 
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
 
 class CompanyInsight(BaseModel):
     title: str
     content: str
-
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 logger = getLogger(__name__)
 
@@ -91,7 +88,11 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        response = agent.generate_content(prompt, stream=False)
+        response = agent.generate_content(
+            prompt, 
+            model_name=ModelName.GeminiFlashLite,
+            stream=False
+        )
         query = response.text.strip()
         
         # Add the new query to cache
@@ -324,16 +325,17 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        response = client.models.generate_content(
-            model=ModelName.GeminiFlashLite,
-            contents=prompt,
+        insights = agent.generate_content(
+            prompt=prompt,
+            model_name=ModelName.GeminiFlashLite,
+            stream=False,
             config={
                 "response_mime_type": "application/json",
                 "response_schema": list[CompanyInsight]
             }
         )
 
-        for parsed_insight in response.parsed:
+        for parsed_insight in insights:
             saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.EARNINGS)
             yield {
                 "type": "success",
@@ -414,16 +416,17 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             All metrics from the financial data have values in thousands. In the insights, use billions when possible.
         """
 
-        response = client.models.generate_content(
-            model=ModelName.GeminiFlashLite,
-            contents=prompt,
+        insights = agent.generate_content(
+            prompt=prompt,
+            model_name=ModelName.GeminiFlashLite,
+            stream=False,
             config={
                 "response_mime_type": "application/json",
                 "response_schema": list[CompanyInsight]
             }
         )
 
-        for parsed_insight in response.parsed:
+        for parsed_insight in insights:
             saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.CASH_FLOW)
             yield {
                 "type": "success",
