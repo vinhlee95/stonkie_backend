@@ -14,7 +14,6 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 agent = Agent(model_type="gemini")
-fast_agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlash)
 company_financial_connector = CompanyFinancialConnector()
 
 analysis_prompt = """
@@ -57,7 +56,11 @@ async def classify_question(question):
     {question}"""
 
     try:
-        response = fast_agent.generate_content([prompt], stream=False)
+        response = agent.generate_content(
+            prompt=[prompt], 
+            model_name=ModelName.GeminiFlashLite,
+            stream=False
+        )
         
         # Wait for the response to complete
         response_text = response.text
@@ -81,11 +84,14 @@ async def handle_general_finance_question(question):
             "type": "thinking_status",
             "body": "Structuring the answer..."
         }
-        response_generator = agent.generate_content_and_normalize_results([
-            "Please explain this financial concept or answer this question:",
-            question,
-            "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
-        ])
+        response_generator = agent.generate_content_and_normalize_results(
+            prompt=[
+                "Please explain this financial concept or answer this question:",
+                question,
+                "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
+            ],
+            model_name=ModelName.GeminiFlashLite,
+        )
 
         async for answer in response_generator:
             yield {
@@ -103,7 +109,7 @@ async def handle_general_finance_question(question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response_generator = agent.generate_content_and_normalize_results([prompt])
+        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
 
         async for answer in response_generator:
             yield {
@@ -163,7 +169,11 @@ async def handle_company_general_question(ticker, question):
             "body": "Relevant context found. Generating answer..."
         }
 
-        for chunk in fast_agent.generate_content(prompt, stream=True):
+        for chunk in agent.generate_content(
+            prompt=prompt, 
+            model_name=ModelName.GeminiFlashLite, 
+            stream=True
+        ):
             for part in chunk.candidates[0].content.parts:
                 yield {
                     "type": "answer",
@@ -181,7 +191,7 @@ async def handle_company_general_question(ticker, question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response_generator = agent.generate_content_and_normalize_results([prompt])
+        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
 
         async for answer in response_generator:
             yield {
@@ -263,7 +273,7 @@ async def handle_company_specific_finance(ticker, question):
         for chunk in agent.generate_content([
             financial_context,
             analysis_prompt,
-        ], stream=True, thought=True):
+        ], model_name=ModelName.GeminiFlash, stream=True, thought=True):
             for part in chunk.candidates[0].content.parts:
                 if part.thought:
                     yield {
@@ -289,7 +299,7 @@ async def handle_company_specific_finance(ticker, question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response = agent.generate_content_and_normalize_results([prompt])
+        response = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
         async for answer in response:
             yield {
                 "type": "related_question",
