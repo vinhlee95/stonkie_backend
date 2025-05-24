@@ -30,7 +30,14 @@ class GeminiModel:
         Args:
             prompt (str | list[str]): The input prompt for content generation. Can be either a single string
                                      or a list of strings.
+            model_name (str | None): The model to use for generation. If None, uses default model.
+            stream (bool): Whether to stream the response. If False, returns a synchronous response.
+            thought (bool): Whether to include thinking process in the response.
             **kwargs: Additional arguments to pass to the generate_content method
+
+        Returns:
+            If stream=False: Returns the raw response object or parsed JSON if response_mime_type is "application/json"
+            If stream=True: Returns a generator that yields text parts
 
         Raises:
             ValueError: If the prompt is empty, None, or contains empty strings
@@ -49,7 +56,7 @@ class GeminiModel:
         # Extract config handling logic
         config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
         
-        if stream == False:
+        if not stream:
             response = self.client.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -61,32 +68,40 @@ class GeminiModel:
 
             return response
 
-        if thought:
-            base_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(
-                    include_thoughts=True
-                ),
-            )
-            # Merge with config from kwargs if it exists
-            if "config" in kwargs:
+        def stream_generator():
+            if thought:
                 base_config = types.GenerateContentConfig(
                     thinking_config=types.ThinkingConfig(
                         include_thoughts=True
                     ),
-                    **kwargs["config"]
                 )
-            return self.client.models.generate_content_stream(
-                model=model_name,
-                contents=prompt,
-                config=base_config,
-                **{k: v for k, v in kwargs.items() if k != "config"}
-            )
+                # Merge with config from kwargs if it exists
+                if "config" in kwargs:
+                    base_config = types.GenerateContentConfig(
+                        thinking_config=types.ThinkingConfig(
+                            include_thoughts=True
+                        ),
+                        **kwargs["config"]
+                    )
+                response = self.client.models.generate_content_stream(
+                    model=model_name,
+                    contents=prompt,
+                    config=base_config,
+                    **{k: v for k, v in kwargs.items() if k != "config"}
+                )
+            else:
+                response = self.client.models.generate_content_stream(
+                    model=model_name,
+                    contents=prompt,
+                    **config_kwargs
+                )
 
-        return self.client.models.generate_content_stream(
-                model=model_name,
-                contents=prompt,
-                **config_kwargs
-            )
+            # For streaming responses, yield text parts
+            for chunk in response:
+                for part in chunk.candidates[0].content.parts:
+                    yield part
+
+        return stream_generator()
     
     async def generate_content_and_normalize_results(self, prompt, model_name: str | None = None, **kwargs) -> AsyncGenerator[str, None]:
         """
@@ -101,16 +116,14 @@ class GeminiModel:
             str: Cleaned and normalized text chunks
         """
         buffer = ""
-        for chunk in self.generate_content(prompt, model_name, **kwargs):
-            for part in chunk.candidates[0].content.parts:
-                if part.text:
-                    buffer += part.text
-                    # Process complete lines if we have a newline
-                    while '\n' in buffer:
-                        line, buffer = buffer.split('\n', 1)
-                        clean_line = line.replace("*", "").strip()
-                        if clean_line:
-                            yield clean_line
+        for part in self.generate_content(prompt, model_name, **kwargs):
+            buffer += part.text
+            # Process complete lines if we have a newline
+            while '\n' in buffer:
+                line, buffer = buffer.split('\n', 1)
+                clean_line = line.replace("*", "").strip()
+                if clean_line:
+                    yield clean_line
         
         # Don't forget to process any remaining text in the buffer
         if buffer:

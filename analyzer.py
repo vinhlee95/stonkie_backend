@@ -169,16 +169,15 @@ async def handle_company_general_question(ticker, question):
             "body": "Relevant context found. Generating answer..."
         }
 
-        for chunk in agent.generate_content(
+        for part in agent.generate_content(
             prompt=prompt, 
             model_name=ModelName.GeminiFlashLite, 
             stream=True
         ):
-            for part in chunk.candidates[0].content.parts:
-                yield {
-                    "type": "answer",
-                    "body": part.text
-                }
+            yield {
+                "type": "answer",
+                "body": part.text
+            }
 
         yield {
             "type": "thinking_status",
@@ -270,21 +269,20 @@ async def handle_company_specific_finance(ticker, question):
             "body": "Relevant context found. Structuring the answers..."
         }
 
-        for chunk in agent.generate_content([
+        for part in agent.generate_content([
             financial_context,
             analysis_prompt,
         ], model_name=ModelName.GeminiFlash, stream=True, thought=True):
-            for part in chunk.candidates[0].content.parts:
-                if part.thought:
-                    yield {
-                        "type": "thinking_status",
-                        "body": part.text
-                    }
-                else:
-                    yield {
-                        "type": "answer",
-                        "body": part.text if part.text else "❌ No analysis generated from the model"
-                    }
+            if part.thought:
+                yield {
+                    "type": "thinking_status",
+                    "body": part.text
+                }
+            else:
+                yield {
+                    "type": "answer",
+                    "body": part.text if part.text else "❌ No analysis generated from the model"
+                }
             
         # Add related questions after main response
         yield {
