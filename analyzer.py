@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from enum import Enum
 import logging
 from agent.agent import Agent
+from ai_models.model_name import ModelName
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from connectors.company import get_by_ticker
 from connectors.company_financial import CompanyFinancialConnector
@@ -13,6 +14,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 agent = Agent(model_type="gemini")
+fast_agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlash)
 company_financial_connector = CompanyFinancialConnector()
 
 analysis_prompt = """
@@ -55,11 +57,10 @@ async def classify_question(question):
     {question}"""
 
     try:
-        response = await agent.generate_content([prompt])
+        response = fast_agent.generate_content([prompt], stream=False)
         
         # Wait for the response to complete
-        await response.resolve()
-        response_text = response.text.lower()
+        response_text = response.text
         
         if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
             return QuestionType.COMPANY_SPECIFIC_FINANCE.value
@@ -162,18 +163,18 @@ async def handle_company_general_question(ticker, question):
             "body": "Relevant context found. Generating answer..."
         }
 
-        response = await agent.generate_content(prompt)
-
-        async for answer in response:
-            yield {
-                "type": "answer",
-                "body": answer.text
-            }
+        for chunk in fast_agent.generate_content(prompt, stream=True):
+            for part in chunk.candidates[0].content.parts:
+                yield {
+                    "type": "answer",
+                    "body": part.text
+                }
 
         yield {
             "type": "thinking_status",
             "body": "Now generating related questions you might want to ask next..."
         }
+
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
@@ -259,16 +260,21 @@ async def handle_company_specific_finance(ticker, question):
             "body": "Relevant context found. Structuring the answers..."
         }
 
-        response = await agent.generate_content([
+        for chunk in agent.generate_content([
             financial_context,
             analysis_prompt,
-        ], stream=True)
-
-        async for chunk in response:
-            yield {
-                "type": "answer",
-                "body": chunk.text if chunk.text else "❌ No analysis generated from the model"
-            }
+        ], stream=True, thought=True):
+            for part in chunk.candidates[0].content.parts:
+                if part.thought:
+                    yield {
+                        "type": "thinking_status",
+                        "body": part.text
+                    }
+                else:
+                    yield {
+                        "type": "answer",
+                        "body": part.text if part.text else "❌ No analysis generated from the model"
+                    }
             
         # Add related questions after main response
         yield {

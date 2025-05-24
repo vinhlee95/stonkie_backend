@@ -1,38 +1,28 @@
 import os
 from typing import AsyncGenerator
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from ai_models.model_name import ModelName
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 class GeminiModel:
-    def __init__(self, model_name: str | None=None, system_instruction=None):
+    def __init__(self, model_name: str | None=None):
         """Initialize the Gemini agent with API key configuration"""
-        
-        self.api_key = os.getenv("GEMINI_API_KEY")
-
-        MODEL_NAME = model_name or ModelName.GeminiFlash
-
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not found")
-        
-        genai.configure(api_key=self.api_key)
-
-        if not system_instruction:
-            self.client = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-            )
-        else:
-            self.client = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                system_instruction=system_instruction
-            )
+        self.MODEL_NAME = model_name or ModelName.GeminiFlash
+        self.client = genai.Client(
+            api_key=os.getenv("GEMINI_API_KEY"),
+        )
 
 
-    def generate_content(self, prompt: str | list[str], stream: bool = True, **kwargs):
+    def generate_content(
+        self, 
+        prompt: str | list[str], 
+        stream: bool = True, 
+        thought: bool = False, 
+        **kwargs
+    ):
         """
         Generate content using the Gemini model
 
@@ -54,9 +44,28 @@ class GeminiModel:
             raise ValueError("Prompt must be either a string or a list of strings")
         
         if stream == False:
-            return self.client.generate_content(prompt, **kwargs)
-            
-        return self.client.generate_content_async(prompt, stream=stream, **kwargs)
+            return self.client.models.generate_content(
+                model=self.MODEL_NAME,
+                contents=prompt,
+            )
+
+        if thought:
+            return self.client.models.generate_content_stream(
+                model=self.MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True
+                    )
+                ),
+                **kwargs
+            )
+
+        return self.client.models.generate_content_stream(
+                model=self.MODEL_NAME,
+                contents=prompt,
+                **kwargs
+            )
     
     async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
         """
@@ -70,18 +79,18 @@ class GeminiModel:
         Yields:
             str: Cleaned and normalized text chunks
         """
-        response = await self.generate_content(prompt, **kwargs)
         buffer = ""
         
-        async for chunk in response:
-            if chunk.text:
-                buffer += chunk.text
-                # Process complete lines if we have a newline
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    clean_line = line.replace("*", "").strip()
-                    if clean_line:
-                        yield clean_line
+        for chunk in self.generate_content(prompt, **kwargs):
+            for part in chunk.candidates[0].content.parts:
+                if part.text:
+                    buffer += part.text
+                    # Process complete lines if we have a newline
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        clean_line = line.replace("*", "").strip()
+                        if clean_line:
+                            yield clean_line
         
         # Don't forget to process any remaining text in the buffer
         if buffer:

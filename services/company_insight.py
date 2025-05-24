@@ -13,14 +13,22 @@ from urllib.parse import urlencode
 import os
 from connectors.company import get_by_ticker
 import random
+from pydantic import BaseModel
+from google import genai
 
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
+
+class CompanyInsight(BaseModel):
+    title: str
+    content: str
+
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
-agent = Agent(model_type="gemini", model_name=ModelName.GemimiPro)
+agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlashLite)
 
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
@@ -34,7 +42,6 @@ async def fetch_unsplash_image(ticker: str) -> str:
     company_name = get_by_ticker(ticker).name
     
     async def generate_image_query(company_name: str) -> str:
-        agent = Agent(model_type="gemini")
         # Add randomization to the prompt to ensure different queries
         aspects = [
             "product",
@@ -84,8 +91,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        response = await agent.generate_content(prompt)
-        await response.resolve()
+        response = agent.generate_content(prompt, stream=False)
         query = response.text.strip()
         
         # Add the new query to cache
@@ -144,6 +150,10 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
             thumbnail_url=thumbnail_url
         )
         new_insight = company_insight_connector.create_one(insight_dto)
+        logger.info("Persist insight for company", {
+            "ticker": ticker,
+            "insight_type": insight_type
+        })
         return new_insight
     except Exception as e:
         logger.error(f"Error persisting insight to database", {
@@ -153,51 +163,9 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
         })
         return None
 
-async def process_streaming_insights(response, ticker: str, insight_type: InsightType) -> AsyncGenerator[dict, None]:
-    """Process streaming insights from the AI response."""
-    accumulated_text = ""
-    current_insight = ""
-    in_insight = False
-    
-    async for chunk in response:
-        chunk_text = chunk.text
-        accumulated_text += chunk_text
-        
-        # Process any complete insights
-        while "---INSIGHT_START---" in accumulated_text and "---INSIGHT_END---" in accumulated_text:
-            start_idx = accumulated_text.find("---INSIGHT_START---") + len("---INSIGHT_START---")
-            end_idx = accumulated_text.find("---INSIGHT_END---")
-            
-            if start_idx > 0 and end_idx > start_idx:
-                insight_text = accumulated_text[start_idx:end_idx].strip()
-                # Persist the insight before yielding
-                new_insight = await persist_insight(ticker, insight_type, insight_text)
-                if new_insight:
-                    yield {"type": "success", "data": {"content": insight_text, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}}
-                else:
-                    yield {"type": "success", "data": {"content": insight_text}}
-
-                # Remove processed insight from accumulated text
-                accumulated_text = accumulated_text[end_idx + len("---INSIGHT_END---"):]
-                current_insight = ""
-                in_insight = False
-        
-        # Handle streaming content between insights
-        if "---INSIGHT_START---" in accumulated_text and not in_insight:
-            in_insight = True
-            start_idx = accumulated_text.rfind("---INSIGHT_START---") + len("---INSIGHT_START---")
-            current_insight = accumulated_text[start_idx:]
-        elif in_insight:
-            current_insight += chunk_text
-        
-        # Stream current insight if it's meaningful and doesn't contain markers
-        if current_insight.strip() and not any(marker in current_insight for marker in ["---INSIGHT_START---", "---INSIGHT_END---", "---COMPLETE---"]):
-            yield {"type": "stream", "content": current_insight.strip()}
-            current_insight = ""
-        
-        # Check if we're done
-        if "---COMPLETE---" in accumulated_text:
-            break
+async def process_parsed_streaming_insights(ticker: str, insight: CompanyInsight, insight_type: InsightType) -> dict:
+    new_insight = await persist_insight(ticker, insight_type, insight.content)
+    return {"content": new_insight.content, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}
 
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -254,20 +222,12 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
             Guidelines for your analysis:
             - Have 4 insights in total for all the growth dimensions. Each insight should have less than 200 words.
+            - Make title of each insight catchy
             - Be specific about time periods and trends
             - Connect insights across different growth dimensions
             - Highlight both positive and concerning patterns
             - Support insights with relevant data points
             - Consider both quantitative and qualitative factors
-
-            Format each insight as follows:
-            ---INSIGHT_START---
-            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
-            [Your creative, well-supported insight]
-            ---INSIGHT_END---
-
-            Generate insights one at a time, ensuring each is thorough and valuable.
-            End your analysis with "---COMPLETE---"
 
             Here is the annual financial data:
             {json.dumps(annual_financial_statements_json, indent=2)}
@@ -276,10 +236,22 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        response = await agent.generate_content(prompt=prompt, stream=True)
-        async for insight in process_streaming_insights(response, ticker, InsightType.GROWTH):
-            yield insight
-    
+        response = client.models.generate_content(
+            model=ModelName.GeminiFlashLite,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": list[CompanyInsight]
+            }
+        )
+
+        for parsed_insight in response.parsed:
+            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.GROWTH)
+            yield {
+                "type": "success",
+                "data": saved_insight
+            }
+
     except Exception as e:
         logger.error(f"Error getting growth insights for company", {
             "ticker": ticker,
@@ -337,20 +309,12 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
 
             Guidelines for your analysis:
             - Have 4 insights in total for all the earnings dimensions. Each insight should have less than 200 words.
+            - Make title of each insight catchy
             - Be specific about time periods and trends
             - Connect insights across different earnings metrics
             - Highlight both positive and concerning patterns
             - Support insights with relevant data points
             - Consider both quantitative and qualitative factors
-
-            Format each insight as follows:
-            ---INSIGHT_START---
-            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
-            [Your creative, well-supported insight]
-            ---INSIGHT_END---
-
-            Generate insights one at a time, ensuring each is thorough and valuable.
-            End your analysis with "---COMPLETE---"
 
             Here is the annual financial data:
             {json.dumps(annual_financial_statements_json, indent=2)}
@@ -359,16 +323,28 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        response = await agent.generate_content(prompt=prompt, stream=True)
-        async for insight in process_streaming_insights(response, ticker, InsightType.EARNINGS):
-            yield insight
-    
+        response = client.models.generate_content(
+            model=ModelName.GeminiFlashLite,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": list[CompanyInsight]
+            }
+        )
+
+        for parsed_insight in response.parsed:
+            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.EARNINGS)
+            yield {
+                "type": "success",
+                "data": saved_insight
+            }
+
     except Exception as e:
-        logger.error(f"Error getting growth insights for company", {
+        logger.error(f"Error getting earnings insights for company", {
             "ticker": ticker,
             "error": str(e)
         })
-        yield {"type": "error", "content": "Error getting growth insights for company"}
+        yield {"type": "error", "content": "Error getting earnings insights for company"}
 
 async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -399,27 +375,34 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             Your task is to analyze {ticker}'s cash flow and provide unique, actionable insights.
 
             Focus on these key cash flow dimensions:
-            1. Operating cash flow
-            2. Capital expenditure
-            3. Free cash flow
-            4. Cash flow from financing activities
+            1. Operating Cash Flow Dynamics
+               - Analyze operating cash flow trends and quality
+               - Evaluate working capital management
+               - Assess cash conversion cycle efficiency
+
+            2. Capital Expenditure & Investment
+               - Examine capital expenditure patterns
+               - Analyze investment in growth vs maintenance
+               - Evaluate return on invested capital
+
+            3. Free Cash Flow Analysis
+               - Track free cash flow generation
+               - Analyze free cash flow yield
+               - Evaluate cash flow sustainability
+
+            4. Financing & Capital Structure
+               - Assess debt management and leverage
+               - Analyze dividend and share buyback policies
+               - Evaluate capital structure optimization
 
             Guidelines for your analysis:
-            - Have 4 insights in total for all the cash flow dimensions. Each insight should have less than 200 words. Use linebreaks in the insights so that it is easier to read with smaller paragraphs.
+            - Have 4 insights in total for all the cash flow dimensions. Each insight should have less than 200 words.
+            - Make title of each insight catchy
             - Be specific about time periods and trends
             - Connect insights across different cash flow metrics
             - Highlight both positive and concerning patterns
-            - Support insights with relevant data points from the provided financial data. Do not make up any quantitative data or metrics that are not provided in the financial statements.
+            - Support insights with relevant data points from the provided financial data
             - Consider both quantitative and qualitative factors
-
-            Format each insight as follows:
-            ---INSIGHT_START---
-            [First line of the insight as a summary, less than 15 words, informative and catchy, make it bold in markdown format]
-            [Your creative, well-supported insight]
-            ---INSIGHT_END---
-
-            Generate insights one at a time, ensuring each is thorough and valuable.
-            End your analysis with "---COMPLETE---"
 
             Here is the annual financial data:
             {json.dumps(annual_cash_flow_statements_json, indent=2)}
@@ -429,11 +412,23 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
 
             All metrics from the financial data have values in thousands. In the insights, use billions when possible.
         """
-        response = await agent.generate_content(prompt=prompt, stream=True)
-        async for insight in process_streaming_insights(response, ticker, InsightType.CASH_FLOW):
-            logger.info("Insight generated for ticker", {"ticker": ticker})
-            yield insight
-    
+
+        response = client.models.generate_content(
+            model=ModelName.GeminiFlashLite,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": list[CompanyInsight]
+            }
+        )
+
+        for parsed_insight in response.parsed:
+            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.CASH_FLOW)
+            yield {
+                "type": "success",
+                "data": saved_insight
+            }
+
     except Exception as e:
         logger.error(f"Error getting cash flow insights for company", {
             "ticker": ticker,

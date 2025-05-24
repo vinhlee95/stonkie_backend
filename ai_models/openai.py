@@ -73,7 +73,7 @@ class OpenAIModel:
             elif event.type == "response.completed":
                 print("Completed")
 
-  def generate_content(self, user_input: str, stream: bool = True):
+  def generate_content(self, user_input: str, stream: bool = True, **kwargs):
     if stream:
       return self._generate_content_async(user_input)
     else:
