@@ -20,9 +20,9 @@ class OpenAIModel:
     
     return response.data[0].embedding
 
-  def _generate_content_sync(self, user_input: str):
+  def _generate_content_sync(self, user_input: str, model_name: str | None):
     with self.client.responses.stream(
-        model=self.model,
+        model=model_name or self.model,
         input=[
             {
                 "role": "user",
@@ -47,9 +47,9 @@ class OpenAIModel:
             print(f"Error parsing JSON: {e}")
             return None
 
-  async def _generate_content_async(self, user_input: str):
+  async def _generate_content_async(self, user_input: str, model_name: str | None):
     with self.client.responses.stream(
-        model=self.model,
+        model=model_name or self.model,
         input=[
             {
                 "role": "user",
@@ -73,8 +73,8 @@ class OpenAIModel:
             elif event.type == "response.completed":
                 print("Completed")
 
-  def generate_content(self, user_input: str, stream: bool = True, **kwargs):
+  def generate_content(self, user_input: str, model_name: str | None = None, stream: bool = True, **kwargs):
     if stream:
-      return self._generate_content_async(user_input)
+      return self._generate_content_async(user_input, model_name)
     else:
-      return self._generate_content_sync(user_input)
+      return self._generate_content_sync(user_input, model_name)

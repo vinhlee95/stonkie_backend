@@ -19,6 +19,7 @@ class GeminiModel:
     def generate_content(
         self, 
         prompt: str | list[str], 
+        model_name: str | None = None,
         stream: bool = True, 
         thought: bool = False, 
         **kwargs
@@ -42,16 +43,18 @@ class GeminiModel:
                 raise ValueError("Prompt list must contain non-empty strings")
         else:
             raise ValueError("Prompt must be either a string or a list of strings")
+
+        model_name = model_name or self.MODEL_NAME
         
         if stream == False:
             return self.client.models.generate_content(
-                model=self.MODEL_NAME,
+                model=model_name,
                 contents=prompt,
             )
 
         if thought:
             return self.client.models.generate_content_stream(
-                model=self.MODEL_NAME,
+                model=model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     thinking_config=types.ThinkingConfig(
@@ -62,7 +65,7 @@ class GeminiModel:
             )
 
         return self.client.models.generate_content_stream(
-                model=self.MODEL_NAME,
+                model=model_name,
                 contents=prompt,
                 **kwargs
             )

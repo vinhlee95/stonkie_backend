@@ -22,7 +22,14 @@ class Agent:
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
-    def generate_content(self, prompt, stream=True, thought: bool = False, **kwargs):
+    def generate_content(
+        self, 
+        prompt: str | list[str],
+        model_name: str | None = None, 
+        stream=True, 
+        thought: bool = False, 
+        **kwargs
+    ):
         """
         Generate content using the configured AI model
             
@@ -31,6 +38,7 @@ class Agent:
         """
         return self.model.generate_content(
             prompt, 
+            model_name=model_name,
             stream=stream, 
             thought=thought, 
             **kwargs
