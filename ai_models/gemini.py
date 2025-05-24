@@ -46,28 +46,46 @@ class GeminiModel:
 
         model_name = model_name or self.MODEL_NAME
         
+        # Extract config handling logic
+        config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
+        
         if stream == False:
-            return self.client.models.generate_content(
+            response = self.client.models.generate_content(
                 model=model_name,
                 contents=prompt,
+                **config_kwargs
             )
 
+            if config_kwargs.get("config", {}).get("response_mime_type") == "application/json":
+                return response.parsed
+
+            return response
+
         if thought:
+            base_config = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True
+                ),
+            )
+            # Merge with config from kwargs if it exists
+            if "config" in kwargs:
+                base_config = types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True
+                    ),
+                    **kwargs["config"]
+                )
             return self.client.models.generate_content_stream(
                 model=model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(
-                        include_thoughts=True
-                    )
-                ),
-                **kwargs
+                config=base_config,
+                **{k: v for k, v in kwargs.items() if k != "config"}
             )
 
         return self.client.models.generate_content_stream(
                 model=model_name,
                 contents=prompt,
-                **kwargs
+                **config_kwargs
             )
     
     async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:

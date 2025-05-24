@@ -236,16 +236,17 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        response = client.models.generate_content(
-            model=ModelName.GeminiFlashLite,
-            contents=prompt,
+        insights = agent.generate_content(
+            prompt=prompt,
+            model_name=ModelName.GeminiFlashLite,
+            stream=False,
             config={
                 "response_mime_type": "application/json",
                 "response_schema": list[CompanyInsight]
             }
         )
 
-        for parsed_insight in response.parsed:
+        for parsed_insight in insights:
             saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.GROWTH)
             yield {
                 "type": "success",
