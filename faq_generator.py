@@ -1,10 +1,11 @@
 from agent.agent import Agent
 from logging import getLogger
+from ai_models.model_name import ModelName
 from connectors.company import get_by_ticker
 
 logger = getLogger(__name__)
 
-agent = Agent(model_type="gemini")
+agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlashLite)
 
 DEFAULT_QUESTIONS = [
     "What is the company's revenue?",
@@ -19,7 +20,7 @@ async def get_general_frequent_ask_questions():
             "The question should be generic and not specific to any particular company.",
             "The questions should be concise and to the point.",
             "The questions should be in the form of a list of questions. Only return the list of questions without the number at the beginning, no other text.",
-        ])
+        ], model_name=ModelName.GeminiFlashLite)
         
         async for question in questions_generator:
             if question.strip():
@@ -59,7 +60,8 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                     The question should be about a financial year instead of quarterly. Do not return a variable year. Prefer the latest year.
                     Only return the content of the questions. Do not return the number or order of the output.
                 """,
-            ]
+            ],
+            model_name=ModelName.GeminiFlashLite,
         )
 
         async for question in response_generator:

@@ -88,7 +88,7 @@ class GeminiModel:
                 **config_kwargs
             )
     
-    async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
+    async def generate_content_and_normalize_results(self, prompt, model_name: str | None = None, **kwargs) -> AsyncGenerator[str, None]:
         """
         Generate content and normalize the streaming results by processing complete lines
         and cleaning up the output format.
@@ -101,8 +101,7 @@ class GeminiModel:
             str: Cleaned and normalized text chunks
         """
         buffer = ""
-        
-        for chunk in self.generate_content(prompt, **kwargs):
+        for chunk in self.generate_content(prompt, model_name, **kwargs):
             for part in chunk.candidates[0].content.parts:
                 if part.text:
                     buffer += part.text
