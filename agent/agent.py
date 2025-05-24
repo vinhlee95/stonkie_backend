@@ -22,29 +22,19 @@ class Agent:
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
-    # TODO: deprecate this and use generate_content_and_normalize_results instead
-    def generate_content(self, prompt, system_instruction=None, stream=True, thought: bool = False, **kwargs):
+    def generate_content(self, prompt, stream=True, thought: bool = False, **kwargs):
         """
         Generate content using the configured AI model
-        
-        Args:
-            prompt (str | list[str]): Input prompt for content generation
-            system_instruction (str, optional): System instruction for model behavior
-            **kwargs: Additional parameters for the model
             
         Returns:
             Generated content from the AI model
         """
-        if system_instruction:
-            return self.model.generate_content(
-                system_instruction=system_instruction,
-                prompt=prompt,
-                stream=stream,
-                thought=thought,
-                **kwargs
-            )
-        
-        return self.model.generate_content(prompt, stream=stream, thought=thought, **kwargs)
+        return self.model.generate_content(
+            prompt, 
+            stream=stream, 
+            thought=thought, 
+            **kwargs
+        )
     
     async def generate_content_and_normalize_results(self, prompt, **kwargs) -> AsyncGenerator[str, None]:
         """
