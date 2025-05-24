@@ -1,9 +1,8 @@
 from google import genai
 from google.genai import types
+import os
 
-GEMINI_API_KEY="AIzaSyAGqOhX9-ZcyzlyBUILi0D0OEgivSt_bXU"
-
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 prompt = "What is the sum of the first 50 prime numbers?"
 
 thoughts = ""
