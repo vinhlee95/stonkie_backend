@@ -164,7 +164,7 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
         })
         return None
 
-async def process_parsed_streaming_insights(ticker: str, insight: CompanyInsight, insight_type: InsightType) -> dict:
+async def process_insight(ticker: str, insight: CompanyInsight, insight_type: InsightType) -> dict:
     new_insight = await persist_insight(ticker, insight_type, insight.content)
     return {"content": new_insight.content, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}
 
@@ -248,7 +248,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
         )
 
         for parsed_insight in insights:
-            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.GROWTH)
+            saved_insight = await process_insight(ticker, parsed_insight, InsightType.GROWTH)
             yield {
                 "type": "success",
                 "data": saved_insight
@@ -336,7 +336,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
         )
 
         for parsed_insight in insights:
-            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.EARNINGS)
+            saved_insight = await process_insight(ticker, parsed_insight, InsightType.EARNINGS)
             yield {
                 "type": "success",
                 "data": saved_insight
@@ -427,7 +427,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
         )
 
         for parsed_insight in insights:
-            saved_insight = await process_parsed_streaming_insights(ticker, parsed_insight, InsightType.CASH_FLOW)
+            saved_insight = await process_insight(ticker, parsed_insight, InsightType.CASH_FLOW)
             yield {
                 "type": "success",
                 "data": saved_insight
