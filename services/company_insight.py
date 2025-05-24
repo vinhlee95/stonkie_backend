@@ -137,7 +137,7 @@ def to_dict(model_instance) -> Dict[str, Any]:
         result[c.key] = value
     return result
 
-async def persist_insight(ticker: str, insight_type: str, content: str) -> CompanyInsightDto | None:
+async def persist_insight(ticker: str, insight_type: str, title: str, content: str) -> CompanyInsightDto | None:
     """Persist an insight to the database."""
     try:
         slug = f"{ticker}-{insight_type}-{uuid.uuid4().hex[:8]}"
@@ -147,6 +147,7 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
             company_symbol=ticker,
             slug=slug,
             insight_type=insight_type,
+            title=title,
             content=content,
             thumbnail_url=thumbnail_url
         )
@@ -165,8 +166,8 @@ async def persist_insight(ticker: str, insight_type: str, content: str) -> Compa
         return None
 
 async def process_insight(ticker: str, insight: CompanyInsight, insight_type: InsightType) -> dict:
-    new_insight = await persist_insight(ticker, insight_type, insight.content)
-    return {"content": new_insight.content, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}
+    new_insight = await persist_insight(ticker, insight_type, insight.title, insight.content)
+    return {"title": new_insight.title, "content": new_insight.content, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}
 
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -185,6 +186,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
                     yield {
                         "type": "success", 
                         "data": {
+                            "title": insight.title,
                             "content": insight.content, 
                             "cached": True, 
                             "slug": insight.slug,
@@ -272,6 +274,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
                 yield {
                     "type": "success", 
                     "data": {
+                        "title": insight.title,
                         "content": insight.content, 
                         "cached": True, 
                         "slug": insight.slug,
@@ -360,6 +363,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
                 yield {
                     "type": "success", 
                     "data": {
+                        "title": insight.title,
                         "content": insight.content, 
                         "cached": True, 
                         "slug": insight.slug,

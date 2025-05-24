@@ -17,6 +17,7 @@ class CompanyInsightDto:
     company_symbol: str
     slug: str
     insight_type: str
+    title: str
     content: str
     created_at: datetime
     thumbnail_url: str
@@ -26,6 +27,7 @@ class CreateCompanyInsightDto:
     company_symbol: str
     slug: str
     insight_type: str
+    title: str
     content: str
     thumbnail_url: str
 
