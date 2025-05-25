@@ -99,10 +99,6 @@ async def handle_general_finance_question(question):
                 "body": answer
             }
 
-        yield {
-            "type": "thinking_status",
-            "body": "Now generating related questions you might want to ask next..."
-        }
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
@@ -178,11 +174,6 @@ async def handle_company_general_question(ticker, question):
                 "type": "answer",
                 "body": part.text
             }
-
-        yield {
-            "type": "thinking_status",
-            "body": "Now generating related questions you might want to ask next..."
-        }
 
         prompt = f"""
             Based on this original question: "{question}"
@@ -283,12 +274,6 @@ async def handle_company_specific_finance(ticker, question):
                     "type": "answer",
                     "body": part.text if part.text else "❌ No analysis generated from the model"
                 }
-            
-        # Add related questions after main response
-        yield {
-            "type": "thinking_status",
-            "body": "Now generating related questions you might want to ask next..."
-        }
 
         prompt = f"""
             Based on this original question: "{question}"
