@@ -128,10 +128,6 @@ async def handle_company_general_question(ticker, question):
     company_name = company.name if company else ""
 
     try:
-        yield {
-            "type": "thinking_status",
-            "body": f"Searching for relevant information from 10K document for {company_name} with ticker {ticker}..."
-        }
         openai_agent = Agent(model_type="openai")
         # Format search results into financial context
 
@@ -160,20 +156,22 @@ async def handle_company_general_question(ticker, question):
                 LENGTH_LIMIT_PROMPT
             ]
 
-        yield {
-            "type": "thinking_status",
-            "body": "Relevant context found. Generating answer..."
-        }
-
         for part in agent.generate_content(
             prompt=prompt, 
-            model_name=ModelName.GeminiFlashLite, 
-            stream=True
+            model_name=ModelName.GeminiFlash, 
+            stream=True,
+            thought=True,
         ):
-            yield {
-                "type": "answer",
-                "body": part.text
-            }
+            if part.thought:
+                yield {
+                    "type": "thinking_status",
+                    "body": part.text
+                }
+            else:
+                yield {
+                    "type": "answer",
+                    "body": part.text
+                }
 
         prompt = f"""
             Based on this original question: "{question}"
@@ -219,11 +217,6 @@ async def handle_company_specific_finance(ticker, question):
         financial_context = f"\nRelevant information from company's 10K documents:\n\n{context_from_official_document}"
     
     try:
-        yield {
-            "type": "thinking_status",
-            "body": f"Searching for relevant information from financial statements for {ticker.upper()}..."
-        }
-
         annual_financial_statements = [
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_financial_statements(ticker)
         ]
@@ -254,12 +247,6 @@ async def handle_company_specific_finance(ticker, question):
             Then have a follow-up section of 150-200 words in total with more in-depth analysis.
             At the end of the analysis, state clear which source you get the information from.
         """
-
-        yield {
-            "type": "thinking_status",
-            "body": "Relevant context found. Structuring the answers..."
-        }
-
         for part in agent.generate_content([
             financial_context,
             analysis_prompt,
