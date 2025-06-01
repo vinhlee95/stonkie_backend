@@ -13,6 +13,7 @@ from services.company_insight import get_insights_for_ticker, InsightType
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
+import asyncio
 
 load_dotenv()
 
@@ -142,9 +143,17 @@ async def analyze_financial_data(request: Request):
             raise HTTPException(status_code=400, detail="Question is required in request body")
 
         async def generate_analysis():
-            async for chunk in analyze_financial_data_from_question(ticker, question):
-                # Each chunk is now a JSON object with type and body
-                yield json.dumps(chunk) + "\n\n"
+            try:
+                async for chunk in analyze_financial_data_from_question(ticker, question):
+                    # Check if the client has disconnected
+                    if await request.is_disconnected():
+                        return
+                    # Each chunk is now a JSON object with type and body
+                    yield json.dumps(chunk) + "\n\n"
+            except asyncio.CancelledError:
+                # Handle cancellation
+                logger.info('Client cancelled request to analyze financial data', {"ticker": ticker})
+                return
 
         return StreamingResponse(
             generate_analysis(),
