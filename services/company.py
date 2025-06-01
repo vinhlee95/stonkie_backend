@@ -40,9 +40,15 @@ def get_key_stats_for_ticker(ticker: str):
     market_cap = int(company_fundamental["MarketCapitalization"]) if company_fundamental["MarketCapitalization"] != "None" else 0
     dividend_yield = float(company_fundamental["DividendYield"]) if company_fundamental["DividendYield"] != "None" else 0.0
     
+    # Sometimes PERatio is a string "None"
+    try:
+        pe_ratio = float(company_fundamental["PERatio"])
+    except ValueError:
+        pe_ratio = 0
+    
     return CompanyFundamental(
         market_cap=market_cap,
-        pe_ratio=float(company_fundamental["PERatio"]),
+        pe_ratio=pe_ratio,
         revenue=int(company_fundamental["RevenueTTM"]),
         net_income=int(float(company_fundamental["EPS"]) * float(company_fundamental["SharesOutstanding"])),
         basic_eps=float(company_fundamental["EPS"]),
