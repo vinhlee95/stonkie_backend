@@ -156,22 +156,20 @@ async def handle_company_general_question(ticker, question):
                 LENGTH_LIMIT_PROMPT
             ]
 
+        yield {
+            "type": "thinking_status",
+            "body": "Found relevant context. Structuring answer..."
+        }
+
         for part in agent.generate_content(
             prompt=prompt, 
-            model_name=ModelName.GeminiFlash, 
+            model_name=ModelName.GeminiFlashLite, 
             stream=True,
-            thought=True,
         ):
-            if part.thought:
-                yield {
-                    "type": "thinking_status",
-                    "body": part.text
-                }
-            else:
-                yield {
-                    "type": "answer",
-                    "body": part.text
-                }
+            yield {
+                "type": "answer",
+                "body": part.text
+            }
 
         prompt = f"""
             Based on this original question: "{question}"
