@@ -49,14 +49,14 @@ def get_key_stats_for_ticker(ticker: str):
     return CompanyFundamental(
         market_cap=market_cap,
         pe_ratio=pe_ratio,
-        revenue=int(company_fundamental["RevenueTTM"]),
-        net_income=int(float(company_fundamental["EPS"]) * float(company_fundamental["SharesOutstanding"])),
-        basic_eps=float(company_fundamental["EPS"]),
-        sector=company_fundamental["Sector"],
-        industry=company_fundamental["Industry"],
-        description=company_fundamental["Description"],
-        country=company_fundamental["Country"],
-        exchange=company_fundamental["Exchange"],
+        revenue=int(company_fundamental.get("RevenueTTM")),
+        net_income=int(float(company_fundamental.get("EPS")) * float(company_fundamental.get("SharesOutstanding"))),
+        basic_eps=float(company_fundamental.get("EPS")),
+        sector=company_fundamental.get("Sector"),
+        industry=company_fundamental.get("Industry"),
+        description=company_fundamental.get("Description"),
+        country=company_fundamental.get("Country"),
+        exchange=company_fundamental.get("Exchange"),
         dividend_yield=dividend_yield,
         logo_url=get_company_logo_url_from_ticker(ticker)
     )
