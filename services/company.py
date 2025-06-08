@@ -42,7 +42,7 @@ def get_key_stats_for_ticker(ticker: str):
     
     # Sometimes PERatio is a string "None"
     try:
-        pe_ratio = float(company_fundamental.get("PERatio"))
+        pe_ratio = float(company_fundamental.get("PERatio", 0))
     except ValueError:
         pe_ratio = 0
     
