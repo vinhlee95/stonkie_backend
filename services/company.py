@@ -30,33 +30,50 @@ class CompanyFundamental(BaseModel):
     dividend_yield: float
     logo_url: str | None
 
+def safe_int(value, default=0):
+    try:
+        if value in [None, "None", ""]:
+            return default
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
+
+def safe_float(value, default=0.0):
+    try:
+        if value in [None, "None", ""]:
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
 def get_key_stats_for_ticker(ticker: str):
     """
     Get key stats for a given ticker symbol
     """
     company_fundamental = get_company_fundamental(ticker)
-    
-    # Convert MarketCapitalization to int, handle None/None values for dividend yield
-    market_cap = int(company_fundamental.get("MarketCapitalization")) if company_fundamental.get("MarketCapitalization") not in [None, "None"] else 0
-    dividend_yield = float(company_fundamental.get("DividendYield")) if company_fundamental.get("DividendYield") not in [None, "None"] else 0.0
-    
-    # Sometimes PERatio is a string "None"
-    try:
-        pe_ratio = float(company_fundamental.get("PERatio", 0))
-    except ValueError:
-        pe_ratio = 0
-    
+    print("company_fundamental", company_fundamental)
+    if not company_fundamental:
+        return None
+
+    market_cap = safe_int(company_fundamental.get("MarketCapitalization"))
+    dividend_yield = safe_float(company_fundamental.get("DividendYield"))
+    pe_ratio = safe_float(company_fundamental.get("PERatio"))
+    revenue = safe_int(company_fundamental.get("RevenueTTM"))
+    eps = safe_float(company_fundamental.get("EPS"))
+    shares_outstanding = safe_float(company_fundamental.get("SharesOutstanding"))
+    net_income = safe_int(eps * shares_outstanding)
+
     return CompanyFundamental(
         market_cap=market_cap,
         pe_ratio=pe_ratio,
-        revenue=int(company_fundamental.get("RevenueTTM")),
-        net_income=int(float(company_fundamental.get("EPS")) * float(company_fundamental.get("SharesOutstanding"))),
-        basic_eps=float(company_fundamental.get("EPS")),
-        sector=company_fundamental.get("Sector"),
-        industry=company_fundamental.get("Industry"),
-        description=company_fundamental.get("Description"),
-        country=company_fundamental.get("Country"),
-        exchange=company_fundamental.get("Exchange"),
+        revenue=revenue,
+        net_income=net_income,
+        basic_eps=eps,
+        sector=company_fundamental.get("Sector", ""),
+        industry=company_fundamental.get("Industry", ""),
+        description=company_fundamental.get("Description", ""),
+        country=company_fundamental.get("Country", ""),
+        exchange=company_fundamental.get("Exchange", ""),
         dividend_yield=dividend_yield,
         logo_url=get_company_logo_url_from_ticker(ticker)
     )
