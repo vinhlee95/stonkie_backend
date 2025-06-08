@@ -51,7 +51,6 @@ def get_key_stats_for_ticker(ticker: str):
     Get key stats for a given ticker symbol
     """
     company_fundamental = get_company_fundamental(ticker)
-    print("company_fundamental", company_fundamental)
     if not company_fundamental:
         return None
 
