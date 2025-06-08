@@ -19,17 +19,26 @@ import sys
 
 load_dotenv()
 
+environment = os.getenv('ENV', 'local').lower()
+
 # Get log level from environment variable, default to INFO
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 numeric_level = getattr(logging, log_level, logging.INFO)
 
 # Configure logging with more detailed format
-logging.basicConfig(
-    level=numeric_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    stream=sys.stdout  # Direct all logging to stdout
-)
+if environment == 'local':
+    logging.basicConfig(
+        level=numeric_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        stream=sys.stdout  # Direct all logging to stdout
+    )
+else:
+    logging.basicConfig(
+        level=numeric_level,
+        format='%(name)s - %(levelname)s - %(message)s',
+        stream=sys.stdout  # Direct all logging to stdout
+    )
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
