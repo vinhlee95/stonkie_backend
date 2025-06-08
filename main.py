@@ -15,8 +15,12 @@ from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_q
 from fastapi.responses import StreamingResponse
 import asyncio
 import os
+import sys
 
 load_dotenv()
+
+# Output to stdout instead of stder
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 # Get log level from environment variable, default to INFO
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
