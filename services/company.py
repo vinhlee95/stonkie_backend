@@ -17,6 +17,7 @@ from analyzer import COMPANY_DOCUMENT_INDEX_NAME
 company_financial_connector = CompanyFinancialConnector()
 
 class CompanyFundamental(BaseModel):
+    name: str
     market_cap: int
     pe_ratio: float
     revenue: int
@@ -51,6 +52,7 @@ def get_key_stats_for_ticker(ticker: str):
     Get key stats for a given ticker symbol
     """
     company_fundamental = get_company_fundamental(ticker)
+
     if not company_fundamental:
         return None
 
@@ -63,6 +65,7 @@ def get_key_stats_for_ticker(ticker: str):
     net_income = safe_int(eps * shares_outstanding)
 
     return CompanyFundamental(
+        name=company_fundamental.get("Name", ""),
         market_cap=market_cap,
         pe_ratio=pe_ratio,
         revenue=revenue,
