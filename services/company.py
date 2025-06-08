@@ -37,8 +37,8 @@ def get_key_stats_for_ticker(ticker: str):
     company_fundamental = get_company_fundamental(ticker)
     
     # Convert MarketCapitalization to int, handle None/None values for dividend yield
-    market_cap = int(company_fundamental["MarketCapitalization"]) if company_fundamental["MarketCapitalization"] != "None" else 0
-    dividend_yield = float(company_fundamental["DividendYield"]) if company_fundamental["DividendYield"] != "None" else 0.0
+    market_cap = int(company_fundamental.get("MarketCapitalization")) if company_fundamental.get("MarketCapitalization") not in [None, "None"] else 0
+    dividend_yield = float(company_fundamental.get("DividendYield")) if company_fundamental.get("DividendYield") not in [None, "None"] else 0.0
     
     # Sometimes PERatio is a string "None"
     try:
