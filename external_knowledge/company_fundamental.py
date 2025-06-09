@@ -2,6 +2,9 @@ import requests
 from dotenv import load_dotenv
 import os
 load_dotenv()
+import logging
+
+logger = logging.getLogger(__name__)
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
@@ -9,14 +12,28 @@ ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 _company_fundamental_cache = {}
 
 def get_company_fundamental(ticker: str) -> dict | None:
-    # Check if data is in cache
-    if ticker in _company_fundamental_cache:
-        return _company_fundamental_cache[ticker]
-        
-    url = f'https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_API_KEY}'
-    response = requests.get(url)
-    data = response.json()
-    
-    _company_fundamental_cache[ticker] = data
-    return data
+    logger.info("Get fundamental data for ticker", {"ticker": ticker})
+    try:
+        # Check if data is in cache
+        if ticker in _company_fundamental_cache:
+            logger.info("Found cached data", _company_fundamental_cache[ticker])
+            return _company_fundamental_cache[ticker]
+            
+        url = f'https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_API_KEY}'
+        response = requests.get(url)
+        response.raise_for_status()
+
+        data = response.json()
+        _company_fundamental_cache[ticker] = data
+
+        print("Fundamental data", data)
+
+        logger.info("Fetched fundamental data for ticker", {
+            "ticker": ticker,
+            "data": data,
+        })
+        return data
+    except Exception as ex:
+        print(ex)
+        logger.error("Failed to fetch company fundamental data", {"error": str(ex)})
 
