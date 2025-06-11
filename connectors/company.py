@@ -57,7 +57,7 @@ class CompanyConnector:
             result[c.key] = value
         return result
 
-    def _get_updated_company_data(self, ticker: str) -> CompanyFundamentalDto | None:
+    def _get_fresh_company_data(self, ticker: str) -> CompanyFundamentalDto | None:
         company_fundamental = get_company_fundamental(ticker)
         if not company_fundamental:
             logger.info(f"No company fundamental data found from external source: {ticker}")
@@ -92,12 +92,16 @@ class CompanyConnector:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
             if not data:
-                return None
+                # Fetch the data from API
+                new_company_data = self._get_fresh_company_data(ticker)
+                if not new_company_data:
+                    return None
+                return self.persist_fundamental_data(ticker, new_company_data)
             
             # Check if data is fresh (not older than 1 day)
             if data.updated_at < datetime.now(timezone.utc) - timedelta(days=1):
                 # Refresh the data
-                updated_company_data = self._get_updated_company_data(ticker)
+                updated_company_data = self._get_fresh_company_data(ticker)
                 if not updated_company_data:
                     return None
                 
