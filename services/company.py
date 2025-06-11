@@ -10,26 +10,12 @@ from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
-from connectors.company import get_all, get_company_logo_url_from_ticker
+from connectors.company import CompanyConnector, CompanyFundamentalDto, get_all, get_company_logo_url_from_ticker
 from connectors.company_financial import CompanyFinancialConnector
 from analyzer import COMPANY_DOCUMENT_INDEX_NAME
 
 company_financial_connector = CompanyFinancialConnector()
-
-class CompanyFundamental(BaseModel):
-    name: str
-    market_cap: int
-    pe_ratio: float
-    revenue: int
-    net_income: int
-    basic_eps: float
-    sector: str
-    industry: str
-    description: str
-    country: str
-    exchange: str
-    dividend_yield: float
-    logo_url: str | None
+company_connector = CompanyConnector()
 
 def safe_int(value, default=0):
     try:
@@ -46,16 +32,18 @@ def safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+    
+def get_key_stats_for_ticker(ticker: str) -> CompanyFundamentalDto | None:
+    persisted_data = company_connector.get_fundamental_data(ticker=ticker)
+    if persisted_data:
+        return persisted_data
 
-def get_key_stats_for_ticker(ticker: str):
-    """
-    Get key stats for a given ticker symbol
-    """
     company_fundamental = get_company_fundamental(ticker)
-
     if not company_fundamental:
+        logger.info(f"No company fundamental data found from external source: {ticker}")
         return None
-
+    
+    # Persist data
     market_cap = safe_int(company_fundamental.get("MarketCapitalization"))
     dividend_yield = safe_float(company_fundamental.get("DividendYield"))
     pe_ratio = safe_float(company_fundamental.get("PERatio"))
@@ -64,7 +52,7 @@ def get_key_stats_for_ticker(ticker: str):
     shares_outstanding = safe_float(company_fundamental.get("SharesOutstanding"))
     net_income = safe_int(eps * shares_outstanding)
 
-    return CompanyFundamental(
+    persisting_data = CompanyFundamentalDto(
         name=company_fundamental.get("Name", ""),
         market_cap=market_cap,
         pe_ratio=pe_ratio,
@@ -79,6 +67,9 @@ def get_key_stats_for_ticker(ticker: str):
         dividend_yield=dividend_yield,
         logo_url=get_company_logo_url_from_ticker(ticker)
     )
+
+    persisted_data = company_connector.persist_fundamental_data(ticker=ticker, data=persisting_data)
+    return persisted_data
 
 async def get_swot_analysis_for_ticker(ticker: str):
     # Get relevant info from 10K file

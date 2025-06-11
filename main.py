@@ -242,10 +242,11 @@ async def get_key_stats(ticker: str):
     """
     Get key stats for a given ticker symbol
     """
-    key_stats =  get_key_stats_for_ticker(ticker)
+    key_stats =  get_key_stats_for_ticker(ticker.upper())
+
     return {
         "status": "success",
-        "data": key_stats
+        "data": key_stats.__dict__ if key_stats else None
     }
 
 @app.post("/api/companies/{ticker}/upload_report")

@@ -26,8 +26,6 @@ def get_company_fundamental(ticker: str) -> dict | None:
         data = response.json()
         _company_fundamental_cache[ticker] = data
 
-        print("Fundamental data", data)
-
         logger.info("Fetched fundamental data for ticker", {
             "ticker": ticker,
             "data": data,

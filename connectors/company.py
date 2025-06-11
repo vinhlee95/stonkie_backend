@@ -1,11 +1,64 @@
+from typing import Any
 from urllib.parse import urlencode
 import os
 from pydantic import BaseModel
+from dataclasses import dataclass
+from datetime import datetime
+from connectors.database import SessionLocal
 
-class Company(BaseModel):
+from sqlalchemy.inspection import inspect
+
+from models.company_fundamental import CompanyFundamental
+
+@dataclass(frozen=True)
+class CompanyFundamentalDto:
     name: str
-    ticker: str
-    logo_url: str
+    market_cap: int
+    pe_ratio: float
+    revenue: int
+    net_income: int
+    basic_eps: float
+    sector: str
+    industry: str
+    description: str
+    country: str
+    exchange: str
+    dividend_yield: float
+    logo_url: str | None
+
+@dataclass(frozen=True)
+class CompanyConnector:
+    def _to_dict(self, model_instance) -> dict[str, Any]:
+        """Convert SQLAlchemy model to dictionary, handling datetime fields"""
+        result = {}
+        for c in inspect(model_instance).mapper.column_attrs:
+            value = getattr(model_instance, c.key)
+            # Convert datetime objects to ISO format strings
+            if isinstance(value, datetime):
+                value = value.isoformat()
+            result[c.key] = value
+        return result
+    
+    def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
+        with SessionLocal() as db:
+            data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
+            if not data:
+                return None
+            
+            return CompanyFundamentalDto(**data.data)
+        
+    def persist_fundamental_data(self, ticker: str, data: CompanyFundamentalDto) -> CompanyFundamentalDto:
+        with SessionLocal() as db:
+            fundamental_data = CompanyFundamental(
+                company_symbol=ticker,
+                data=data.__dict__
+            )
+            db.add(fundamental_data)
+            db.commit()
+            db.refresh(fundamental_data)
+
+            return CompanyFundamentalDto(**self._to_dict(fundamental_data).get("data"))
+
 
 def get_company_logo_url(company_name: str):
     """
@@ -23,6 +76,11 @@ def get_company_logo_url_from_ticker(ticker: str):
     if company:
         return company.logo_url
     return None
+
+class Company(BaseModel):
+    name: str
+    ticker: str
+    logo_url: str
 
 def get_all() -> list[Company]:
     # Return hard-coded data for now. Move to DB later
