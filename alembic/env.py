@@ -20,6 +20,7 @@ from models.company_financial_statement import CompanyFinancialStatement
 from models.company_financial import CompanyFinancials
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 from models.company_insight import CompanyInsight
+from models.company_fundamental import CompanyFundamental
 from connectors.database import Base
 target_metadata = Base.metadata
 
