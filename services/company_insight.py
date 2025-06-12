@@ -456,4 +456,5 @@ def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Di
     raise Exception(f"Invalid insight type: {type}")
 
 
-
+def fetch_insights_for_ticker(ticker: str, type: InsightType) -> list[CompanyInsightDto]:
+    return company_insight_connector.get_by_type(ticker=ticker.upper(), insight_type=type)

@@ -1,7 +1,8 @@
 import json
 import logging
+from typing import Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from analyzer import analyze_financial_data_from_question
 from enum import Enum
@@ -9,7 +10,7 @@ from services.company import get_key_stats_for_ticker, handle_company_report, ge
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
-from services.company_insight import get_insights_for_ticker, InsightType
+from services.company_insight import fetch_insights_for_ticker, get_insights_for_ticker, InsightType
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
@@ -301,19 +302,31 @@ async def get_swot(ticker: str):
     }
 
 @app.get("/api/companies/{ticker}/insights/{type}")
-async def get_insights(ticker: str, type: InsightType):
+async def get_insights(
+    ticker: str, 
+    type: InsightType,
+    stream: Optional[bool] = Query(None, description="Set to True for streaming response, False for full JSON response. Defaults to streaming if not specified.")
+):
+    print("Stream", stream)
     # Validate type
     if type not in InsightType:
         raise HTTPException(status_code=400, detail="Invalid insight type")
+        
+    if stream == True or stream is None:
+        async def generate_insights():
+            async for insight in get_insights_for_ticker(ticker, type):
+                yield f"{json.dumps(insight)}\n\n"
 
-    async def generate_insights():
-        async for insight in get_insights_for_ticker(ticker, type):
-            yield f"{json.dumps(insight)}\n\n"
-
-    return StreamingResponse(
-        generate_insights(),
-        media_type="text/event-stream"
-    )
+        return StreamingResponse(
+            generate_insights(),
+            media_type="text/event-stream"
+        )
+    
+    # No streaming, fetch from DB
+    return {
+        "status": "success",
+        "data": fetch_insights_for_ticker(ticker, type)
+    }
 
 @app.get("/api/companies/{ticker}/reports/{slug}")
 async def generate_report_for_insight(ticker: str, slug: str):
