@@ -72,14 +72,16 @@ class GeminiModel:
             if thought:
                 base_config = types.GenerateContentConfig(
                     thinking_config=types.ThinkingConfig(
-                        include_thoughts=True
+                        include_thoughts=True,
+                        thinking_budget=1024,
                     ),
                 )
                 # Merge with config from kwargs if it exists
                 if "config" in kwargs:
                     base_config = types.GenerateContentConfig(
                         thinking_config=types.ThinkingConfig(
-                            include_thoughts=True
+                            include_thoughts=True,
+                            thinking_budget=1024,
                         ),
                         **kwargs["config"]
                     )

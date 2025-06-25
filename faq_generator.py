@@ -5,7 +5,7 @@ from connectors.company import get_by_ticker
 
 logger = getLogger(__name__)
 
-agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlashLite)
+agent = Agent(model_type="gemini", model_name=ModelName.Gemini25FlashLite)
 
 DEFAULT_QUESTIONS = [
     "What is the company's revenue?",
@@ -20,7 +20,7 @@ async def get_general_frequent_ask_questions():
             "The question should be generic and not specific to any particular company.",
             "The questions should be concise and to the point.",
             "The questions should be in the form of a list of questions. Only return the list of questions without the number at the beginning, no other text.",
-        ], model_name=ModelName.GeminiFlashLite)
+        ], model_name=ModelName.Gemini25FlashLite)
         
         async for question in questions_generator:
             if question.strip():
@@ -61,7 +61,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                     Only return the content of the questions. Do not return the number or order of the output.
                 """,
             ],
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
         )
 
         async for question in response_generator:

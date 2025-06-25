@@ -25,7 +25,7 @@ logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
-agent = Agent(model_type="gemini", model_name=ModelName.GeminiFlashLite)
+agent = Agent(model_type="gemini", model_name=ModelName.Gemini25FlashLite)
 
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
@@ -90,7 +90,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
         """
         response = agent.generate_content(
             prompt, 
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
             stream=False
         )
         query = response.text.strip()
@@ -241,7 +241,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
             stream=False,
             config={
                 "response_mime_type": "application/json",
@@ -330,7 +330,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
             stream=False,
             config={
                 "response_mime_type": "application/json",
@@ -422,7 +422,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
             stream=False,
             config={
                 "response_mime_type": "application/json",

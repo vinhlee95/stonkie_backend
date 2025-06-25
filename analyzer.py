@@ -58,7 +58,7 @@ async def classify_question(question):
     try:
         response = agent.generate_content(
             prompt=[prompt], 
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
             stream=False
         )
         
@@ -90,7 +90,7 @@ async def handle_general_finance_question(question):
                 question,
                 "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
             ],
-            model_name=ModelName.GeminiFlashLite,
+            model_name=ModelName.Gemini25FlashLite,
         )
 
         async for answer in response_generator:
@@ -105,7 +105,7 @@ async def handle_general_finance_question(question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
+        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
 
         async for answer in response_generator:
             yield {
@@ -163,13 +163,20 @@ async def handle_company_general_question(ticker, question):
 
         for part in agent.generate_content(
             prompt=prompt, 
-            model_name=ModelName.GeminiFlashLite, 
+            model_name=ModelName.Gemini25FlashLite, 
             stream=True,
+            thought=True,
         ):
-            yield {
-                "type": "answer",
-                "body": part.text
-            }
+            if part.thought:
+                yield {
+                    "type": "thinking_status",
+                    "body": part.text
+                }
+            else:
+                yield {
+                    "type": "answer",
+                    "body": part.text
+                }
 
         prompt = f"""
             Based on this original question: "{question}"
@@ -177,7 +184,7 @@ async def handle_company_general_question(ticker, question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
+        response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
 
         async for answer in response_generator:
             yield {
@@ -267,7 +274,7 @@ async def handle_company_specific_finance(ticker, question):
             Return only the questions, do not return the number or order of the question.
         """
 
-        response = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.GeminiFlashLite)
+        response = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
         async for answer in response:
             yield {
                 "type": "related_question",
