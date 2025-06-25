@@ -249,7 +249,9 @@ async def handle_company_specific_finance(ticker, question):
             2. Calculate year-over-year changes when relevant
             3. Present growth rates as percentages
             4. Ensure numerical consistency across years
+            
             Combine the analysis with relevant news and trends of the company to provide a comprehensive answer.
+            If you use Google Search tool, specify these reliable sources and websites in your search query: Yahoo Finance / Google Finance, MarketWatch / Investing.com
 
             At the beginning of the analysis, have a summary of 50-100 words of the analysis.
             Then have a follow-up section of 150-200 words in total with more in-depth analysis.
