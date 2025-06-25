@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from enum import Enum
 import logging
 from agent.agent import Agent
+from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from connectors.company import get_by_ticker
@@ -131,38 +132,14 @@ async def handle_company_general_question(ticker, question):
     company_name = company.name if company else ""
 
     try:
-        openai_agent = Agent(model_type="openai")
-        # Format search results into financial context
-
-        context_from_official_document = search_similar_content_and_format_to_texts(
-            query_embeddings=openai_agent.generate_embedding(question),
-            index_name=COMPANY_DOCUMENT_INDEX_NAME,
-            filter={"ticker": ticker.lower()}
-        )
-        if context_from_official_document:
-            prompt = [
-                f"Answer this question from company {company_name} with ticker {ticker}:",
-                question,
-                f"Here are relevant information from 10K document: {context_from_official_document}",
-                "Use the relevant information from 10K document first when answering the question. Make sure that the answer includes all the facts given by the 10K document.",
-                "Make the answer as details as possible, including all the facts from the 10K document.",
-                "At the end of the answer, state clearly which section and page from 10K document the answer bases on.",
-                LENGTH_LIMIT_PROMPT
-            ]
-        else:
-            prompt = [
-                f"Answer this question from company {company_name} with ticker {ticker}:",
-                question,
-                "Use your general knowledge and Google search results to answer the question.",
-                "Make the answer as details as possible, including all the facts.",
-                "At the end of the answer, state clearly which specific website and their URL do you get the information from.",
-                LENGTH_LIMIT_PROMPT
-            ]
-
-        yield {
-            "type": "thinking_status",
-            "body": "Found relevant context. Structuring answer..."
-        }
+        prompt = [
+            f"Answer this question from company {company_name} with ticker {ticker}:",
+            question,
+            "Use your general knowledge and Google search results to answer the question.",
+            "Make the answer as details as possible, including all the facts.",
+            "At the end of the answer, state clearly which specific website and their URL do you get the information from.",
+            LENGTH_LIMIT_PROMPT
+        ]
 
         for part in agent.generate_content(
             prompt=prompt, 
@@ -170,16 +147,18 @@ async def handle_company_general_question(ticker, question):
             stream=True,
             thought=True,
         ):
-            if part.thought:
+            if part.type == ContentType.Thought:
                 yield {
                     "type": "thinking_status",
                     "body": part.text
                 }
-            else:
+            elif part.type == ContentType.Answer:
                 yield {
                     "type": "answer",
                     "body": part.text
                 }
+            else:
+                logger.warning(f"Unknown content part {str(part)}")
 
         prompt = f"""
             Based on this original question: "{question}"
@@ -195,6 +174,7 @@ async def handle_company_general_question(ticker, question):
                 "body": answer
             }
     except Exception as e:
+        logger.error(f"Error generating answer: {str(e)}")
         yield {
             "type": "answer",
             "body": f"❌ Error generating answer."
@@ -205,24 +185,9 @@ async def handle_company_specific_finance(ticker, question):
 
     # Get company fundamental data
     company_fundamental = get_company_fundamental(ticker)
-
-    # Search for relevant context from 10-K documents
-    yield {
-        "type": "thinking_status",
-        "body": "Searching for relevant information from 10K document..."
-    }
-
-    openai_agent = Agent(model_type="openai")
-    context_from_official_document = search_similar_content_and_format_to_texts(
-        query_embeddings=openai_agent.generate_embedding(question),
-        index_name=COMPANY_DOCUMENT_INDEX_NAME,
-        filter={"ticker": ticker}
-    )
     
     # Format search results into financial context
     financial_context = ""
-    if context_from_official_document:
-        financial_context = f"\nRelevant information from company's 10K documents:\n\n{context_from_official_document}"
     
     try:
         annual_financial_statements = [
@@ -261,16 +226,18 @@ async def handle_company_specific_finance(ticker, question):
             financial_context,
             analysis_prompt,
         ], model_name=ModelName.GeminiFlash, stream=True, thought=True):
-            if part.thought:
+            if part.type == ContentType.Thought:
                 yield {
                     "type": "thinking_status",
                     "body": part.text
                 }
-            else:
+            elif part.type == ContentType.Answer:
                 yield {
                     "type": "answer",
                     "body": part.text if part.text else "❌ No analysis generated from the model"
                 }
+            else:
+                logger.warning(f'Unknown content part {str(part)}')
 
         prompt = f"""
             Based on this original question: "{question}"

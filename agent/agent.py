@@ -22,6 +22,7 @@ class Agent:
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
+    # TODO: have common typing for return type of this for both openai & Gemini models
     def generate_content(
         self, 
         prompt: str | list[str],

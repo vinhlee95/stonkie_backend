@@ -1,9 +1,30 @@
 import os
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, Generator
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from ai_models.model_name import ModelName
+from dataclasses import dataclass
+from enum import StrEnum
+
+class ContentType(StrEnum):
+    Answer = "answer"
+    Ground = "ground"
+    Thought = "thought"
+
+@dataclass(frozen=True)
+class ContentGround:
+    text: str
+    uri: str
+
+@dataclass(frozen=True)
+class ContentPart:
+    type: ContentType
+    text: str
+    ground: Optional[ContentGround] = None
+
+    def __repr__(self) -> str:
+        return f"Content part of type {self.type}. Text: {self.text}. Ground: {self.ground}"
 
 load_dotenv()
 
@@ -24,7 +45,7 @@ class GeminiModel:
         thought: bool = False, 
         use_google_search: bool = True,
         **kwargs
-    ):
+    ) -> Generator[ContentPart, None, None] | types.GenerateContentResponse:
         """
         Generate content using the Gemini model
 
@@ -108,8 +129,22 @@ class GeminiModel:
 
             # For streaming responses, yield text parts
             for chunk in response:
+                for candidate in chunk.candidates:
+                    if candidate.grounding_metadata != None and candidate.grounding_metadata.grounding_chunks != None:
+                        # TODO: yield ground type
+                        print(candidate.grounding_metadata.grounding_chunks)
+
                 for part in chunk.candidates[0].content.parts:
-                    yield part
+                    if part.thought:
+                        yield ContentPart(
+                            type=ContentType.Thought,
+                            text=part.text
+                        )
+                    else:
+                        yield ContentPart(
+                            type=ContentType.Answer,
+                            text=part.text
+                        )
 
         return stream_generator()
     
