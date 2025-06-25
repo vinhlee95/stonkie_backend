@@ -131,8 +131,15 @@ class GeminiModel:
             for chunk in response:
                 for candidate in chunk.candidates:
                     if candidate.grounding_metadata != None and candidate.grounding_metadata.grounding_chunks != None:
-                        # TODO: yield ground type
-                        print(candidate.grounding_metadata.grounding_chunks)
+                        for grounding_chunk in candidate.grounding_metadata.grounding_chunks:
+                            yield ContentPart(
+                                type=ContentType.Ground,
+                                text="",
+                                ground=ContentGround(
+                                    text=grounding_chunk.web.title,
+                                    uri=grounding_chunk.web.uri
+                                )
+                            )
 
                 for part in chunk.candidates[0].content.parts:
                     if part.thought:

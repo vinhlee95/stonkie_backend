@@ -157,6 +157,12 @@ async def handle_company_general_question(ticker, question):
                     "type": "answer",
                     "body": part.text
                 }
+            elif part.type == ContentType.Ground:
+                yield {
+                    "type": "google_search_ground",
+                    "body": part.ground.text,
+                    "url": part.ground.uri
+                }
             else:
                 logger.warning(f"Unknown content part {str(part)}")
 
@@ -218,8 +224,8 @@ async def handle_company_specific_finance(ticker, question):
             Combine the analysis with relevant news and trends of the company to provide a comprehensive answer.
             If you use Google Search tool, specify these reliable sources and websites in your search query: Yahoo Finance / Google Finance, MarketWatch / Investing.com
 
-            At the beginning of the analysis, have a summary of 50-100 words of the analysis.
-            Then have a follow-up section of 150-200 words in total with more in-depth analysis.
+            At the beginning of the analysis, have a summary around 50 words of the analysis.
+            Then have a follow-up section of 75-125 words in total with more in-depth analysis.
             At the end of the analysis, state clear which source you get the information from.
         """
         for part in agent.generate_content([
@@ -235,6 +241,12 @@ async def handle_company_specific_finance(ticker, question):
                 yield {
                     "type": "answer",
                     "body": part.text if part.text else "❌ No analysis generated from the model"
+                }
+            elif part.type == ContentType.Ground:
+                yield {
+                    "type": "google_search_ground",
+                    "body": part.ground.text,
+                    "url": part.ground.uri
                 }
             else:
                 logger.warning(f'Unknown content part {str(part)}')
