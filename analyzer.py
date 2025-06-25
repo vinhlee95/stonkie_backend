@@ -84,19 +84,22 @@ async def handle_general_finance_question(question):
             "type": "thinking_status",
             "body": "Structuring the answer..."
         }
-        response_generator = agent.generate_content_and_normalize_results(
-            prompt=[
-                "Please explain this financial concept or answer this question:",
-                question,
-                "Give a short answer in less than 100 words. Also give an example of how this concept is used in a real-world situation."
-            ],
-            model_name=ModelName.Gemini25FlashLite,
-        )
+        for part in agent.generate_content(
+            prompt=f"""
+                Please explain this financial concept or answer this question:
 
-        async for answer in response_generator:
+                {question}.
+
+                Give a short answer in less than 150 words. 
+                Break the answer into different paragraphs for better readability. 
+                In the last paragraph, give an example of how this concept is used in a real-world situation
+            """,
+            model_name=ModelName.Gemini25FlashLite,
+            stream=True,
+        ):
             yield {
                 "type": "answer",
-                "body": answer
+                "body": part.text
             }
 
         prompt = f"""
