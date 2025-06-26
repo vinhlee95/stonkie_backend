@@ -10,6 +10,8 @@ from connectors.company_financial import CompanyFinancialConnector
 
 from external_knowledge.company_fundamental import get_company_fundamental
 
+import time
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,7 @@ class QuestionType(Enum):
     COMPANY_SPECIFIC_FINANCE = "company-specific-finance"
 
 async def classify_question(question):
+    t_start = time.perf_counter()
     """
     Classify the question as either '{QuestionType.GENERAL_FINANCE.value}' or '{QuestionType.COMPANY_SPECIFIC.value}'.
     So that we can determine proper model to use for analysis.
@@ -77,14 +80,19 @@ async def classify_question(question):
     except Exception as e:
         print(f"Error during classifying type of question: {e}")
         return None
+    finally:
+        t_end = time.perf_counter()
+        logger.info(f"Profiling classify_question: {t_end - t_start:.4f}s")
 
 async def handle_general_finance_question(question):
+    t_start = time.perf_counter()
     """Handle questions about general financial concepts."""
     try:
         yield {
             "type": "thinking_status",
             "body": "Structuring the answer..."
         }
+        t_model = time.perf_counter()
         for part in agent.generate_content(
             prompt=f"""
                 Please explain this financial concept or answer this question:
@@ -102,20 +110,24 @@ async def handle_general_finance_question(question):
                 "type": "answer",
                 "body": part.text
             }
+        t_model_end = time.perf_counter()
+        logger.info(f"Profiling handle_general_finance_question model_generate_content: {t_model_end - t_model:.4f}s")
 
+        t_related = time.perf_counter()
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
             Return only the questions, do not return the number or order of the question.
         """
-
         response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
-
         async for answer in response_generator:
             yield {
                 "type": "related_question",
                 "body": answer
             }
+        t_related_end = time.perf_counter()
+        logger.info(f"Profiling handle_general_finance_question related_questions: {t_related_end - t_related:.4f}s")
+        logger.info(f"Profiling handle_general_finance_question total: {t_related_end - t_start:.4f}s")
     except Exception as e:
         logger.error(f"❌ Error generating explanation: {e}")
         yield {
@@ -124,6 +136,7 @@ async def handle_general_finance_question(question):
         }
 
 async def handle_company_general_question(ticker, question):
+    t_start = time.perf_counter()
     """Handle general questions about companies."""
     company = get_by_ticker(ticker)
     company_name = company.name if company else ""
@@ -148,7 +161,7 @@ async def handle_company_general_question(ticker, question):
             - **USE SEARCH WISELY:** Use the Google Search tool for up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable business news sources.
             - **CONCISE:** Keep the entire response under 200 words.
         """
-
+        t_model = time.perf_counter()
         for part in agent.generate_content(
             prompt=prompt, 
             model_name=ModelName.Gemini25FlashLite, 
@@ -173,20 +186,24 @@ async def handle_company_general_question(ticker, question):
                 }
             else:
                 logger.warning(f"Unknown content part {str(part)}")
+        t_model_end = time.perf_counter()
+        logger.info(f"Profiling handle_company_general_question model_generate_content: {t_model_end - t_model:.4f}s")
 
+        t_related = time.perf_counter()
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
             Return only the questions, do not return the number or order of the question.
         """
-
         response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
-
         async for answer in response_generator:
             yield {
                 "type": "related_question",
                 "body": answer
             }
+        t_related_end = time.perf_counter()
+        logger.info(f"Profiling handle_company_general_question related_questions: {t_related_end - t_related:.4f}s")
+        logger.info(f"Profiling handle_company_general_question total: {t_related_end - t_start:.4f}s")
     except Exception as e:
         logger.error(f"Error generating answer: {str(e)}")
         yield {
@@ -195,6 +212,7 @@ async def handle_company_general_question(ticker, question):
         }
 
 async def handle_company_specific_finance(ticker, question):
+    t_start = time.perf_counter()
     ticker = ticker.lower().strip()
 
     # Get company fundamental data
@@ -202,16 +220,23 @@ async def handle_company_specific_finance(ticker, question):
         "type": "thinking_status",
         "body": "Retrieving company fundamental data and financial statements..."
     }
+    t_fundamental = time.perf_counter()
     company_fundamental = get_company_fundamental(ticker)
+    t_fundamental_end = time.perf_counter()
+    logger.info(f"Profiling handle_company_specific_finance get_company_fundamental: {t_fundamental_end - t_fundamental:.4f}s")
     
     try:
+        t_statements = time.perf_counter()
         annual_financial_statements = [
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_financial_statements(ticker)
         ]
         quarterly_financial_statements = [
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
         ]
+        t_statements_end = time.perf_counter()
+        logger.info(f"Profiling handle_company_specific_finance get_financial_statements: {t_statements_end - t_statements:.4f}s")
 
+        t_model = time.perf_counter()
         financial_context = f"""
             You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question, based on the provided financial data and broader market context.
 
@@ -265,20 +290,25 @@ async def handle_company_specific_finance(ticker, question):
                 }
             else:
                 logger.warning(f'Unknown content part {str(part)}')
+        t_model_end = time.perf_counter()
+        logger.info(f"Profiling handle_company_specific_finance model_generate_content: {t_model_end - t_model:.4f}s")
 
+        t_related = time.perf_counter()
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
             These questions should be related to either balance sheet, income statement or cash flow statement.
             Return only the questions, do not return the number or order of the question.
         """
-
         response = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
         async for answer in response:
             yield {
                 "type": "related_question",
                 "body": answer
             }
+        t_related_end = time.perf_counter()
+        logger.info(f"Profiling handle_company_specific_finance related_questions: {t_related_end - t_related:.4f}s")
+        logger.info(f"Profiling handle_company_specific_finance total: {t_related_end - t_start:.4f}s")
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
         yield {
@@ -297,6 +327,7 @@ async def analyze_financial_data_from_question(ticker, question):
     Yields:
         str: Chunks of analysis response as they are generated
     """
+    t_start = time.perf_counter()
     classification = await classify_question(question)
     logger.info(f"The question is classified as: {classification}")
 
@@ -308,7 +339,12 @@ async def analyze_financial_data_from_question(ticker, question):
 
     handler = handlers.get(classification)
     if handler:
+        t_handler = time.perf_counter()
         async for chunk in handler():
             yield chunk
+        t_handler_end = time.perf_counter()
+        logger.info(f"Profiling analyze_financial_data_from_question handler: {t_handler_end - t_handler:.4f}s")
     else:
         yield "❌ Unable to classify question type"
+    t_end = time.perf_counter()
+    logger.info(f"Profiling analyze_financial_data_from_question total: {t_end - t_start:.4f}s")
