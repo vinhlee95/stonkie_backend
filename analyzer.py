@@ -122,7 +122,7 @@ async def handle_general_finance_question(question):
             "type": "answer",
             "body": "❌ Error generating explanation. Please try again later."
         }
-        
+
 LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 250 words."
 
 async def handle_company_general_question(ticker, question):
@@ -188,10 +188,11 @@ async def handle_company_specific_finance(ticker, question):
     ticker = ticker.lower().strip()
 
     # Get company fundamental data
+    yield {
+        "type": "thinking_status",
+        "body": "Retrieving company fundamental data and financial statements..."
+    }
     company_fundamental = get_company_fundamental(ticker)
-    
-    # Format search results into financial context
-    financial_context = ""
     
     try:
         annual_financial_statements = [
@@ -201,30 +202,36 @@ async def handle_company_specific_finance(ticker, question):
             CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
         ]
 
-        financial_context += f"""
-            You are a financial expert who can give in-depth answer for company finance related questions based on financial data.
-            Here is the question: {question}.
-            Here are the financial statements and company fundamental data for {ticker.upper()}:
-                Company Fundamental Data:
-                {company_fundamental}
-                Company Financial Statements:
-                Annual Financial Statements:
-                {annual_financial_statements}
-                Quarterly Financial Statements:
-                {quarterly_financial_statements}
+        financial_context = f"""
+            You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question, based on the provided financial data and broader market context.
 
-            To answer the question, analyse the data with these guidelines:
-            1. Use specific numbers from the statements. Use billions or millions as appropriate.
-            2. Calculate year-over-year changes when relevant
-            3. Present growth rates as percentages
-            4. Ensure numerical consistency across years
+            Question: {question}
+
+            Here is the financial data for {ticker.upper()}:
+            Company Fundamental Data:
+            {company_fundamental}
+
+            Annual Financial Statements:
+            {annual_financial_statements}
             
-            Combine the analysis with relevant news and trends of the company to provide a comprehensive answer.
-            If you use Google Search tool, specify these reliable sources and websites in your search query: Yahoo Finance / Google Finance, MarketWatch / Investing.com
+            Quarterly Financial Statements:
+            {quarterly_financial_statements}
+            
+            **Instructions for your analysis:**
 
-            At the beginning of the analysis, have a summary around 50 words of the analysis.
-            Then have a follow-up section of 75-125 words in total with more in-depth analysis.
-            At the end of the analysis, state clear which source you get the information from.
+            1.  **Summary (approx. 50 words):** Start with a concise summary of your key findings. This should be a high-level overview.
+
+            2.  **Detailed Analysis (approx. 100-150 words):**
+                *   **Financial Performance:** Analyze key metrics from the statements (like revenue, net income, and profit margins). Go beyond just stating numbers. Explain year-over-year growth/decline and what it signifies about the company's health and strategy.
+                *   **Insightful Observations:** Don't just state facts. Provide insights. For example, if revenue grew, what might be the driving factors? If margins shrunk, what could be the cause?
+                *   **Industry Context & Trends:** Use your knowledge and the search tool to compare the company's performance against its industry peers and broader market trends. Is the company outperforming or underperforming the market? Are there any significant industry trends (e.g., new technology, regulatory changes, consumer behavior shifts) impacting the company?
+
+            **Crucial Rules to Follow:**
+            - **NO DUPLICATION:** Do not repeat the same points or numbers across different sections. Each sentence should add new information or a new perspective.
+            - **SYNTHESIZE, DON'T JUST LIST:** Connect the dots between different data points to form a coherent narrative.
+            - **BE INSIGHTFUL:** Provide analysis, not just a summary of data. Explain the 'so what' behind the numbers.
+            - **USE SEARCH WISELY:** Use the Google Search tool to get up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable financial news sources.
+            - **CONCISE:** Keep the entire response under 200 words.
         """
         for part in agent.generate_content([
             financial_context,
