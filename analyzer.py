@@ -141,8 +141,6 @@ async def handle_company_general_question(ticker, question):
                 *   **Insightful Observations:** Go beyond surface-level facts. Offer insights, context, or implications. For example, if the company is expanding, what might be driving this? If there are leadership changes, what could be the impact?
                 *   **Industry Context & Trends:** Briefly compare the company to its industry or highlight relevant market trends. Use the search tool for up-to-date context and cite reputable sources if possible.
 
-            Each section should have their own headings.
-
             **Crucial Rules to Follow:**
             - **NO DUPLICATION:** Do not repeat the same points or facts across sections. Each sentence should add new information or a new perspective.
             - **SYNTHESIZE, DON'T JUST LIST:** Connect facts and context to form a coherent narrative.
