@@ -123,21 +123,33 @@ async def handle_general_finance_question(question):
             "body": "❌ Error generating explanation. Please try again later."
         }
 
-LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 250 words."
-
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
     company = get_by_ticker(ticker)
     company_name = company.name if company else ""
 
     try:
-        prompt = [
-            f"Answer this question from company {company_name} with ticker {ticker}:",
-            question,
-            "Use your general knowledge and Google search results to answer the question.",
-            "Make the answer as details as possible, including all the facts.",
-            LENGTH_LIMIT_PROMPT
-        ]
+        prompt = f"""
+            You are a business analyst. Answer the following general company question about {company_name} (ticker: {ticker}):
+            {question}
+
+            **Instructions for your answer:**
+
+            1.  **Summary (approx. 50 words):** Start with a concise summary of your key findings or answer to the question. This should be a high-level overview, not just a restatement of the question.
+            2.  **Detailed Analysis (approx. 100-130 words):**
+                *   **Company Facts:** Provide relevant facts about the company that directly address the question. Avoid just listing data—explain their significance.
+                *   **Insightful Observations:** Go beyond surface-level facts. Offer insights, context, or implications. For example, if the company is expanding, what might be driving this? If there are leadership changes, what could be the impact?
+                *   **Industry Context & Trends:** Briefly compare the company to its industry or highlight relevant market trends. Use the search tool for up-to-date context and cite reputable sources if possible.
+
+            Each section should have their own headings.
+
+            **Crucial Rules to Follow:**
+            - **NO DUPLICATION:** Do not repeat the same points or facts across sections. Each sentence should add new information or a new perspective.
+            - **SYNTHESIZE, DON'T JUST LIST:** Connect facts and context to form a coherent narrative.
+            - **BE INSIGHTFUL:** Provide analysis, not just a summary. Explain the 'so what' behind the facts.
+            - **USE SEARCH WISELY:** Use the Google Search tool for up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable business news sources.
+            - **CONCISE:** Keep the entire response under 200 words.
+        """
 
         for part in agent.generate_content(
             prompt=prompt, 
