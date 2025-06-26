@@ -10,7 +10,8 @@ from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
 from connectors.company import CompanyConnector, CompanyFundamentalDto, get_all
 from connectors.company_financial import CompanyFinancialConnector
-from analyzer import COMPANY_DOCUMENT_INDEX_NAME
+
+COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 
 company_financial_connector = CompanyFinancialConnector()
 company_connector = CompanyConnector()

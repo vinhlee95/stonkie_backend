@@ -122,9 +122,8 @@ async def handle_general_finance_question(question):
             "type": "answer",
             "body": "❌ Error generating explanation. Please try again later."
         }
-
-COMPANY_DOCUMENT_INDEX_NAME = "company10k"
-LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 300 words."
+        
+LENGTH_LIMIT_PROMPT = "Try to make the answer as concise as possible. Ideally bellow 250 words."
 
 async def handle_company_general_question(ticker, question):
     """Handle general questions about companies."""
@@ -137,7 +136,6 @@ async def handle_company_general_question(ticker, question):
             question,
             "Use your general knowledge and Google search results to answer the question.",
             "Make the answer as details as possible, including all the facts.",
-            "At the end of the answer, state clearly which specific website and their URL do you get the information from.",
             LENGTH_LIMIT_PROMPT
         ]
 
