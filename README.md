@@ -9,11 +9,12 @@ Welcome to the **Stonkie Backend** project! This repository contains the backend
 - [Requirements](#requirements)
 - [Setup Instructions](#setup-instructions)
   - [1. Clone the Repository](#1-clone-the-repository)
-  - [2. Create a Virtual Environment](#2-create-a-virtual-environment)
-  - [3. Install Dependencies](#3-install-dependencies)
-  - [4. Set Up Environment Variables](#4-set-up-environment-variables)
-  - [5. Database Setup & Migrations](#5-database-setup--migrations)
-  - [6. Running the Application](#6-running-the-application)
+  - [2. Install Python with asdf (Recommended)](#2-install-python-with-asdf-recommended)
+  - [3. Create a Virtual Environment](#3-create-a-virtual-environment)
+  - [4. Install Dependencies](#4-install-dependencies)
+  - [5. Set Up Environment Variables](#5-set-up-environment-variables)
+  - [6. Database Setup & Migrations](#6-database-setup--migrations)
+  - [7. Running the Application](#7-running-the-application)
 - [Scripts](#scripts)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
@@ -24,10 +25,10 @@ Welcome to the **Stonkie Backend** project! This repository contains the backend
 
 ## Features
 
-- Financial data ingestion and analysis
-- Company insights and reporting
-- Integration with AI models (OpenAI, Gemini)
-- Database migrations with Alembic
+- **AI-Driven Financial Analysis:** Harnesses advanced AI models to deeply analyze company business operations, financial statements, and market trends.
+- **Automated Company Insights & Reporting:** Instantly generates actionable insights and comprehensive reports tailored to each company.
+- **Seamless AI Integrations:** Leverages the power of OpenAI and Gemini for natural language understanding, data extraction, and intelligent recommendations.
+- **Flexible Data Ingestion:** Easily connect and process financial data from multiple sources for a holistic view.
 
 ## Project Structure
 
@@ -49,13 +50,6 @@ backend/
   README.md               # Project documentation
 ```
 
-## Requirements
-
-- Python 3.8 or higher
-- [pip](https://pip.pypa.io/en/stable/)
-- (Recommended) [virtualenv](https://virtualenv.pypa.io/en/latest/) or [venv](https://docs.python.org/3/library/venv.html)
-- (Optional) PostgreSQL or your preferred database
-
 ## Setup Instructions
 
 ### 1. Clone the Repository
@@ -65,25 +59,47 @@ git clone https://github.com/yourusername/stonkie-backend.git
 cd stonkie-backend/backend
 ```
 
-### 2. Create a Virtual Environment
+### 2. Install Python with asdf (Recommended)
+
+This project uses [asdf](https://asdf-vm.com/) to manage the Python version. Ensure you have asdf installed:
+
+```bash
+# Install asdf if you don't have it
+# See: https://asdf-vm.com/guide/getting-started.html
+```
+
+Add the Python plugin and install the required version:
+
+```bash
+asdf plugin add python || true
+asdf install python $(cat .tool-versions | grep python | awk '{print $2}')
+```
+
+Verify that your Python version matches the one specified in `.tool-versions`:
+
+```bash
+python --version  # Should match the version in .tool-versions
+```
+
+### 3. Create a Virtual Environment
 
 It's best to use a virtual environment to manage dependencies.
 
 **Using venv:**
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate
 ```
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Set Up Environment Variables
+### 5. Set Up Environment Variables
 
 Create a `.env` file in the `backend/` directory to store sensitive information (API keys, DB credentials, etc.).  
 Example:
@@ -96,7 +112,19 @@ GEMINI_API_KEY=your_gemini_key
 
 > **Note:** The actual variables required depend on your code. Check for usage of `os.environ` or similar in the codebase.
 
-### 5. Database Setup & Migrations
+### 6. Database Setup & Migrations
+
+**Database:** This project uses **PostgreSQL** as its database.
+
+#### Getting PostgreSQL Up and Running
+
+- **For macOS:**
+  - Install with Homebrew:
+    ```bash
+    brew install postgresql
+    brew services start postgresql
+    ```
+  - By default, this will start a local PostgreSQL server.
 
 **Initialize the database:**
 
@@ -111,17 +139,11 @@ alembic upgrade head
 
 This will apply all database migrations.
 
-### 6. Running the Application
-
-The main entry point is likely `main.py`. To run:
+### 7. Running the Application
 
 ```bash
-python main.py
+hypercorn main:app --bind localhost:8080 --reload
 ```
-
-> Check `main.py` for any required arguments or configuration.
-
----
 
 ## Scripts
 
@@ -141,13 +163,7 @@ python scripts/export_annual_financial_report.py
 ---
 
 ## Testing
-
-If you have tests, run them as follows (assuming you use `pytest`):
-
-```bash
-pip install pytest
-pytest
-```
+Will come at some point 😉
 
 ---
 
