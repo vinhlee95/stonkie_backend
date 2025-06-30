@@ -40,6 +40,11 @@ else:
         format='%(name)s - %(levelname)s - %(message)s',
         stream=sys.stdout  # Direct all logging to stdout
     )
+
+# Mute specific loggers
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
