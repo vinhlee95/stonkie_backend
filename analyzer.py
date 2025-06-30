@@ -149,7 +149,7 @@ async def handle_company_general_question(ticker, question):
             **Instructions for your answer:**
 
             1.  **Summary (approx. 50 words):** Start with a concise summary of your key findings or answer to the question. This should be a high-level overview, not just a restatement of the question.
-            2.  **Detailed Analysis (approx. 100-130 words):**
+            2.  **Detailed Analysis (approx. 100 words):**
                 *   **Company Facts:** Provide relevant facts about the company that directly address the question. Avoid just listing data—explain their significance.
                 *   **Insightful Observations:** Go beyond surface-level facts. Offer insights, context, or implications. For example, if the company is expanding, what might be driving this? If there are leadership changes, what could be the impact?
                 *   **Industry Context & Trends:** Briefly compare the company to its industry or highlight relevant market trends. Use the search tool for up-to-date context and cite reputable sources if possible.
@@ -159,14 +159,14 @@ async def handle_company_general_question(ticker, question):
             - **SYNTHESIZE, DON'T JUST LIST:** Connect facts and context to form a coherent narrative.
             - **BE INSIGHTFUL:** Provide analysis, not just a summary. Explain the 'so what' behind the facts.
             - **USE SEARCH WISELY:** Use the Google Search tool for up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable business news sources.
-            - **CONCISE:** Keep the entire response under 200 words.
+            - **CONCISE:** Keep the entire response under 150 words.
         """
         t_model = time.perf_counter()
         for part in agent.generate_content(
             prompt=prompt, 
             model_name=ModelName.Gemini25FlashLite, 
             stream=True,
-            thought=True,
+            thought=False,
         ):
             if part.type == ContentType.Thought:
                 yield {
