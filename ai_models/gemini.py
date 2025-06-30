@@ -43,7 +43,7 @@ class GeminiModel:
         model_name: str | None = None,
         stream: bool = True, 
         thought: bool = False, 
-        use_google_search: bool = True,
+        use_google_search: bool = False,
         **kwargs
     ) -> Generator[ContentPart, None, None] | types.GenerateContentResponse:
         """
@@ -75,14 +75,18 @@ class GeminiModel:
 
         model_name = model_name or self.MODEL_NAME
         
-        # Extract config handling logic
-        config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
-
         search_tool = types.Tool(
             google_search=types.GoogleSearch()
         )
         
-        # TODO: support Google Search tool here
+        # Extract config handling logic
+        config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
+        if use_google_search:
+            if "config" not in config_kwargs:
+                config_kwargs["config"] = {}
+            config_kwargs["config"]["tools"] = [search_tool]
+
+        
         if not stream:
             response = self.client.models.generate_content(
                 model=model_name,
