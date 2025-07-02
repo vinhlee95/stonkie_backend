@@ -363,7 +363,6 @@ async def analyze_financial_data_from_question(ticker: str, question: str, use_g
             "body": "Using Google Search to get up-to-date information. This might take a bit longer, but it will help you get a better answer."
         }
 
-
     handlers = {
         QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question, use_google_search),
         QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question, use_google_search),
