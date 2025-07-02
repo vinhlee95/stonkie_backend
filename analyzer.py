@@ -84,7 +84,7 @@ async def classify_question(question):
         t_end = time.perf_counter()
         logger.info(f"Profiling classify_question: {t_end - t_start:.4f}s")
 
-async def handle_general_finance_question(question):
+async def handle_general_finance_question(question: str, use_google_search: bool):
     t_start = time.perf_counter()
     """Handle questions about general financial concepts."""
     try:
@@ -135,7 +135,7 @@ async def handle_general_finance_question(question):
             "body": "❌ Error generating explanation. Please try again later."
         }
 
-async def handle_company_general_question(ticker, question):
+async def handle_company_general_question(ticker: str, question: str, use_google_search: bool):
     t_start = time.perf_counter()
     """Handle general questions about companies."""
     company = get_by_ticker(ticker)
@@ -211,7 +211,7 @@ async def handle_company_general_question(ticker, question):
             "body": f"❌ Error generating answer."
         }
 
-async def handle_company_specific_finance(ticker, question):
+async def handle_company_specific_finance(ticker: str, question: str, use_google_search: bool):
     t_start = time.perf_counter()
     ticker = ticker.lower().strip()
 
@@ -316,7 +316,7 @@ async def handle_company_specific_finance(ticker, question):
             "body": "Error during analysis. Please try again later."
         }
 
-async def analyze_financial_data_from_question(ticker, question):
+async def analyze_financial_data_from_question(ticker: str, question: str, use_google_search: bool):
     """
     Analyze financial statements for a given ticker symbol or answer generic financial questions
     
@@ -332,9 +332,9 @@ async def analyze_financial_data_from_question(ticker, question):
     logger.info(f"The question is classified as: {classification}")
 
     handlers = {
-        QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question),
-        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question),
-        QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question)
+        QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question, use_google_search),
+        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question, use_google_search),
+        QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question, use_google_search)
     }
 
     handler = handlers.get(classification)
