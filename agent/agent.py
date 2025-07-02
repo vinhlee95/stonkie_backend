@@ -29,6 +29,7 @@ class Agent:
         model_name: str | None = None, 
         stream=True, 
         thought: bool = False, 
+        use_google_search: bool = False,
         **kwargs
     ):
         """
@@ -42,6 +43,7 @@ class Agent:
             model_name=model_name,
             stream=stream, 
             thought=thought, 
+            use_google_search=use_google_search,
             **kwargs
         )
     

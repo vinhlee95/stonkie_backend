@@ -105,6 +105,7 @@ async def handle_general_finance_question(question: str, use_google_search: bool
             """,
             model_name=ModelName.Gemini25FlashLite,
             stream=True,
+            use_google_search=use_google_search,
         ):
             yield {
                 "type": "answer",
@@ -167,6 +168,7 @@ async def handle_company_general_question(ticker: str, question: str, use_google
             model_name=ModelName.Gemini25FlashLite, 
             stream=True,
             thought=False,
+            use_google_search=use_google_search,
         ):
             if part.type == ContentType.Thought:
                 yield {
@@ -268,10 +270,16 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
             - **USE SEARCH WISELY:** Use the Google Search tool to get up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable financial news sources.
             - **CONCISE:** Keep the entire response under 200 words.
         """
-        for part in agent.generate_content([
-            financial_context,
-            analysis_prompt,
-        ], model_name=ModelName.GeminiFlash, stream=True, thought=True):
+        for part in agent.generate_content(
+            [
+                financial_context,
+                analysis_prompt,
+            ], 
+            model_name=ModelName.GeminiFlash, 
+            stream=True, 
+            thought=True,
+            use_google_search=use_google_search,
+        ):
             if part.type == ContentType.Thought:
                 yield {
                     "type": "thinking_status",
