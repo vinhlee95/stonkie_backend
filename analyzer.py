@@ -142,6 +142,11 @@ async def handle_company_general_question(ticker: str, question: str, use_google
     company = get_by_ticker(ticker)
     company_name = company.name if company else ""
 
+    yield {
+        "type": "thinking_status",
+        "body": f"Analyzing general information about {company_name} (ticker: {ticker}) and preparing a concise, insightful answer..."
+    }
+
     try:
         prompt = f"""
             You are a business analyst. Answer the following general company question about {company_name} (ticker: {ticker}):
@@ -151,9 +156,9 @@ async def handle_company_general_question(ticker: str, question: str, use_google
 
             1.  **Summary (approx. 50 words):** Start with a concise summary of your key findings or answer to the question. This should be a high-level overview, not just a restatement of the question.
             2.  **Detailed Analysis (approx. 100 words):**
-                *   **Company Facts:** Provide relevant facts about the company that directly address the question. Avoid just listing data—explain their significance.
-                *   **Insightful Observations:** Go beyond surface-level facts. Offer insights, context, or implications. For example, if the company is expanding, what might be driving this? If there are leadership changes, what could be the impact?
-                *   **Industry Context & Trends:** Briefly compare the company to its industry or highlight relevant market trends. Use the search tool for up-to-date context and cite reputable sources if possible.
+                *   Provide relevant facts about the company that directly address the question. Avoid just listing data—explain their significance.
+                *   Go beyond surface-level facts. Offer insights, context, or implications. For example, if the company is expanding, what might be driving this? If there are leadership changes, what could be the impact?
+                *   Briefly compare the company to its industry or highlight relevant market trends. Use the search tool for up-to-date context and cite reputable sources if possible.
 
             **Crucial Rules to Follow:**
             - **NO DUPLICATION:** Do not repeat the same points or facts across sections. Each sentence should add new information or a new perspective.
@@ -161,6 +166,8 @@ async def handle_company_general_question(ticker: str, question: str, use_google
             - **BE INSIGHTFUL:** Provide analysis, not just a summary. Explain the 'so what' behind the facts.
             - **USE SEARCH WISELY:** Use the Google Search tool for up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable business news sources.
             - **CONCISE:** Keep the entire response under 150 words.
+
+            In the analysis, break the answer into different paragraphs and bullet points for better readability.
         """
         t_model = time.perf_counter()
         for part in agent.generate_content(
@@ -226,6 +233,11 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
     company_fundamental = get_company_fundamental(ticker)
     t_fundamental_end = time.perf_counter()
     logger.info(f"Profiling handle_company_specific_finance get_company_fundamental: {t_fundamental_end - t_fundamental:.4f}s")
+
+    yield {
+        "type": "thinking_status",
+        "body": "Performing a comprehensive analysis. This might take a moment, but the insights will be worth the wait..."
+    }
     
     try:
         t_statements = time.perf_counter()
@@ -336,8 +348,21 @@ async def analyze_financial_data_from_question(ticker: str, question: str, use_g
         str: Chunks of analysis response as they are generated
     """
     t_start = time.perf_counter()
+    
+    yield {
+        "type": "thinking_status",
+        "body": "Just a moment..."
+    }
+
     classification = await classify_question(question)
     logger.info(f"The question is classified as: {classification}")
+
+    if use_google_search:
+        yield {
+            "type": "thinking_status",
+            "body": "Using Google Search to get up-to-date information. This might take a bit longer, but it will help you get a better answer."
+        }
+
 
     handlers = {
         QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question, use_google_search),
