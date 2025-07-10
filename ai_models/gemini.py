@@ -35,6 +35,7 @@ class GeminiModel:
         self.client = genai.Client(
             api_key=os.getenv("GEMINI_API_KEY"),
         )
+        self.chat = self.client.chats.create(model=self.MODEL_NAME)
 
 
     def generate_content(
@@ -118,16 +119,14 @@ class GeminiModel:
                         ),
                         **kwargs["config"]
                     )
-                response = self.client.models.generate_content_stream(
-                    model=model_name,
-                    contents=prompt,
+                response = self.chat.send_message_stream(
+                    prompt, 
                     config=base_config,
                     **{k: v for k, v in kwargs.items() if k != "config"}
                 )
             else:
-                response = self.client.models.generate_content_stream(
-                    model=model_name,
-                    contents=prompt,
+                response = self.chat.send_message_stream(
+                    prompt,
                     **config_kwargs
                 )
 
