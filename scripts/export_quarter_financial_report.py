@@ -23,7 +23,7 @@ def export_financial_data_to_text(url):
                 storage_state=None  # ensures no session storage/cookies
             )
             page = context.new_page()
-            page.goto(url)
+            page.goto(url, timeout=15000)  # 15 second timeout
 
             page.wait_for_selector('.accept-all')
             page.click('.accept-all')
@@ -70,6 +70,10 @@ def save_to_database(ticker, statement_type, data):
             ).first()
             
             if existing_record:
+                if None not in [existing_record.income_statement, existing_record.balance_sheet, existing_record.cash_flow]:
+                    print(f"🔄 Skipping existing record for {ticker} {statement_type} {period_end_quarter} because it already has all financial data.")
+                    continue
+
                 print(f"🔄 Updating existing record for {ticker} {statement_type} {period_end_quarter}")
                 # Update existing record
                 if statement_type == 'income_statement':
@@ -179,9 +183,9 @@ def get_financial_urls(ticker):
     """
     base_url = f"https://finance.yahoo.com/quote/{ticker.upper()}"
     return (
-        f"{base_url}/financials",
-        f"{base_url}/balance-sheet",
-        f"{base_url}/cash-flow"
+        f"{base_url}/financials/",
+        f"{base_url}/balance-sheet/",
+        f"{base_url}/cash-flow/"
     )
 
 def main():
