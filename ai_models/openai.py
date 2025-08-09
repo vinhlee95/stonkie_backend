@@ -1,13 +1,9 @@
 from openai import OpenAI
 import json
-from typing import Optional, Any
-from pydantic import BaseModel
-from enum import Enum
 
-# Only support generate embedding for now
 class OpenAIModel:
-  # Use o3 mini model for output generation
   def __init__(self, model: str = "gpt-4o-mini"):
+    # https://platform.openai.com/docs/models
     self.client = OpenAI()
     self.model = model
 
