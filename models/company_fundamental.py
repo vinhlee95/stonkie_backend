@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime
+from sqlalchemy import Column, Integer, String, JSON, DateTime, UniqueConstraint
 from sqlalchemy.sql import func
 from connectors.database import Base
 
@@ -10,3 +10,8 @@ class CompanyFundamental(Base):
     data = Column(JSON)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Add unique constraint to prevent duplicate records for the same company
+    __table_args__ = (
+        UniqueConstraint('company_symbol', name='uq_company_fundamental_symbol'),
+    )
