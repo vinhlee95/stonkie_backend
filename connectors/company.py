@@ -91,7 +91,7 @@ class CompanyConnector:
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
-            if not data:
+            if not data or data.data.get("name") == "" or data.data.get("market_cap") == 0:
                 # Fetch the data from API
                 new_company_data = self._get_fresh_company_data(ticker)
                 if not new_company_data:
@@ -105,11 +105,14 @@ class CompanyConnector:
                 if not updated_company_data:
                     return None
                 
-                # Update the row
-                data.data = updated_company_data.__dict__
-                data.updated_at = datetime.now()
-                db.commit()
-                db.refresh(data)
+                if updated_company_data.name == "" or updated_company_data.market_cap == 0:
+                    logger.error(f"Skip refreshing fundamental data for ticker {ticker} because it is empty")
+                else:
+                    # Update the row
+                    data.data = updated_company_data.__dict__
+                    data.updated_at = datetime.now()
+                    db.commit()
+                    db.refresh(data)
 
             return CompanyFundamentalDto(**data.data)
         
