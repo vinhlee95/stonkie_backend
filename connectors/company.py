@@ -118,15 +118,35 @@ class CompanyConnector:
         
     def persist_fundamental_data(self, ticker: str, data: CompanyFundamentalDto) -> CompanyFundamentalDto:
         with SessionLocal() as db:
-            fundamental_data = CompanyFundamental(
-                company_symbol=ticker,
-                data=data.__dict__
-            )
-            db.add(fundamental_data)
-            db.commit()
-            db.refresh(fundamental_data)
-
-            return CompanyFundamentalDto(**self._to_dict(fundamental_data).get("data"))
+            try:
+                # Check if record already exists
+                existing_record = db.query(CompanyFundamental).filter(
+                    CompanyFundamental.company_symbol == ticker
+                ).first()
+                
+                if existing_record:
+                    # Update existing record
+                    logger.info(f"Updating existing fundamental data for {ticker}")
+                    existing_record.data = data.__dict__
+                    existing_record.updated_at = datetime.now(timezone.utc)
+                    db.commit()
+                    db.refresh(existing_record)
+                    return CompanyFundamentalDto(**self._to_dict(existing_record).get("data"))
+                else:
+                    # Create new record
+                    logger.info(f"Creating new fundamental data for {ticker}")
+                    fundamental_data = CompanyFundamental(
+                        company_symbol=ticker,
+                        data=data.__dict__
+                    )
+                    db.add(fundamental_data)
+                    db.commit()
+                    db.refresh(fundamental_data)
+                    return CompanyFundamentalDto(**self._to_dict(fundamental_data).get("data"))
+            except Exception as e:
+                logger.error(f"Error persisting fundamental data for {ticker}: {e}")
+                db.rollback()
+                return None
 
 
 def get_company_logo_url(company_name: str):
