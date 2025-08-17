@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, JSON, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.sql import func
 from connectors.database import Base
 
@@ -13,3 +13,9 @@ class CompanyFinancialStatement(Base):
     balance_sheet = Column(JSON)
     income_statement = Column(JSON)
     cash_flow = Column(JSON)
+    
+    # Add unique constraint to prevent duplicate records for the same company and period
+    __table_args__ = (
+        UniqueConstraint('company_symbol', 'period_end_year', 
+                        name='uq_company_financial_symbol_year'),
+    )
