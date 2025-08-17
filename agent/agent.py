@@ -18,7 +18,7 @@ class Agent:
         if model_type == "gemini":
             self.model = GeminiModel(model_name=model_name)
         elif model_type == "openai":
-            self.model = OpenAIModel()
+            self.model = OpenAIModel(model_name=model_name)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
     
