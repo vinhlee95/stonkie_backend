@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from agent.agent import Agent
 from connectors.database import engine
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
+from services.company import CompanyConnector
 
 load_dotenv()
 
@@ -320,61 +321,113 @@ def get_financial_urls(ticker):
     )
 
 def main():
-    # Get ticker symbol from user
-    ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip().upper()
+    # Get all ticker symbols from database
+    company_fundamental_connector = CompanyConnector()
+    tickers = company_fundamental_connector.get_all_company_tickers()
+
+    if not tickers:
+        print("❌ No tickers found in database")
+        return
     
-    # Generate URLs for the given ticker
-    financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
+    print(f"🚀 Starting parallel export for {len(tickers)} tickers: {tickers}")
     
-    # Prepare tasks for parallel execution
-    tasks = [
-        (financial_statement_url, ticker, 'income_statement'),
-        (balance_sheet_url, ticker, 'balance_sheet'),
-        (cash_flow_url, ticker, 'cash_flow')
-    ]
+    # Prepare tasks for all tickers - each ticker has 3 statement types
+    all_tasks = []
+    for ticker in tickers:
+        financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
+        ticker_tasks = [
+            (financial_statement_url, ticker, 'income_statement'),
+            (balance_sheet_url, ticker, 'balance_sheet'),
+            (cash_flow_url, ticker, 'cash_flow')
+        ]
+        all_tasks.extend(ticker_tasks)
     
-    print(f"🚀 Starting parallel export of financial data for {ticker}...")
+    print(f"� Total tasks to execute: {len(all_tasks)}")
     
-    # Execute tasks in parallel using ThreadPoolExecutor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    # Execute all tasks in parallel with increased worker pool
+    # Use more workers but limit to reasonable number to avoid overwhelming the server
+    max_workers = min(10, len(all_tasks))  # Max 10 concurrent requests
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_task = {
             executor.submit(export_financial_data_worker, task): task 
-            for task in tasks
+            for task in all_tasks
         }
         
         # Process results as they complete
         results = []
+        ticker_results = {}  # Track results per ticker
+        
         for future in concurrent.futures.as_completed(future_to_task):
             task = future_to_task[future]
             url, ticker_name, statement_type = task
             
+            # Initialize ticker results if not exists
+            if ticker_name not in ticker_results:
+                ticker_results[ticker_name] = {'success': 0, 'failed': 0, 'total': 3}
+            
             try:
                 result = future.result()
-                results.append((statement_type, result))
+                results.append((ticker_name, statement_type, result))
+                
                 if result:
-                    print(f"✅ Successfully completed {statement_type} export")
+                    print(f"✅ Successfully completed {ticker_name} {statement_type} export")
+                    ticker_results[ticker_name]['success'] += 1
                 else:
-                    print(f"❌ Failed to export {statement_type}")
+                    print(f"❌ Failed to export {ticker_name} {statement_type}")
+                    ticker_results[ticker_name]['failed'] += 1
             except Exception as e:
-                print(f"❌ Exception occurred during {statement_type} export: {e}")
-                results.append((statement_type, False))
+                print(f"❌ Exception occurred during {ticker_name} {statement_type} export: {e}")
+                results.append((ticker_name, statement_type, False))
+                ticker_results[ticker_name]['failed'] += 1
     
-    # Summary
-    successful = sum(1 for _, success in results if success)
-    total = len(results)
+    # Overall summary
+    total_tasks = len(results)
+    total_successful = sum(1 for _, _, success in results if success)
+    total_failed = total_tasks - total_successful
     
-    print(f"\n📊 Export Summary:")
-    print(f"   Total tasks: {total}")
-    print(f"   Successful: {successful}")
-    print(f"   Failed: {total - successful}")
+    print(f"\n📊 Overall Export Summary:")
+    print(f"   Total tickers processed: {len(tickers)}")
+    print(f"   Total tasks: {total_tasks}")
+    print(f"   Total successful: {total_successful}")
+    print(f"   Total failed: {total_failed}")
+    print(f"   Success rate: {(total_successful/total_tasks*100):.1f}%")
     
-    if successful == total:
-        print(f"🎉 All financial data for {ticker} has been successfully exported!")
-    elif successful > 0:
-        print(f"⚠️  Partial success: {successful}/{total} exports completed")
+    # Per-ticker summary
+    print(f"\n📋 Per-Ticker Results:")
+    fully_successful_tickers = 0
+    partially_successful_tickers = 0
+    completely_failed_tickers = 0
+    
+    for ticker, results_info in ticker_results.items():
+        success_count = results_info['success']
+        failed_count = results_info['failed']
+        total_count = results_info['total']
+        
+        if success_count == total_count:
+            status = "🎉 COMPLETE"
+            fully_successful_tickers += 1
+        elif success_count > 0:
+            status = "⚠️  PARTIAL"
+            partially_successful_tickers += 1
+        else:
+            status = "💥 FAILED"
+            completely_failed_tickers += 1
+        
+        print(f"   {ticker}: {status} ({success_count}/{total_count} successful)")
+    
+    print(f"\n🎯 Final Summary:")
+    print(f"   Fully successful tickers: {fully_successful_tickers}")
+    print(f"   Partially successful tickers: {partially_successful_tickers}")
+    print(f"   Completely failed tickers: {completely_failed_tickers}")
+    
+    if fully_successful_tickers == len(tickers):
+        print(f"🎉🎉🎉 All {len(tickers)} tickers have been successfully exported!")
+    elif fully_successful_tickers + partially_successful_tickers > 0:
+        print(f"⚠️  Mixed results: {fully_successful_tickers + partially_successful_tickers}/{len(tickers)} tickers had some success")
     else:
-        print(f"💥 All exports failed for {ticker}")
+        print(f"💥💥💥 All exports failed for all {len(tickers)} tickers")
 
 if __name__ == "__main__":
     main()

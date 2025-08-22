@@ -148,6 +148,10 @@ class CompanyConnector:
                 db.rollback()
                 return None
 
+    def get_all_company_tickers(self) -> list[str]:
+        with SessionLocal() as db:
+            data = db.query(CompanyFundamental).all()
+            return [str(item.company_symbol) for item in data if item.company_symbol is not None]
 
 def get_company_logo_url(company_name: str):
     """
