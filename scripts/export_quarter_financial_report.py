@@ -71,48 +71,198 @@ def validate_quarterly_periods(periods):
         return False, f"Unexpected error during validation: {str(e)}"
 
 def export_financial_data_to_text(url):
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+    """
+    Export financial data with browser restart mechanism on failure
+    """
+    max_browser_restarts = 2  # Maximum number of full browser restarts
+    
+    for browser_attempt in range(max_browser_restarts + 1):
+        try:
+            if browser_attempt > 0:
+                print(f"🔄 Browser restart attempt {browser_attempt}/{max_browser_restarts} for URL: {url}")
+            
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
 
-            # Create a fresh incognito-like context
-            context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                java_script_enabled=True,
-                user_agent="Mozilla/5.0",  # Optional: customize user agent
-                ignore_https_errors=True,  # Optional: for sites with cert issues
-                locale='en-US',  # Optional: set preferred language
-                storage_state=None  # ensures no session storage/cookies
-            )
-            page = context.new_page()
-            page.goto(url, timeout=15000)  # 15 second timeout
+                # Create a fresh incognito-like context
+                context = browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    java_script_enabled=True,
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    ignore_https_errors=True,
+                    locale='en-US',
+                    storage_state=None
+                )
+                page = context.new_page()
+                
+                # Navigate to the page with extended timeout
+                print(f"🌐 Navigating to: {url}")
+                page.goto(url, timeout=10000)
+                
+                # Wait for the page to be fully loaded including network activity
+                print("⏳ Waiting for page to fully load...")
+                
+                page.wait_for_load_state('networkidle', timeout=10000)  # Wait until no network requests for 500ms
+                
+                print("⏳ Waiting for ads and background scripts to settle...")
+                page.wait_for_timeout(5000)  # 5 second wait for ads/trackers
+                
+                # Handle cookie banner
+                try:
+                    page.wait_for_selector('.accept-all', timeout=10000)
+                    page.click('.accept-all')
+                    print("✅ Accepted cookies")
+                    page.wait_for_timeout(2000)  # Wait after cookie acceptance
+                except:
+                    print("⚠️  No cookie banner found or already accepted")
 
-            page.wait_for_selector('.accept-all')
-            page.click('.accept-all')
-            page.wait_for_timeout(2500)
+                # Strategy 5: Wait for the financial data table structure to be present
+                print("⏳ Waiting for financial table structure...")
+                try:
+                    # Wait for either the table or a loading indicator
+                    page.wait_for_function("""
+                        () => {
+                            // Check if table structure exists
+                            const tableHeader = document.querySelector('div[class*="tableHeader"]');
+                            const tableBody = document.querySelector('div[class*="tableBody"]');
+                            const tabs = document.querySelector('button#tab-quarterly');
+                            
+                            return tableHeader && tableBody && tabs;
+                        }
+                    """, timeout=10000)
+                    print("✅ Financial table structure is ready")
+                except:
+                    print("⚠️  Financial table structure not fully loaded, proceeding anyway...")
 
-            # Click the quarterly tab
-            tab_quarterly_button = page.locator('button#tab-quarterly')
-            tab_quarterly_button.wait_for(state="visible")
-            tab_quarterly_button.scroll_into_view_if_needed()
-            tab_quarterly_button.click(force=True)
-            page.wait_for_timeout(5000)
+                # Now proceed with quarterly tab clicking
+                print("🔄 Starting quarterly tab selection...")
+                tab_quarterly_button = page.locator('button#tab-quarterly')
+                tab_quarterly_button.wait_for(state="visible", timeout=10000)
+                tab_quarterly_button.scroll_into_view_if_needed()
+                
+                # Check if already selected
+                aria_selected = tab_quarterly_button.get_attribute('aria-selected')
+                if aria_selected == 'true':
+                    print("✅ Quarterly tab is already selected")
+                    quarterly_selected = True
+                else:
+                    print("🔄 Clicking quarterly tab...")
+                    tab_quarterly_button.click(force=True)
+                    
+                    # Wait and verify the click worked by checking aria-selected
+                    page.wait_for_timeout(3000)  # Increased wait time
+                    
+                    # Verify the click was successful
+                    max_verification_attempts = 3
+                    quarterly_selected = False
+                    
+                    for attempt in range(max_verification_attempts):
+                        aria_selected_after = tab_quarterly_button.get_attribute('aria-selected')
+                        if aria_selected_after == 'true':
+                            print(f"✅ Quarterly tab successfully selected (aria-selected=true) after {attempt + 1} attempts")
+                            quarterly_selected = True
+                            break
+                        else:
+                            print(f"⚠️  Attempt {attempt + 1}: Quarterly tab not selected (aria-selected={aria_selected_after})")
+                            if attempt < max_verification_attempts - 1:
+                                # Try different click methods
+                                if attempt == 0:
+                                    # Try JavaScript click
+                                    page.evaluate('document.querySelector("#tab-quarterly").click()')
+                                    print("🔄 Tried JavaScript click")
+                                elif attempt == 1:
+                                    # Try dispatch event
+                                    tab_quarterly_button.dispatch_event('click')
+                                    print("🔄 Tried dispatch event click")
+                                
+                                page.wait_for_timeout(3000)  # Longer wait between attempts
+                
+                # If quarterly tab selection failed, try browser restart
+                if not quarterly_selected:
+                    print(f"❌ Failed to select quarterly tab on browser attempt {browser_attempt + 1}")
+                    browser.close()
+                    
+                    if browser_attempt < max_browser_restarts:
+                        print(f"🔄 Restarting browser and retrying... (attempt {browser_attempt + 2}/{max_browser_restarts + 1})")
+                        continue  # Restart browser
+                    else:
+                        print("❌❌❌ Failed to select quarterly tab after all browser restart attempts")
+                        return None
+                
+                # Wait for content to update after tab selection
+                print("⏳ Waiting for quarterly content to load...")
+                page.wait_for_timeout(5000)  # Increased wait time for content refresh
+                
+                try:
+                    # Wait for table content to be refreshed after tab click
+                    page.wait_for_function("""
+                        () => {
+                            const tableHeader = document.querySelector('div[class*="tableHeader"]');
+                            const tableBody = document.querySelector('div[class*="tableBody"]');
+                            
+                            // Check if content exists and has actual data
+                            return tableHeader && 
+                                   tableBody && 
+                                   tableHeader.innerHTML.length > 100 && 
+                                   tableBody.innerHTML.length > 500;
+                        }
+                    """, timeout=10000)
+                    print("✅ Table content is fully loaded and populated")
+                except:
+                    print("⚠️  Table content loading timeout, proceeding with current state...")
+                
+                # Final extraction with increased timeouts
+                print("📊 Extracting table data...")
+                table_header = page.locator('div[class*="tableHeader"]')
+                table_body = page.locator('div[class*="tableBody"]')
 
-            expand_button = page.locator('span.expand')
-            expand_button.wait_for(state="visible")
-            expand_button.click()
-            page.wait_for_timeout(2500)
+                # Use longer timeouts for extraction
+                header_html = table_header.inner_html(timeout=15000)
+                body_html = table_body.inner_html(timeout=15000)
 
-            table_header = page.locator('div[class*="tableHeader"]')
-            table_body = page.locator('div[class*="tableBody"]')
+                # Validate quarterly periods before returning
+                print("🔍 Validating extracted periods...")
+                periods = re.findall(r'>([^<]+)<\/div>', header_html)
+                periods = [p.strip() for p in periods]
+                periods = [p for p in periods if p != 'Breakdown' and p != '']
+                print(f"✅📘 Extracted periods: {periods}")
+                
+                # Validate that periods are quarterly (3 months apart)
+                is_valid, error_message = validate_quarterly_periods(periods)
+                if not is_valid:
+                    print(f"❌ Quarterly periods validation failed on browser attempt {browser_attempt + 1}: {error_message}")
+                    print(f"❌📘 Raw header HTML: {header_html[:200]}...")
+                    browser.close()
+                    
+                    if browser_attempt < max_browser_restarts:
+                        print(f"🔄 Restarting browser due to validation failure... (attempt {browser_attempt + 2}/{max_browser_restarts + 1})")
+                        continue  # Restart browser
+                    else:
+                        print("❌❌❌ Failed quarterly validation after all browser restart attempts")
+                        return None
 
-            header_html = table_header.inner_html()
-            body_html = table_body.inner_html()
+                print(f"✅📘 Periods validation passed. Using periods: {periods} for {url}")
 
-            browser.close()
-            return (header_html, body_html)
-    except Exception as e:
-        print(f"Error processing URL: {e}")
+                browser.close()
+                print(f"✅ Successfully extracted and validated data on browser attempt {browser_attempt + 1}")
+                return (body_html, periods)
+                
+        except Exception as e:
+            print(f"❌ Error on browser attempt {browser_attempt + 1}: {e}")
+            if 'browser' in locals():
+                try:
+                    browser.close()
+                except:
+                    pass
+            
+            if browser_attempt < max_browser_restarts:
+                print(f"🔄 Retrying with fresh browser... (attempt {browser_attempt + 2}/{max_browser_restarts + 1})")
+                continue
+            else:
+                print(f"❌❌❌ Failed after {max_browser_restarts + 1} browser attempts")
+                return None
+    
+    return None
 
 def save_to_database(ticker, statement_type, data):
     """
@@ -222,21 +372,8 @@ def export_financial_data_to_db(url, ticker, statement_type):
             print(f"❌ Failed to extract data from {url}")
             return False
             
-        table_header_html, table_body_html = result
+        table_body_html, periods = result
 
-        periods = re.findall(r'>([^<]+)<\/div>', table_header_html)
-        periods = [p.strip() for p in periods]
-        periods = [p for p in periods if p != 'Breakdown' and p != '']
-        print(f"✅📘 Extracted periods: {periods}")
-        
-        # Validate that periods are quarterly (3 months apart)
-        is_valid, error_message = validate_quarterly_periods(periods)
-        if not is_valid:
-            print(f"❌❌❌ Skipping {ticker} {statement_type} - Invalid quarterly periods: {error_message}")
-            print(f"❌📘 Raw header HTML: {table_header_html}")
-            return False
-        
-        print(f"✅📘 Periods validation passed for {statement_type}: {error_message}")
         print(f"✅📘 Done getting HTML content of the {statement_type}. Now feeding it to the model...")
         
         openai_agent = Agent(model_type="openai")
