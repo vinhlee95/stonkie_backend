@@ -3,7 +3,7 @@ from google.genai import types
 import httpx
 import os
 
-client = genai.Client(api_key='AIzaSyCGbTn53deSvkFRcObg7YwoGtNj1ESwKEE')
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 doc_url = "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000320193/a411a029-368f-4479-b416-25c404acca3d.pdf"
 
