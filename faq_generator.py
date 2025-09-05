@@ -55,11 +55,8 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
                 "Generate 3 questions that users would ask about this company.",
                 "1 question is about the company's general information such as who founded the company, when it was founded, etc.",
                 "1 question is about the company's products, services, business model, competitive advantage, etc.",
-                """
-                    1 question is about the company's financial statements such as balance sheet, income statement, cash flow statement, etc.
-                    The question should be about a financial year instead of quarterly. Do not return a variable year. Prefer the latest year.
-                    Only return the content of the questions. Do not return the number or order of the output.
-                """,
+                "1 question is about the company's financial statements such as balance sheet, income statement, cash flow statement, etc in the LATEST financial year.",
+                "Only return the content of the questions. Do not return the number or order of the output."
             ],
             model_name=ModelName.Gemini25FlashLite,
         )
