@@ -12,6 +12,7 @@ from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
 from services.company_insight import fetch_insights_for_ticker, get_insights_for_ticker, InsightType
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
+from services.company_filings import get_company_filings
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
 import asyncio
@@ -256,6 +257,42 @@ async def get_key_stats(ticker: str):
         "data": key_stats.__dict__ if key_stats else None
     }
 
+@app.get("/api/companies/{ticker}/filings/{period}")
+async def get_filings(ticker: str, period: str):
+    """
+    Get 10K filings for a given ticker symbol and period
+    
+    Args:
+        ticker (str): Company ticker symbol
+        period (str): Period type - must be 'annual' or 'quarterly'
+    
+    Returns:
+        List of filing objects with url and period_end_year
+    """
+    # Validate period parameter
+    if period not in ["annual", "quarterly"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid period. Must be 'annual' or 'quarterly'"
+        )
+    
+    # For now, only handle annual case as quarterly is not supported yet
+    if period == "quarterly":
+        raise HTTPException(
+            status_code=400,
+            detail="Quarterly filings are not yet supported"
+        )
+    
+    try:
+        filings = get_company_filings(ticker, period)
+        return filings
+    except Exception as e:
+        logger.error(f"Error fetching filings for {ticker}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error fetching company filings"
+        )
+
 @app.post("/api/companies/{ticker}/upload_report")
 async def upload_10k_report(
     ticker: str, 
@@ -361,3 +398,4 @@ async def generate_report_for_insight_dynamic(ticker: str, slug: str):
         generate_report(),
         media_type="text/event-stream"
     )
+

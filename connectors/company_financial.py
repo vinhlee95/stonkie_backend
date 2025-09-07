@@ -109,3 +109,27 @@ class CompanyFinancialConnector:
     def get_company_tickers_having_financial_data(self) -> List[str]:
         with SessionLocal() as db:
             return [row[0] for row in db.query(CompanyFinancialStatement.company_symbol).distinct().all()]
+    
+    def get_company_filings(self, ticker: str, period: str) -> List[dict[str, Any]]:
+        """Get company filings for the specified period (annual or quarterly)"""
+        with SessionLocal() as db:
+            if period == "annual":
+                # Get annual filings from CompanyFinancialStatement
+                results = db.query(CompanyFinancialStatement.filing_10k_url, CompanyFinancialStatement.period_end_year)\
+                    .filter(CompanyFinancialStatement.company_symbol == ticker.upper())\
+                    .filter(CompanyFinancialStatement.filing_10k_url.isnot(None))\
+                    .order_by(CompanyFinancialStatement.period_end_year.desc())\
+                    .all()
+                
+                return [
+                    {
+                        "url": result.filing_10k_url,
+                        "period_end_year": result.period_end_year
+                    }
+                    for result in results
+                ]
+            elif period == "quarterly":
+                # For now, return empty list as quarterly filings are not supported yet
+                return []
+            else:
+                return []
