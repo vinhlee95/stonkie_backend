@@ -67,13 +67,21 @@ class _SECFilingsFetcher:
             'AAPL': '0000320193',
             'MSFT': '0000789019', 
             'GOOGL': '0001652044',
+            'GOOG': '0001652044',  # Alphabet Inc. (same as GOOGL)
             'AMZN': '0001018724',
             'TSLA': '0001318605',
             'META': '0001326801',
             'NVDA': '0001045810',
             'NFLX': '0001065280',
             'DIS': '0001001039',
-            'JPM': '0000019617'
+            'JPM': '0000019617',
+            'KO': '0000021344',    # The Coca-Cola Company
+            'T': '0000732717',     # AT&T Inc.
+            'ASML': '0000937966',  # ASML Holding N.V. (ADR)
+            'WMT': '0000104169',   # Walmart Inc.
+            'DASH': '0001792789',  # DoorDash Inc.
+            'SNOW': '0001640147',  # Snowflake Inc.
+            'UPWK': '0001627475'   # Upwork Inc.
         }
         
         ticker_upper = ticker.upper()
