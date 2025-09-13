@@ -46,7 +46,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
             return
         
         yield {
-            "type": "status",
+            "type": "thinking_status",
             "content": f"Found filing for {ticker}. Starting AI analysis..."
         }
         
@@ -70,7 +70,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
         """
         
         yield {
-            "type": "status", 
+            "type": "thinking_status", 
             "content": "Generating AI analysis of the financial report..."
         }
         
