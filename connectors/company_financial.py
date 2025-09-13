@@ -133,3 +133,23 @@ class CompanyFinancialConnector:
                 return []
             else:
                 return []
+            
+    def get_company_filing_url(self, ticker: str, period_end_at: str, period_type: str) -> str | None:
+        """Get the filing URL for a specific ticker and period"""
+        with SessionLocal() as db:
+            if period_type == "annually":
+                result = db.query(CompanyFinancialStatement.filing_10k_url)\
+                    .filter(CompanyFinancialStatement.company_symbol == ticker.upper())\
+                    .filter(CompanyFinancialStatement.period_end_year == int(period_end_at))\
+                    .first()
+                
+                return result.filing_10k_url if result else None
+            elif period_type == "quarterly":
+                result = db.query(CompanyQuarterlyFinancialStatement.filing_10q_url)\
+                    .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())\
+                    .filter(CompanyQuarterlyFinancialStatement.period_end_date == period_end_at)\
+                    .first()
+                
+                return result.filing_10q_url if result else None
+            else:
+                return None

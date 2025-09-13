@@ -4,7 +4,6 @@ import logging
 from agent.agent import Agent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
-from connectors.vector_store import search_similar_content_and_format_to_texts
 from connectors.company import get_by_ticker
 from connectors.company_financial import CompanyFinancialConnector
 

@@ -13,7 +13,7 @@ from services.revenue_data import get_revenue_breakdown_for_company
 from services.company import get_company_financial_statements
 from services.company_insight import fetch_insights_for_ticker, get_insights_for_ticker, InsightType
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
-from services.company_filings import get_company_filings
+from services.company_filings import get_company_filings, analyze_financial_report
 from faq_generator import get_general_frequent_ask_questions, get_frequent_ask_questions_for_ticker_stream
 from fastapi.responses import StreamingResponse
 import asyncio
@@ -459,18 +459,9 @@ async def analyze_company_report(
         # 4. Return structured analysis results
         
         async def generate_analysis():
-            # Placeholder for streaming analysis
-            yield f"data: {json.dumps({
-                'type': 'status',
-                'message': f'Starting analysis of {ticker} report for {period_end_at} ({period_type.value})...'
-            })}\n\n"
-            
-            # TODO: Replace with actual analysis streaming
-            yield f"data: {json.dumps({
-                'type': 'analysis',
-                'section': 'overview',
-                'content': 'Analysis implementation pending...'
-            })}\n\n"
+            # Stream the AI analysis from the service layer
+            async for analysis_chunk in analyze_financial_report(ticker, period_end_at, period_type.value):
+                yield f"data: {json.dumps(analysis_chunk)}\n\n"
         
         return StreamingResponse(
             generate_analysis(),
