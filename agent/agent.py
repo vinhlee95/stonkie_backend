@@ -1,5 +1,5 @@
-from typing import AsyncGenerator, Literal
-from ai_models.gemini import GeminiModel
+from typing import AsyncGenerator, Literal, Generator, Any, Union, Iterable
+from ai_models.gemini import GeminiModel, ContentPart
 from ai_models.openai import OpenAIModel
 
 SupportedModel = Literal["gemini", "openai"]
@@ -31,12 +31,12 @@ class Agent:
         thought: bool = False, 
         use_google_search: bool = False,
         **kwargs
-    ):
+    ) -> Union[Iterable[ContentPart], Any]:
         """
         Generate content using the configured AI model
             
         Returns:
-            Generated content from the AI model
+            Generated content from the AI model - when streaming, returns iterable of ContentPart objects
         """
         return self.model.generate_content(
             prompt, 
