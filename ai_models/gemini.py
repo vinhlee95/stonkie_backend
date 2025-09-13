@@ -79,13 +79,16 @@ class GeminiModel:
         search_tool = types.Tool(
             google_search=types.GoogleSearch()
         )
-        
+        url_context_tool = types.Tool(
+            url_context=types.UrlContext()
+        )
+
         # Extract config handling logic
         config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
         if use_google_search:
             if "config" not in config_kwargs:
                 config_kwargs["config"] = {}
-            config_kwargs["config"]["tools"] = [search_tool]
+            config_kwargs["config"]["tools"] = [search_tool, url_context_tool]
 
         
         if not stream:
@@ -107,7 +110,7 @@ class GeminiModel:
                         include_thoughts=True,
                         thinking_budget=1024,
                     ),
-                    tools=[search_tool] if use_google_search else []
+                    tools=[search_tool, url_context_tool] if use_google_search else [url_context_tool]
                 )
 
                 # Merge with config from kwargs if it exists

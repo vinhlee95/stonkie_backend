@@ -52,20 +52,18 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
         
         # Create analysis prompt
         prompt = f"""
-        Analyze the financial report for {ticker.upper()} for the period ending {period_end_at} ({period_type}).
-        
-        Report URL: {company_filing_url}
+        Analyze the financial report for {ticker.upper()} available at this URL: {company_filing_url}
         
         Please provide a comprehensive analysis covering:
-        1. Key Financial Highlights - Revenue, profit margins, cash flow
-        2. Year-over-Year Performance - Growth rates and trends
-        3. Financial Health - Debt levels, liquidity, financial ratios
-        4. Business Operations - Key business developments and operational metrics
-        5. Risk Factors - Any notable risks or challenges mentioned
-        6. Future Outlook - Management guidance and forward-looking statements
-        
+        1. Key Financial Highlights - Revenue, profit margins, cash flow, growth rates and trends over the years mentioned in the report
+        2. Financial Health - Debt levels, liquidity, financial ratios
+        3. Business Operations - Key business developments and operational metrics
+        4. Risk Factors - Any notable risks or challenges mentioned
+        5. Future Outlook - Management guidance and forward-looking statements
+
         Format the response in clear sections with bullet points for readability.
         Include specific numbers and percentages where available.
+        Only reference information from the report.
         Keep the analysis comprehensive but concise. Keep the whole response under 500 words.
         """
         
