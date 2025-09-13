@@ -1,6 +1,7 @@
 import json
 import logging
 from typing import Optional
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -398,4 +399,93 @@ async def generate_report_for_insight_dynamic(ticker: str, slug: str):
         generate_report(),
         media_type="text/event-stream"
     )
+
+@app.post("/api/companies/{ticker}/reports/analyze")
+async def analyze_company_report(
+    ticker: str,
+    period_end_at: str = Query(..., description="Year or quarter ending of the report"),
+    period_type: PeriodType = Query(PeriodType.ANNUALLY, description="Period type - annual or quarterly")
+) -> StreamingResponse:
+    """
+    Analyze a company report (10K/10Q) for a given ticker and period
+
+    Args:
+        ticker (str): Company ticker symbol
+        period_end_at (str): Year or quarter ending of the report. Could be "2024" for annual or "6/30/2025" for quarterly
+        period_type (PeriodType): Period type - annual or quarterly
+    
+    Returns:
+        Streaming analysis results
+    """
+    try:
+        # Validate ticker format
+        ticker = ticker.upper().strip()
+        if not ticker or len(ticker) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid ticker symbol"
+            )
+        
+        # Validate period_end_at based on period_type
+        current_year = datetime.now().year
+        max_year = current_year + 1
+        
+        if period_type == PeriodType.ANNUALLY:
+            try:
+                year = int(period_end_at)
+                if year < 1990 or year > max_year:
+                    raise ValueError()
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"For annual reports, period_end_at must be a valid year between 1990 and {max_year}"
+                )
+        else:  # Quarterly
+            try:
+                month, day, year = map(int, period_end_at.split('/'))
+                if year < 1990 or year > max_year or month < 1 or month > 12 or day < 1 or day > 31:
+                    raise ValueError()
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"For quarterly reports, period_end_at must be in MM/DD/YYYY format with valid date (year between 1990 and {max_year})"
+                )
+        
+        # TODO: Implement business logic for report analysis
+        # This will include:
+        # 1. Fetch filing data for the specified year and period
+        # 2. Extract key financial metrics and insights
+        # 3. Generate AI-powered analysis
+        # 4. Return structured analysis results
+        
+        async def generate_analysis():
+            # Placeholder for streaming analysis
+            yield f"data: {json.dumps({
+                'type': 'status',
+                'message': f'Starting analysis of {ticker} report for {period_end_at} ({period_type.value})...'
+            })}\n\n"
+            
+            # TODO: Replace with actual analysis streaming
+            yield f"data: {json.dumps({
+                'type': 'analysis',
+                'section': 'overview',
+                'content': 'Analysis implementation pending...'
+            })}\n\n"
+        
+        return StreamingResponse(
+            generate_analysis(),
+            media_type="text/event-stream"
+        )
+            
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid input: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error analyzing report for {ticker} ({period_end_at}): {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing report analysis request"
+        )
 
