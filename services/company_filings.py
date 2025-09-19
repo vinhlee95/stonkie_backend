@@ -47,7 +47,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
         
         yield {
             "type": "thinking_status",
-            "content": f"Found filing for {ticker}. Starting AI analysis..."
+            "body": f"Found filing for {ticker}. Starting AI analysis..."
         }
         
         # Create analysis prompt
@@ -64,12 +64,12 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
         Format the response in clear sections with bullet points for readability.
         Include specific numbers and percentages where available.
         Only reference information from the report.
-        Keep the analysis comprehensive but concise. Keep the whole response under 500 words.
+        Keep the analysis comprehensive but concise. Keep the whole response under 250 words.
         """
         
         yield {
             "type": "thinking_status", 
-            "content": "Generating AI analysis of the financial report..."
+            "body": "Generating AI analysis of the financial report..."
         }
         
         for part in agent.generate_content(
