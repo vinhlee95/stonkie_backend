@@ -68,6 +68,8 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
             "type": "thinking_status", 
             "body": "Generating AI analysis of the financial report..."
         }
+
+        answers = ""
         
         for part in agent.generate_content(
             prompt=prompt, 
@@ -81,16 +83,23 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
                     "body": part.text
                 }
             elif part.type == ContentType.Answer:
+                answers += part.text if part.text else ""
                 yield {
                     "type": "answer",
                     "body": part.text if part.text else "❌ No analysis generated from the model"
                 }
         
-        yield {
-            "type": "status",
-            "content": "Analysis complete."
-        }
-        
+        related_question_prompt = f"""
+            Based on the analysis: {answers} for {ticker.upper()}, 
+            suggest 3 short and insightful follow-up questions an investor might have about the company's financial health or future outlook.
+            Return only the questions, do not return the number or order of the question.
+        """
+        response = agent.generate_content_and_normalize_results(related_question_prompt, model_name=ModelName.Gemini25FlashLite)
+        async for question in response:
+            yield {
+                "type": "related_question",
+                "body": question
+            }
     except Exception as e:
         logger.error(f"Error analyzing financial report for {ticker} ({period_end_at}): {str(e)}")
         yield {
