@@ -57,11 +57,13 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
             Please provide a comprehensive analysis covering:
             - Key Financial Highlights - Revenue, profit margins, growth rates and trends over the years mentioned in the report. Indicate if performance is strong, weak, or mixed.
             - Business Operations - Key business developments and operational metrics in the report. Assess if operations are improving, declining, or stable.
-            - Risk Factors - notable risks or challenges mentioned in the report. Evaluate if these are manageable or concerning.
+            - Risk Factors - notable risks, challenges, competitive landscape mentioned in the report. Evaluate if these are manageable or concerning.
 
+            Structure the analysis in clear sections and bullet points where appropriate for better readability.
+            The first paragraph should be a concise summary, in under 50 words, of the overall financial health and performance of the company based on the report.
             Include specific numbers and percentages where available.
             Only reference information from the report.
-            Keep the analysis comprehensive but concise. Keep the whole analysis UNDER 100 words.
+            Keep the analysis comprehensive but concise. Keep the whole analysis UNDER 150 words. Do not mention any word count or length in the analysis.
         """
         
         yield {
