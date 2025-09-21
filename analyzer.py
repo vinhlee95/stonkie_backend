@@ -153,6 +153,7 @@ async def handle_company_general_question(ticker: str, question: str, use_google
 
             Keep the response concise in under 150 words. Do not repeat points or facts. Connect the facts to a compelling story.
             Break the answer into different paragraphs and bullet points for better readability.
+            Make sure to specify the source of the answer at the end of the analysis.
         """
         t_model = time.perf_counter()
         for part in agent.generate_content(
@@ -266,6 +267,8 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
             - **BE INSIGHTFUL:** Provide analysis, not just a summary of data. Explain the 'so what' behind the numbers.
             - **USE SEARCH WISELY:** Use the Google Search tool to get up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable financial news sources.
             - **CONCISE:** Keep the entire response under 200 words.
+
+            Make sure to specify the source of the answer at the end of the analysis.
         """
         for part in agent.generate_content(
             [
