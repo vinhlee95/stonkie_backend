@@ -63,7 +63,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
             The first paragraph should be a concise summary, in under 50 words, of the overall financial health and performance of the company based on the report.
             Include specific numbers and percentages where available.
             Only reference information from the report.
-            Keep the analysis comprehensive but concise. Keep the whole analysis UNDER 150 words. Do not mention any word count or length in the analysis.
+            Keep the analysis comprehensive but concise. Keep the whole analysis UNDER 120 words. Do not mention any word count or length in the analysis.
         """
         
         yield {
@@ -94,6 +94,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
         related_question_prompt = f"""
             Based on the analysis: {answers} for {ticker.upper()}, 
             suggest 3 short and insightful follow-up questions an investor might have about the company's financial health or future outlook.
+            Make sure that follow-up questions are short, less than 15 words each.
             Return only the questions, do not return the number or order of the question.
         """
         response = agent.generate_content_and_normalize_results(related_question_prompt, model_name=ModelName.Gemini25FlashLite)

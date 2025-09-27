@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
-from enum import Enum
+from enum import Enum, StrEnum
 import logging
+from typing import Optional, List, Dict, Any, Tuple
 from agent.agent import Agent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
@@ -27,6 +28,11 @@ class QuestionType(Enum):
     GENERAL_FINANCE = "general-finance"
     COMPANY_GENERAL = "company-general"
     COMPANY_SPECIFIC_FINANCE = "company-specific-finance"
+
+class FinancialDataRequirement(StrEnum):
+    NONE = "none"  # Can be answered without financial data
+    BASIC = "basic"  # Needs only fundamental data (market cap, P/E, etc.)
+    DETAILED = "detailed"  # Requires full financial statements
 
 async def classify_question(question):
     t_start = time.perf_counter()
@@ -66,7 +72,21 @@ async def classify_question(question):
         )
         
         # Wait for the response to complete
-        response_text = response.text
+        response_text = ""
+        try:
+            # Try to access the text attribute directly
+            response_text = getattr(response, 'text', '')
+        except:
+            pass
+        
+        # If no text found, try iterating through response parts
+        if not response_text:
+            try:
+                for part in response:
+                    if hasattr(part, 'text'):
+                        response_text += part.text
+            except:
+                pass
         
         if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
             return QuestionType.COMPANY_SPECIFIC_FINANCE.value
@@ -82,6 +102,153 @@ async def classify_question(question):
     finally:
         t_end = time.perf_counter()
         logger.info(f"Profiling classify_question: {t_end - t_start:.4f}s")
+
+async def classify_financial_data_requirement(ticker: str, question: str) -> FinancialDataRequirement:
+    """
+    Determine what level of financial data is needed to answer the question.
+    
+    Args:
+        ticker: Company ticker symbol
+        question: The question being asked
+        
+    Returns:
+        FinancialDataRequirement: Level of financial data needed
+    """
+    t_start = time.perf_counter()
+    
+    prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed:
+        Question: "{question}"
+
+        Classify into one of these categories:
+
+        1. 'none' - Question can be answered without any financial data (e.g., "What does {ticker.upper()} do?", "Who is the CEO?", "What industry is {ticker.upper()} in?")
+
+        2. 'basic' - Question needs only basic company metrics like market cap, P/E ratio, basic ratios (e.g., "What is {ticker.upper()}'s market cap?", "What's the P/E ratio?", "Is {ticker.upper()} profitable?")
+
+        3. 'detailed' - Question requires specific financial statement data like revenue, expenses, cash flow details (e.g., "What was {ticker.upper()}'s revenue last quarter?", "How much debt does {ticker.upper()} have?", "What's the operating margin trend?")
+
+        Examples:
+        - "What does Apple do?" -> none
+        - "Who is Tesla's CEO?" -> none  
+        - "What is Microsoft's market cap?" -> basic
+        - "Is Amazon profitable?" -> basic
+        - "What was Apple's revenue in Q3 2024?" -> detailed
+        - "How much cash does Tesla have?" -> detailed
+        - "What's Google's debt-to-equity ratio?" -> detailed
+
+        Return only the classification: none, basic, or detailed
+    """
+
+    try:
+        response = agent.generate_content(
+            prompt=[prompt], 
+            model_name=ModelName.Gemini25FlashLite,
+            stream=False
+        )
+        
+        response_text = ""
+        try:
+            # Try to access the text attribute directly
+            response_text = getattr(response, 'text', '').lower().strip()
+        except:
+            pass
+        
+        # If no text found, try iterating through response parts
+        if not response_text:
+            try:
+                for part in response:
+                    if hasattr(part, 'text'):
+                        response_text += part.text
+                response_text = response_text.lower().strip()
+            except:
+                pass
+        
+        if "detailed" in response_text:
+            return FinancialDataRequirement.DETAILED
+        elif "basic" in response_text:
+            return FinancialDataRequirement.BASIC
+        else:
+            return FinancialDataRequirement.NONE
+            
+    except Exception as e:
+        logger.error(f"Error classifying financial data requirement: {e}")
+        # Default to basic to be safe
+        return FinancialDataRequirement.BASIC
+    finally:
+        t_end = time.perf_counter()
+        logger.info(f"Profiling classify_financial_data_requirement: {t_end - t_start:.4f}s")
+
+def _build_financial_context(
+    ticker: str,
+    question: str,
+    data_requirement: FinancialDataRequirement,
+    company_fundamental: Optional[Dict[str, Any]],
+    annual_statements: List[Dict[str, Any]],
+    quarterly_statements: List[Dict[str, Any]]
+) -> str:
+    """
+    Build the appropriate financial context prompt based on data requirement level.
+    """
+    
+    base_context = f"""
+        You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question.
+
+        Question: {question}
+        Company: {ticker.upper()}
+    """
+
+    if data_requirement == FinancialDataRequirement.NONE:
+        return f"""
+            {base_context}
+            
+            This is a general question about {ticker.upper()} that doesn't require financial data analysis.
+            Provide a clear, informative answer using your general knowledge about the company.
+            Keep the response under 150 words and make it engaging.
+            Use Google Search to get the most up-to-date information if needed.
+        """
+    
+    elif data_requirement == FinancialDataRequirement.BASIC:
+        return f"""
+            {base_context}
+            
+            Company Fundamental Data:
+            {company_fundamental}
+            
+            This question requires basic financial metrics. Use the fundamental data provided to answer the question.
+            Focus on key metrics like market cap, P/E ratio, basic profitability, and market performance.
+            Keep the response concise (under 150 words) but insightful.
+            Use Google Search for additional context if needed.
+        """
+    
+    else:  # DETAILED
+        return f"""
+            {base_context}
+            
+            Company Fundamental Data:
+            {company_fundamental}
+
+            Annual Financial Statements:
+            {annual_statements}
+            
+            Quarterly Financial Statements:
+            {quarterly_statements}
+            
+            **Instructions for your analysis:**
+
+            1. **Summary (approx. 50 words):** Start with a concise summary of your key findings.
+
+            2. **Detailed Analysis (approx. 100-150 words):**
+               - **Financial Performance:** Analyze key metrics from the statements (revenue, net income, profit margins)
+               - **Insightful Observations:** Explain year-over-year growth/decline and what it signifies
+               - **Industry Context & Trends:** Compare against industry peers and market trends
+
+            **Rules:**
+            - NO DUPLICATION: Each sentence should add new information
+            - BE INSIGHTFUL: Provide analysis, not just data summary
+            - USE SEARCH WISELY: Get up-to-date context for industry trends
+            - CONCISE: Keep entire response under 200 words
+            - INCLUDE SOURCES: Specify sources at the end
+        """
 
 async def handle_general_finance_question(question: str, use_google_search: bool):
     t_start = time.perf_counter()
@@ -117,6 +284,7 @@ async def handle_general_finance_question(question: str, use_google_search: bool
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
+            Make sure related questions are short and concise. Ideally, less than 15 words each.
             Return only the questions, do not return the number or order of the question.
         """
         response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
@@ -176,8 +344,8 @@ async def handle_company_general_question(ticker: str, question: str, use_google
             elif part.type == ContentType.Ground:
                 yield {
                     "type": "google_search_ground",
-                    "body": part.ground.text,
-                    "url": part.ground.uri
+                    "body": part.ground.text if part.ground else "",
+                    "url": part.ground.uri if part.ground else ""
                 }
             else:
                 logger.warning(f"Unknown content part {str(part)}")
@@ -188,6 +356,7 @@ async def handle_company_general_question(ticker: str, question: str, use_google
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
+            Make sure related questions are short and concise. Ideally, less than 15 words each.
             Return only the questions, do not return the number or order of the question.
         """
         response_generator = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
@@ -210,71 +379,68 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
     t_start = time.perf_counter()
     ticker = ticker.lower().strip()
 
-    # Get company fundamental data
+    # First, determine what financial data we actually need
     yield {
         "type": "thinking_status",
-        "body": "Retrieving company fundamental data and financial statements..."
-    }
-    t_fundamental = time.perf_counter()
-    company_fundamental = get_company_fundamental(ticker)
-    t_fundamental_end = time.perf_counter()
-    logger.info(f"Profiling handle_company_specific_finance get_company_fundamental: {t_fundamental_end - t_fundamental:.4f}s")
-
-    yield {
-        "type": "thinking_status",
-        "body": "Performing a comprehensive analysis. This might take a moment, but the insights will be worth the wait..."
+        "body": "Analyzing question to determine required data..."
     }
     
-    try:
+    data_requirement = await classify_financial_data_requirement(ticker, question)
+    logger.info(f"Financial data requirement: {data_requirement}")
+
+    # Always get basic company data (lightweight) if basic or detailed is needed
+    t_fundamental = time.perf_counter()
+    company_fundamental = None
+    if data_requirement in [FinancialDataRequirement.BASIC, FinancialDataRequirement.DETAILED]:
+        yield {
+            "type": "thinking_status",
+            "body": "Retrieving company fundamental data..."
+        }
+        company_fundamental = get_company_fundamental(ticker)
+    t_fundamental_end = time.perf_counter()
+    logger.info(f"Profiling get_company_fundamental: {t_fundamental_end - t_fundamental:.4f}s")
+
+    # Only fetch detailed financial statements if really needed
+    annual_financial_statements: List[Dict[str, Any]] = []
+    quarterly_financial_statements: List[Dict[str, Any]] = []
+    
+    if data_requirement == FinancialDataRequirement.DETAILED:
+        yield {
+            "type": "thinking_status",
+            "body": "Retrieving detailed financial statements for comprehensive analysis..."
+        }
+        
         t_statements = time.perf_counter()
         annual_financial_statements = [
-            CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_financial_statements(ticker)
+            CompanyFinancialConnector.to_dict(item) 
+            for item in company_financial_connector.get_company_financial_statements(ticker)
         ]
         quarterly_financial_statements = [
-            CompanyFinancialConnector.to_dict(item) for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
+            CompanyFinancialConnector.to_dict(item) 
+            for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
         ]
         t_statements_end = time.perf_counter()
-        logger.info(f"Profiling handle_company_specific_finance get_financial_statements: {t_statements_end - t_statements:.4f}s")
+        logger.info(f"Profiling get_financial_statements: {t_statements_end - t_statements:.4f}s")
+
+    yield {
+        "type": "thinking_status", 
+        "body": "Analyzing data and preparing insights..."
+    }
+
+    try:
+        # Create dynamic prompt based on available data
+        financial_context = _build_financial_context(
+            ticker=ticker,
+            question=question,
+            data_requirement=data_requirement,
+            company_fundamental=company_fundamental,
+            annual_statements=annual_financial_statements,
+            quarterly_statements=quarterly_financial_statements
+        )
 
         t_model = time.perf_counter()
-        financial_context = f"""
-            You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question, based on the provided financial data and broader market context.
-
-            Question: {question}
-
-            Here is the financial data for {ticker.upper()}:
-            Company Fundamental Data:
-            {company_fundamental}
-
-            Annual Financial Statements:
-            {annual_financial_statements}
-            
-            Quarterly Financial Statements:
-            {quarterly_financial_statements}
-            
-            **Instructions for your analysis:**
-
-            1.  **Summary (approx. 50 words):** Start with a concise summary of your key findings. This should be a high-level overview.
-
-            2.  **Detailed Analysis (approx. 100-150 words):**
-                *   **Financial Performance:** Analyze key metrics from the statements (like revenue, net income, and profit margins). Go beyond just stating numbers. Explain year-over-year growth/decline and what it signifies about the company's health and strategy.
-                *   **Insightful Observations:** Don't just state facts. Provide insights. For example, if revenue grew, what might be the driving factors? If margins shrunk, what could be the cause?
-                *   **Industry Context & Trends:** Use your knowledge and the search tool to compare the company's performance against its industry peers and broader market trends. Is the company outperforming or underperforming the market? Are there any significant industry trends (e.g., new technology, regulatory changes, consumer behavior shifts) impacting the company?
-
-            **Crucial Rules to Follow:**
-            - **NO DUPLICATION:** Do not repeat the same points or numbers across different sections. Each sentence should add new information or a new perspective.
-            - **SYNTHESIZE, DON'T JUST LIST:** Connect the dots between different data points to form a coherent narrative.
-            - **BE INSIGHTFUL:** Provide analysis, not just a summary of data. Explain the 'so what' behind the numbers.
-            - **USE SEARCH WISELY:** Use the Google Search tool to get up-to-date context, especially for industry trends and competitive analysis. Prioritize reputable financial news sources.
-            - **CONCISE:** Keep the entire response under 200 words.
-
-            Make sure to specify the source of the answer at the end of the analysis.
-        """
         for part in agent.generate_content(
-            [
-                financial_context,
-                analysis_prompt,
-            ], 
+            [financial_context, analysis_prompt], 
             model_name=ModelName.GeminiFlash, 
             stream=True, 
             thought=True,
@@ -293,19 +459,21 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
             elif part.type == ContentType.Ground:
                 yield {
                     "type": "google_search_ground",
-                    "body": part.ground.text,
-                    "url": part.ground.uri
+                    "body": part.ground.text if part.ground else "",
+                    "url": part.ground.uri if part.ground else ""
                 }
             else:
                 logger.warning(f'Unknown content part {str(part)}')
+        
         t_model_end = time.perf_counter()
-        logger.info(f"Profiling handle_company_specific_finance model_generate_content: {t_model_end - t_model:.4f}s")
+        logger.info(f"Profiling model_generate_content: {t_model_end - t_model:.4f}s")
 
+        # Generate related questions
         t_related = time.perf_counter()
         prompt = f"""
             Based on this original question: "{question}"
             Generate 3 related but different follow-up questions that users might want to ask next.
-            These questions should be related to either balance sheet, income statement or cash flow statement.
+            Make sure related questions are short and concise. Ideally, less than 15 words each.
             Return only the questions, do not return the number or order of the question.
         """
         response = agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
@@ -315,8 +483,9 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
                 "body": answer
             }
         t_related_end = time.perf_counter()
-        logger.info(f"Profiling handle_company_specific_finance related_questions: {t_related_end - t_related:.4f}s")
+        logger.info(f"Profiling related_questions: {t_related_end - t_related:.4f}s")
         logger.info(f"Profiling handle_company_specific_finance total: {t_related_end - t_start:.4f}s")
+
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
         yield {
@@ -357,7 +526,7 @@ async def analyze_financial_data_from_question(ticker: str, question: str, use_g
         QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question, use_google_search)
     }
 
-    handler = handlers.get(classification)
+    handler = handlers.get(classification) if classification else None
     if handler:
         t_handler = time.perf_counter()
         async for chunk in handler():
@@ -365,6 +534,9 @@ async def analyze_financial_data_from_question(ticker: str, question: str, use_g
         t_handler_end = time.perf_counter()
         logger.info(f"Profiling analyze_financial_data_from_question handler: {t_handler_end - t_handler:.4f}s")
     else:
-        yield "❌ Unable to classify question type"
+        yield {
+            "type": "answer",
+            "body": "❌ Unable to classify question type"
+        }
     t_end = time.perf_counter()
     logger.info(f"Profiling analyze_financial_data_from_question total: {t_end - t_start:.4f}s")
