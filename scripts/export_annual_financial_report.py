@@ -1,4 +1,24 @@
+"""
+Export Annual Financial Reports for Tickers
+
+This script exports financial data (income statements, balance sheets, and cash flow statements)
+from Yahoo Finance for ticker symbols and saves them to the database.
+
+Usage:
+    # Export data for specific tickers
+    python export_annual_financial_report.py --tickers=AAPL,TSLA,MSFT
+    
+    # Export data for all tickers in the database (default behavior when no --tickers specified)
+    python export_annual_financial_report.py
+
+Examples:
+    python export_annual_financial_report.py --tickers=AAPL
+    python export_annual_financial_report.py --tickers=AAPL,TSLA,GOOGL,MSFT
+    python export_annual_financial_report.py  # Processes all tickers from database
+"""
+
 import sys
+import argparse
 from pathlib import Path
 
 # Add the parent directory to the Python path
@@ -376,6 +396,14 @@ def export_financial_data_worker(args):
     return export_financial_data_to_db(url, ticker, statement_type)
 
 
+def validate_ticker(ticker):
+    """
+    Validate ticker symbol format
+    """
+    if not ticker or len(ticker) > 10 or not ticker.isalnum():
+        return False
+    return True
+
 def get_financial_urls(ticker):
     """
     Generate Yahoo Finance URLs for a given ticker symbol
@@ -388,13 +416,51 @@ def get_financial_urls(ticker):
     )
 
 def main():
-    # Get all ticker symbols from database
-    company_fundamental_connector = CompanyConnector()
-    tickers = company_fundamental_connector.get_all_company_tickers()
-
-    if not tickers:
-        print("❌ No tickers found in database")
-        return
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Export financial data for specified ticker symbols')
+    parser.add_argument(
+        '--tickers', 
+        type=str, 
+        required=False,
+        help='Comma-separated list of ticker symbols (e.g., AAPL,TSLA,MSFT). If not provided, all tickers from database will be used.'
+    )
+    
+    args = parser.parse_args()
+    
+    # Get ticker symbols
+    if not args.tickers:
+        # No tickers specified, fetch all from database
+        print("🔍 No tickers specified, fetching all tickers from database...")
+        company_fundamental_connector = CompanyConnector()
+        tickers = company_fundamental_connector.get_all_company_tickers()
+        if not tickers:
+            print("❌ No tickers found in database")
+            return
+        print(f"📊 Found {len(tickers)} tickers in database")
+    else:
+        # Parse tickers from command line argument
+        print(f"🎯 Using specified tickers: {args.tickers}")
+        raw_tickers = [ticker.strip().upper() for ticker in args.tickers.split(',')]
+        raw_tickers = [ticker for ticker in raw_tickers if ticker]  # Remove empty strings
+        
+        # Validate ticker symbols
+        tickers = []
+        invalid_tickers = []
+        
+        for ticker in raw_tickers:
+            if validate_ticker(ticker):
+                tickers.append(ticker)
+            else:
+                invalid_tickers.append(ticker)
+        
+        if invalid_tickers:
+            print(f"⚠️  Invalid ticker symbols (skipped): {invalid_tickers}")
+        
+        if not tickers:
+            print("❌ No valid tickers provided")
+            print("Usage: python export_annual_financial_report.py --tickers=AAPL,TSLA,MSFT")
+            print("       python export_annual_financial_report.py  (to fetch all tickers from database)")
+            return
     
     print(f"🚀 Starting parallel export for {len(tickers)} tickers: {tickers}")
     
