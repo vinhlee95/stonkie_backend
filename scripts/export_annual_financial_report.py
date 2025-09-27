@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Add the parent directory to the Python path
+current_dir = Path(__file__).resolve().parent
+parent_dir = current_dir.parent
+sys.path.insert(0, str(parent_dir))
+
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 import re
