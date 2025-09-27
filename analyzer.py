@@ -326,9 +326,9 @@ async def handle_company_general_question(ticker: str, question: str, use_google
         t_model = time.perf_counter()
         for part in agent.generate_content(
             prompt=prompt, 
-            model_name=ModelName.Gemini25FlashLite, 
+            model_name=ModelName.GeminiFlash, 
             stream=True,
-            thought=False,
+            thought=True,
             use_google_search=use_google_search,
         ):
             if part.type == ContentType.Thought:
