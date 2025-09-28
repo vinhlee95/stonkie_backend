@@ -103,7 +103,7 @@ class CompanyConnector:
                 item_data = getattr(item, 'data', None) or {}
                 name = item_data.get("name", "") or ""
                 ticker = str(getattr(item, 'company_symbol', ""))
-                logo_url = item_data.get("logo_url") or self.get_company_logo_url(name, ticker)
+                logo_url = item_data.get("logo_url") or self.get_company_logo_url(ticker)
                 
                 companies.append(Company(
                     name=name,
