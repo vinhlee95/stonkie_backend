@@ -91,7 +91,7 @@ class CompanyConnector:
             country=company_fundamental.get("Country", ""),
             exchange=company_fundamental.get("Exchange", ""),
             dividend_yield=dividend_yield,
-            logo_url=self.get_company_logo_url_from_ticker(ticker, company_name)
+            logo_url=self.get_company_logo_url_from_ticker(ticker)
         )
     
     def get_all(self) -> list[Company]:
@@ -103,7 +103,7 @@ class CompanyConnector:
                 item_data = getattr(item, 'data', None) or {}
                 name = item_data.get("name", "") or ""
                 ticker = str(getattr(item, 'company_symbol', ""))
-                logo_url = item_data.get("logo_url") or ""
+                logo_url = item_data.get("logo_url") or self.get_company_logo_url(name, ticker)
                 
                 companies.append(Company(
                     name=name,
@@ -179,15 +179,17 @@ class CompanyConnector:
             return [str(item.company_symbol) for item in data if item.company_symbol is not None]
 
     @classmethod
-    def get_company_logo_url(cls, company_name: str):
+    def get_company_logo_url(cls, ticker: str):
         """
         Proxy endpoint to fetch company logo and return as image response
+
+        https://developers.brandfetch.com/dashboard/logo-api
         """
         API_KEY = os.getenv('BRAND_FETCH_API_KEY')
         params = urlencode({'c': API_KEY })
-        return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
+        return f"https://cdn.brandfetch.io/{ticker.upper()}/w/100/h/100?{params}"
 
-    def get_company_logo_url_from_ticker(self, ticker: str, company_name: str) -> str:
+    def get_company_logo_url_from_ticker(self, ticker: str) -> str:
         """
         Get company logo URL from ticker
         """
@@ -195,9 +197,7 @@ class CompanyConnector:
         if company:
             return company.logo_url
         
-        # Fallback to use company name for new companies
-        # TODO: if this turns out not reliable, figure out a better API to get logo URL from ticker
-        return self.get_company_logo_url(company_name)
+        return self.get_company_logo_url(ticker)
 
     def get_by_ticker(self, ticker: str) -> Company | None:
         with SessionLocal() as db:
