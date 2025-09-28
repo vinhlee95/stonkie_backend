@@ -1,7 +1,9 @@
 from agent.agent import Agent
 from logging import getLogger
 from ai_models.model_name import ModelName
-from connectors.company import get_by_ticker
+from connectors.company import CompanyConnector
+
+company_connector = CompanyConnector()
 
 logger = getLogger(__name__)
 
@@ -44,7 +46,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
     Streaming version: Get 3 frequent ask questions for a given ticker symbol
     Yields questions as they are generated
     """
-    company = get_by_ticker(ticker)
+    company = company_connector.get_by_ticker(ticker)
     yield {"type": "status", "message": f"Here are some frequently asked questions about {company.name} ({company.ticker})"}
 
     try:

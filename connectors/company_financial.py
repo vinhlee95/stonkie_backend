@@ -104,12 +104,8 @@ class CompanyFinancialConnector:
                 data = self.get_company_statement_by_type(self._to_dict(item), 'cash_flow')
                 results.append(data)
 
-            return results
+            return results        
 
-    def get_company_tickers_having_financial_data(self) -> List[str]:
-        with SessionLocal() as db:
-            return [row[0] for row in db.query(CompanyFinancialStatement.company_symbol).distinct().all()]
-    
     def get_company_filings(self, ticker: str, period: str) -> List[dict[str, Any]]:
         """Get company filings for the specified period (annual or quarterly)"""
         with SessionLocal() as db:

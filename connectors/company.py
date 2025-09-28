@@ -12,6 +12,11 @@ from models.company_fundamental import CompanyFundamental
 
 logger = logging.getLogger(__name__)
 
+class Company(BaseModel):
+    name: str
+    ticker: str
+    logo_url: str = ""
+
 @dataclass(frozen=True)
 class CompanyFundamentalDto:
     name: str
@@ -71,9 +76,10 @@ class CompanyConnector:
         eps = safe_float(company_fundamental.get("EPS"))
         shares_outstanding = safe_float(company_fundamental.get("SharesOutstanding"))
         net_income = safe_int(eps * shares_outstanding)
+        company_name = company_fundamental.get("Name", "")
 
         return CompanyFundamentalDto(
-            name=company_fundamental.get("Name", ""),
+            name=company_name,
             market_cap=market_cap,
             pe_ratio=pe_ratio,
             revenue=revenue,
@@ -85,8 +91,26 @@ class CompanyConnector:
             country=company_fundamental.get("Country", ""),
             exchange=company_fundamental.get("Exchange", ""),
             dividend_yield=dividend_yield,
-            logo_url=get_company_logo_url_from_ticker(ticker)
+            logo_url=self.get_company_logo_url_from_ticker(ticker, company_name)
         )
+    
+    def get_all(self) -> list[Company]:
+        with SessionLocal() as db:
+            data = db.query(CompanyFundamental).all()
+            companies = []
+            for item in data:
+                # Safely extract data fields using getattr to avoid SQLAlchemy issues
+                item_data = getattr(item, 'data', None) or {}
+                name = item_data.get("name", "") or ""
+                ticker = str(getattr(item, 'company_symbol', ""))
+                logo_url = item_data.get("logo_url") or ""
+                
+                companies.append(Company(
+                    name=name,
+                    ticker=ticker,
+                    logo_url=logo_url
+                ))
+            return companies
     
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         with SessionLocal() as db:
@@ -154,57 +178,44 @@ class CompanyConnector:
             data = db.query(CompanyFundamental).all()
             return [str(item.company_symbol) for item in data if item.company_symbol is not None]
 
-def get_company_logo_url(company_name: str):
-    """
-    Proxy endpoint to fetch company logo and return as image response
-    """
-    API_KEY = os.getenv('BRAND_FETCH_API_KEY')
-    params = urlencode({'c': API_KEY })
-    return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
+    @classmethod
+    def get_company_logo_url(cls, company_name: str):
+        """
+        Proxy endpoint to fetch company logo and return as image response
+        """
+        API_KEY = os.getenv('BRAND_FETCH_API_KEY')
+        params = urlencode({'c': API_KEY })
+        return f"https://cdn.brandfetch.io/{company_name.lower()}.com/w/100/h/100?{params}"
 
-def get_company_logo_url_from_ticker(ticker: str):
-    """
-    Get company logo URL from ticker
-    """
-    company = get_by_ticker(ticker)
-    if company:
-        return company.logo_url
-    return None
+    def get_company_logo_url_from_ticker(self, ticker: str, company_name: str) -> str:
+        """
+        Get company logo URL from ticker
+        """
+        company = self.get_by_ticker(ticker)
+        if company:
+            return company.logo_url
+        
+        # Fallback to use company name for new companies
+        # TODO: if this turns out not reliable, figure out a better API to get logo URL from ticker
+        return self.get_company_logo_url(company_name)
 
-class Company(BaseModel):
-    name: str
-    ticker: str
-    logo_url: str
-
-def get_all() -> list[Company]:
-    # Return hard-coded data for now. Move to DB later
-    return [
-      Company(name="Apple", ticker="AAPL", logo_url=get_company_logo_url("apple")),
-      Company(name="Tesla", ticker="TSLA", logo_url=get_company_logo_url("tesla")),
-      Company(name="Microsoft", ticker="MSFT", logo_url=get_company_logo_url("microsoft")),
-      Company(name="Nvidia", ticker="NVDA", logo_url=get_company_logo_url("nvidia")),
-      Company(name="Nordea", ticker="NDA-FI.HE", logo_url=get_company_logo_url("nordea")),
-      Company(name="Mandatum", ticker="MANTA.HE", logo_url=get_company_logo_url("mandatum")),
-      Company(name="Fortum", ticker="FORTUM.HE", logo_url=get_company_logo_url("fortum")),
-      Company(name="Alphabet", ticker="GOOG", logo_url=get_company_logo_url("google")),
-      Company(name="Amazon", ticker="AMZN", logo_url=get_company_logo_url("amazon")),
-      Company(name="Meta", ticker="META", logo_url=get_company_logo_url("meta")),
-      Company(name="Netflix", ticker="NFLX", logo_url=get_company_logo_url("netflix")),
-      Company(name="Berkshire Hathaway", ticker="BRK.A", logo_url=get_company_logo_url("berkshire")),
-      Company(name="Wallmart", ticker="WMT", logo_url=get_company_logo_url("walmart")),
-      Company(name="AT&T", ticker="T", logo_url=get_company_logo_url("att")),
-      Company(name="Coca Cola", ticker="KO", logo_url=get_company_logo_url("coca-cola")),
-      Company(name="ASML Holding", ticker="ASML", logo_url=get_company_logo_url("asml")),
-      Company(name="DoorDash", ticker="DASH", logo_url=get_company_logo_url("doordash")),
-      Company(name="SnowFlake", ticker="SNOW", logo_url=get_company_logo_url("snowflake")),
-      Company(name="Upwork", ticker="UPWK", logo_url=get_company_logo_url("upwork")),
-      Company(name="Visa", ticker="V", logo_url=get_company_logo_url("visa")),
-    ]
-
-def get_by_ticker(ticker: str) -> Company | None:
-  all_companies = get_all()
-  company = [item for item in all_companies if item.ticker == ticker.upper()]
-  if len(company) == 0:
-    return None
-
-  return company[0]
+    def get_by_ticker(self, ticker: str) -> Company | None:
+        with SessionLocal() as db:
+            data = db.query(CompanyFundamental).filter(
+                CompanyFundamental.company_symbol == ticker.upper()
+            ).first()
+            
+            if not data:
+                return None
+            
+            # Safely extract data fields using getattr to avoid SQLAlchemy issues
+            item_data = getattr(data, 'data', None) or {}
+            name = item_data.get("name", "") or ""
+            company_ticker = str(getattr(data, 'company_symbol', ""))
+            logo_url = item_data.get("logo_url") or ""
+            
+            return Company(
+                name=name,
+                ticker=company_ticker,
+                logo_url=logo_url
+            )

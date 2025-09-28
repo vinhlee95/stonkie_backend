@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from agent.agent import Agent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
-from connectors.company import get_by_ticker
+from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
 
 from external_knowledge.company_fundamental import get_company_fundamental
@@ -15,6 +15,7 @@ import time
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+company_connector = CompanyConnector()
 
 agent = Agent(model_type="gemini")
 company_financial_connector = CompanyFinancialConnector()
@@ -306,7 +307,7 @@ async def handle_general_finance_question(question: str, use_google_search: bool
 async def handle_company_general_question(ticker: str, question: str, use_google_search: bool):
     t_start = time.perf_counter()
     """Handle general questions about companies."""
-    company = get_by_ticker(ticker)
+    company = company_connector.get_by_ticker(ticker)
     company_name = company.name if company else ""
 
     yield {

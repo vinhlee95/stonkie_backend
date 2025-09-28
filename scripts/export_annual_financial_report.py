@@ -33,11 +33,14 @@ import concurrent.futures
 from sqlalchemy.exc import IntegrityError
 
 from connectors.database import get_db
+from connectors.company import CompanyConnector
 from models.company_financial_statement import CompanyFinancialStatement
 from agent.agent import Agent
 from services.company import CompanyConnector
 
 load_dotenv()
+
+company_connector = CompanyConnector()
 
 def save_to_database(ticker, statement_type, data):
     """
@@ -395,6 +398,18 @@ def export_financial_data_worker(args):
     url, ticker, statement_type = args
     return export_financial_data_to_db(url, ticker, statement_type)
 
+def persist_fundamental_data_worker(ticker):
+    """
+    Worker function for persisting fundamental data - runs once per ticker
+    """
+    try:
+        company_connector.persist_fundamental_data(ticker)
+        print(f"✅ Fundamental data for {ticker} has been ensured in the database")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to persist fundamental data for {ticker}: {e}")
+        return False
+
 
 def validate_ticker(ticker):
     """
@@ -464,8 +479,12 @@ def main():
     
     print(f"🚀 Starting parallel export for {len(tickers)} tickers: {tickers}")
     
-    # Prepare tasks for all tickers - each ticker has 3 statement types
-    all_tasks = []
+    # First, persist fundamental data for all tickers (once per ticker)
+    print("📊 Step 1: Persisting fundamental data for all tickers...")
+    fundamental_tasks = [(ticker, 'fundamental') for ticker in tickers]
+    
+    # Prepare financial data tasks for all tickers - each ticker has 3 statement types
+    financial_tasks = []
     for ticker in tickers:
         financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
         ticker_tasks = [
@@ -473,23 +492,53 @@ def main():
             (balance_sheet_url, ticker, 'balance_sheet'),
             (cash_flow_url, ticker, 'cash_flow')
         ]
-        all_tasks.extend(ticker_tasks)
+        financial_tasks.extend(ticker_tasks)
     
-    print(f"📊 Total tasks to execute: {len(all_tasks)}")
+    all_tasks = fundamental_tasks + financial_tasks
+    print(f"📊 Total tasks to execute: {len(all_tasks)} ({len(fundamental_tasks)} fundamental + {len(financial_tasks)} financial)")
     
-    # Execute all tasks in parallel with increased worker pool
+    # Execute fundamental data tasks first
+    print("🔄 Executing fundamental data persistence tasks...")
+    fundamental_results = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(fundamental_tasks))) as executor:
+        # Submit fundamental data tasks
+        future_to_task = {
+            executor.submit(persist_fundamental_data_worker, task[0]): task 
+            for task in fundamental_tasks
+        }
+        
+        for future in concurrent.futures.as_completed(future_to_task):
+            task = future_to_task[future]
+            ticker_name, task_type = task
+            
+            try:
+                result = future.result()
+                fundamental_results.append((ticker_name, task_type, result))
+                
+                if result:
+                    print(f"✅ Successfully completed {ticker_name} {task_type}")
+                else:
+                    print(f"❌ Failed {ticker_name} {task_type}")
+            except Exception as e:
+                print(f"❌ Exception occurred during {ticker_name} {task_type}: {e}")
+                fundamental_results.append((ticker_name, task_type, False))
+    
+    print("📊 Step 2: Executing financial data export tasks...")
+    
+    # Execute financial data tasks
     # Use more workers but limit to reasonable number to avoid overwhelming the server
-    max_workers = min(10, len(all_tasks))  # Max 10 concurrent requests
+    max_workers = min(10, len(financial_tasks))  # Max 10 concurrent requests
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
+        # Submit financial data tasks
         future_to_task = {
             executor.submit(export_financial_data_worker, task): task 
-            for task in all_tasks
+            for task in financial_tasks
         }
         
         # Process results as they complete
-        results = []
+        financial_results = []
         ticker_results = {}  # Track results per ticker
         
         for future in concurrent.futures.as_completed(future_to_task):
@@ -502,7 +551,7 @@ def main():
             
             try:
                 result = future.result()
-                results.append((ticker_name, statement_type, result))
+                financial_results.append((ticker_name, statement_type, result))
                 
                 if result:
                     print(f"✅ Successfully completed {ticker_name} {statement_type} export")
@@ -512,13 +561,18 @@ def main():
                     ticker_results[ticker_name]['failed'] += 1
             except Exception as e:
                 print(f"❌ Exception occurred during {ticker_name} {statement_type} export: {e}")
-                results.append((ticker_name, statement_type, False))
+                financial_results.append((ticker_name, statement_type, False))
                 ticker_results[ticker_name]['failed'] += 1
     
-    # Overall summary
-    total_tasks = len(results)
-    total_successful = sum(1 for _, _, success in results if success)
+    # Combine all results for overall summary
+    all_results = fundamental_results + financial_results
+    total_tasks = len(all_results)
+    total_successful = sum(1 for _, _, success in all_results if success)
     total_failed = total_tasks - total_successful
+    
+    # Fundamental data summary
+    fundamental_successful = sum(1 for _, _, success in fundamental_results if success)
+    fundamental_failed = len(fundamental_results) - fundamental_successful
     
     print(f"\n📊 Overall Export Summary:")
     print(f"   Total tickers processed: {len(tickers)}")
@@ -526,6 +580,9 @@ def main():
     print(f"   Total successful: {total_successful}")
     print(f"   Total failed: {total_failed}")
     print(f"   Success rate: {(total_successful/total_tasks*100):.1f}%")
+    print(f"\n📋 Task Breakdown:")
+    print(f"   Fundamental data: {fundamental_successful}/{len(fundamental_results)} successful")
+    print(f"   Financial data: {sum(1 for _, _, success in financial_results if success)}/{len(financial_results)} successful")
     
     # Per-ticker summary
     print(f"\n📋 Per-Ticker Results:")

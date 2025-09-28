@@ -11,7 +11,7 @@ import uuid
 import requests
 from urllib.parse import urlencode
 import os
-from connectors.company import get_by_ticker
+from connectors.company import CompanyConnector
 import random
 from pydantic import BaseModel
 
@@ -25,6 +25,7 @@ logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
+company_connector = CompanyConnector()
 agent = Agent(model_type="gemini", model_name=ModelName.Gemini25FlashLite)
 
 # Cache to store used queries for each ticker
@@ -36,7 +37,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
     Return the full url of the image for now. 
     Store different sizes if further optimizations are needed.
     """
-    company_name = get_by_ticker(ticker).name
+    company_name = company_connector.get_by_ticker(ticker).name
     
     async def generate_image_query(company_name: str) -> str:
         # Add randomization to the prompt to ensure different queries

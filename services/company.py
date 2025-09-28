@@ -8,7 +8,7 @@ from connectors.pdf_reader import get_pdf_content_from_bytes, PageData
 from connectors.vector_store import search_similar_content_and_format_to_texts
 from models.company_financial import CompanyFinancials
 from connectors.vector_store import init_vector_record, add_vector_record_by_batch
-from connectors.company import CompanyConnector, CompanyFundamentalDto, get_all
+from connectors.company import Company, CompanyConnector, CompanyFundamentalDto
 from connectors.company_financial import CompanyFinancialConnector
 
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
@@ -299,11 +299,8 @@ async def handle_company_report(file_content: bytes, ticker: str, year: int, ext
         logger.error(f"Error processing 10-K file: {str(e)}")
         raise
 
-def get_all_companies():
-    companies_having_financial_data = company_financial_connector.get_company_tickers_having_financial_data()
-    all_companies = get_all()
-    return [company for company in all_companies if company.ticker in companies_having_financial_data]
-
+def get_all_companies() -> list[Company]:
+    return company_connector.get_all()
 
 def get_company_financial_statements(ticker: str, report_type: str | None = None, period_type: str | None = None):
     try:
