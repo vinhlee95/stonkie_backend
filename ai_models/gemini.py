@@ -88,7 +88,7 @@ class GeminiModel:
         if use_google_search:
             if "config" not in config_kwargs:
                 config_kwargs["config"] = {}
-            config_kwargs["config"]["tools"] = [search_tool, url_context_tool]
+            config_kwargs["config"]["tools"] = [search_tool]
 
         
         if not stream:
@@ -110,7 +110,7 @@ class GeminiModel:
                         include_thoughts=True,
                         thinking_budget=1024,
                     ),
-                    tools=[search_tool, url_context_tool] if use_google_search else [url_context_tool]
+                    tools=[search_tool] if use_google_search else []
                 )
 
                 # Merge with config from kwargs if it exists
