@@ -251,7 +251,7 @@ def _build_financial_context(
             - INCLUDE SOURCES: Specify sources at the end
         """
 
-async def handle_general_finance_question(question: str, use_google_search: bool):
+async def handle_general_finance_question(question: str, use_google_search: bool, use_url_context: bool):
     t_start = time.perf_counter()
     """Handle questions about general financial concepts."""
     try:
@@ -273,6 +273,7 @@ async def handle_general_finance_question(question: str, use_google_search: bool
             model_name=ModelName.Gemini25FlashLite,
             stream=True,
             use_google_search=use_google_search,
+            use_url_context=use_url_context,
         ):
             yield {
                 "type": "answer",
@@ -304,7 +305,7 @@ async def handle_general_finance_question(question: str, use_google_search: bool
             "body": "❌ Error generating explanation. Please try again later."
         }
 
-async def handle_company_general_question(ticker: str, question: str, use_google_search: bool):
+async def handle_company_general_question(ticker: str, question: str, use_google_search: bool, use_url_context: bool):
     t_start = time.perf_counter()
     """Handle general questions about companies."""
     company = company_connector.get_by_ticker(ticker)
@@ -331,6 +332,7 @@ async def handle_company_general_question(ticker: str, question: str, use_google
             stream=True,
             thought=True,
             use_google_search=use_google_search,
+            use_url_context=use_url_context,
         ):
             if part.type == ContentType.Thought:
                 yield {
@@ -376,7 +378,7 @@ async def handle_company_general_question(ticker: str, question: str, use_google
             "body": f"❌ Error generating answer."
         }
 
-async def handle_company_specific_finance(ticker: str, question: str, use_google_search: bool):
+async def handle_company_specific_finance(ticker: str, question: str, use_google_search: bool, use_url_context: bool):
     t_start = time.perf_counter()
     ticker = ticker.lower().strip()
 
@@ -446,6 +448,7 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
             stream=True, 
             thought=True,
             use_google_search=use_google_search,
+            use_url_context=use_url_context,
         ):
             if part.type == ContentType.Thought:
                 yield {
@@ -494,7 +497,7 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
             "body": "Error during analysis. Please try again later."
         }
 
-async def analyze_financial_data_from_question(ticker: str, question: str, use_google_search: bool):
+async def analyze_financial_data_from_question(ticker: str, question: str, use_google_search: bool, use_url_context: bool):
     """
     Analyze financial statements for a given ticker symbol or answer generic financial questions
     
@@ -522,9 +525,9 @@ async def analyze_financial_data_from_question(ticker: str, question: str, use_g
         }
 
     handlers = {
-        QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question, use_google_search),
-        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question, use_google_search),
-        QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question, use_google_search)
+        QuestionType.GENERAL_FINANCE.value: lambda: handle_general_finance_question(question, use_google_search, use_url_context),
+        QuestionType.COMPANY_GENERAL.value: lambda: handle_company_general_question(ticker, question, use_google_search, use_url_context),
+        QuestionType.COMPANY_SPECIFIC_FINANCE.value: lambda: handle_company_specific_finance(ticker, question, use_google_search, use_url_context)
     }
 
     handler = handlers.get(classification) if classification else None
