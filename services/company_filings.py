@@ -78,6 +78,7 @@ async def analyze_financial_report(ticker: str, period_end_at: str, period_type:
             model_name=ModelName.Gemini25FlashLite,
             stream=True, 
             thought=True,
+            use_url_context=True,
         ):
             if part.type == ContentType.Thought:
                 yield {

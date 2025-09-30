@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Literal, Generator, Any, Union, Iterable
+from typing import AsyncGenerator, Literal, Any, Union, Iterable
 from ai_models.gemini import GeminiModel, ContentPart
 from ai_models.openai import OpenAIModel
 
@@ -30,6 +30,7 @@ class Agent:
         stream=True, 
         thought: bool = False, 
         use_google_search: bool = False,
+        use_url_context: bool = False,
         **kwargs
     ) -> Union[Iterable[ContentPart], Any]:
         """
@@ -44,6 +45,7 @@ class Agent:
             stream=stream, 
             thought=thought, 
             use_google_search=use_google_search,
+            use_url_context=use_url_context,
             **kwargs
         )
     

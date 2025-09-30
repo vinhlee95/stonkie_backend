@@ -45,6 +45,7 @@ class GeminiModel:
         stream: bool = True, 
         thought: bool = False, 
         use_google_search: bool = False,
+        use_url_context: bool = False,
         **kwargs
     ) -> Generator[ContentPart, None, None] | types.GenerateContentResponse:
         """
@@ -90,7 +91,13 @@ class GeminiModel:
                 config_kwargs["config"] = {}
             config_kwargs["config"]["tools"] = [search_tool]
 
-        
+        if use_url_context:
+            if "config" not in config_kwargs:
+                config_kwargs["config"] = {}
+            if "tools" not in config_kwargs["config"]:
+                config_kwargs["config"]["tools"] = []
+            config_kwargs["config"]["tools"].append(url_context_tool)
+
         if not stream:
             response = self.client.models.generate_content(
                 model=model_name,
@@ -104,13 +111,19 @@ class GeminiModel:
             return response
 
         def stream_generator():
+            tools = []
+            if use_google_search:
+                tools.append(search_tool)
+            if use_url_context:
+                tools.append(url_context_tool)
+
             if thought:
                 base_config = types.GenerateContentConfig(
                     thinking_config=types.ThinkingConfig(
                         include_thoughts=True,
                         thinking_budget=1024,
                     ),
-                    tools=[search_tool] if use_google_search else []
+                    tools=tools
                 )
 
                 # Merge with config from kwargs if it exists
