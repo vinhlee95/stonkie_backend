@@ -68,6 +68,41 @@ class CompanyFinancialConnector:
                 .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())\
                 .all()
 
+    def get_company_financial_statements_by_years(self, ticker: str, years: List[int]) -> List[CompanyFinancialStatement]:
+        """Fetch annual financial statements for specific years."""
+        with SessionLocal() as db:
+            return db.query(CompanyFinancialStatement)\
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())\
+                .filter(CompanyFinancialStatement.period_end_year.in_(years))\
+                .order_by(CompanyFinancialStatement.period_end_year.desc())\
+                .all()
+
+    def get_company_financial_statements_recent(self, ticker: str, num_periods: int) -> List[CompanyFinancialStatement]:
+        """Fetch most recent N annual financial statements."""
+        with SessionLocal() as db:
+            return db.query(CompanyFinancialStatement)\
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())\
+                .order_by(CompanyFinancialStatement.period_end_year.desc())\
+                .limit(num_periods)\
+                .all()
+
+    def get_company_quarterly_financial_statements_by_quarters(self, ticker: str, quarters: List[str]) -> List[CompanyQuarterlyFinancialStatement]:
+        """Fetch quarterly financial statements for specific quarters (e.g., ['2024-Q1', '2024-Q2'])."""
+        with SessionLocal() as db:
+            return db.query(CompanyQuarterlyFinancialStatement)\
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())\
+                .filter(CompanyQuarterlyFinancialStatement.period_end_quarter.in_(quarters))\
+                .all()
+
+    def get_company_quarterly_financial_statements_recent(self, ticker: str, num_periods: int) -> List[CompanyQuarterlyFinancialStatement]:
+        """Fetch most recent N quarterly financial statements."""
+        with SessionLocal() as db:
+            return db.query(CompanyQuarterlyFinancialStatement)\
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())\
+                .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())\
+                .limit(num_periods)\
+                .all()
+
     def get_annual_income_statements(self, ticker: str) -> list[dict[str, Any]]:
             annual_financial_statements = self.get_company_financial_statements(ticker)
             results = []

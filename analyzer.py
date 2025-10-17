@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from enum import Enum, StrEnum
 import logging
 from typing import Optional, List, Dict, Any, Tuple
+from dataclasses import dataclass
 from agent.agent import Agent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
@@ -34,6 +35,14 @@ class FinancialDataRequirement(StrEnum):
     NONE = "none"  # Can be answered without financial data
     BASIC = "basic"  # Needs only fundamental data (market cap, P/E, etc.)
     DETAILED = "detailed"  # Requires full financial statements
+
+@dataclass(frozen=True)
+class FinancialPeriodRequirement:
+    """Specifies which financial periods are needed to answer a question."""
+    period_type: str  # "annual", "quarterly", or "both"
+    specific_years: Optional[List[int]] = None  # e.g., [2023, 2024] or None for all
+    specific_quarters: Optional[List[str]] = None  # e.g., ["2024-Q1", "2024-Q2"] or None for all
+    num_periods: Optional[int] = None  # Number of recent periods if specific periods not given
 
 async def classify_question(question):
     t_start = time.perf_counter()
@@ -178,6 +187,110 @@ async def classify_financial_data_requirement(ticker: str, question: str) -> Fin
     finally:
         t_end = time.perf_counter()
         logger.info(f"Profiling classify_financial_data_requirement: {t_end - t_start:.4f}s")
+
+async def classify_financial_period_requirement(ticker: str, question: str) -> FinancialPeriodRequirement:
+    """
+    Determine which specific financial periods (years/quarters) are needed to answer the question.
+    
+    Args:
+        ticker: Company ticker symbol
+        question: The question being asked
+        
+    Returns:
+        FinancialPeriodRequirement: Specification of which periods to fetch
+    """
+    t_start = time.perf_counter()
+    
+    prompt = f"""Analyze this question about {ticker.upper()} and determine which financial periods are needed:
+        Question: "{question}"
+
+        Determine:
+        1. Period type needed: "annual", "quarterly", or "both"
+        2. Specific periods: Which years or quarters? Or just recent periods?
+
+        Examples:
+        - "What was Apple's revenue in 2023?" -> annual, years: [2023]
+        - "What was Apple revenue in the most recent year?" -> annual, num_periods: 1
+        - "How did Tesla perform in Q3 2024?" -> quarterly, quarters: ["2024-Q3"]
+        - "Show me Microsoft's revenue trend over the last 3 years" -> annual, num_periods: 3
+        - "Compare Amazon's Q1 and Q2 2024 results" -> quarterly, quarters: ["2024-Q1", "2024-Q2"]
+        - "What's Google's 5-year revenue growth?" -> annual, num_periods: 5
+        - "Analyze Meta's quarterly performance in 2024" -> quarterly, quarters: ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"]
+        - "What was Netflix's annual revenue last year?" -> annual, num_periods: 1
+        - "Show both annual and quarterly trends" -> both, num_periods: 3
+
+        Return your answer in this EXACT JSON format (no other text):
+        {{
+            "period_type": "annual" | "quarterly" | "both",
+            "specific_years": [2023, 2024] or null,
+            "specific_quarters": ["2024-Q1", "2024-Q2"] or null,
+            "num_periods": 3 or null
+        }}
+
+        Rules:
+        - If no specific year/quarter mentioned, use num_periods with a reasonable number (3-5)
+        - Quarters should be in format "YYYY-Q#" (e.g., "2024-Q1")
+        - Only fill specific_years OR specific_quarters OR num_periods, not multiple
+        - Default to annual unless quarterly is explicitly mentioned
+    """
+
+    try:
+        response = agent.generate_content(
+            prompt=[prompt], 
+            model_name=ModelName.Gemini25FlashLite,
+            stream=False
+        )
+        
+        response_text = ""
+        try:
+            response_text = getattr(response, 'text', '').strip()
+        except:
+            pass
+        
+        if not response_text:
+            try:
+                for part in response:
+                    if hasattr(part, 'text'):
+                        response_text += part.text
+                response_text = response_text.strip()
+            except:
+                pass
+        
+        # Extract JSON from response (handle markdown code blocks)
+        import json
+        import re
+        
+        # Try to find JSON in markdown code block
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find raw JSON
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                raise ValueError(f"No JSON found in response: {response_text}")
+        
+        parsed = json.loads(json_str)
+        
+        return FinancialPeriodRequirement(
+            period_type=parsed.get("period_type", "annual"),
+            specific_years=parsed.get("specific_years"),
+            specific_quarters=parsed.get("specific_quarters"),
+            num_periods=parsed.get("num_periods")
+        )
+            
+    except Exception as e:
+        logger.error(f"Error classifying financial period requirement: {e}")
+        # Default to recent 3 annual periods
+        return FinancialPeriodRequirement(
+            period_type="annual",
+            num_periods=3
+        )
+    finally:
+        t_end = time.perf_counter()
+        logger.info(f"Profiling classify_financial_period_requirement: {t_end - t_start:.4f}s")
 
 def _build_financial_context(
     ticker: str,
@@ -408,22 +521,69 @@ async def handle_company_specific_finance(ticker: str, question: str, use_google
     quarterly_financial_statements: List[Dict[str, Any]] = []
     
     if data_requirement == FinancialDataRequirement.DETAILED:
+        # NEW: Determine which specific periods are needed
         yield {
             "type": "thinking_status",
-            "body": "Retrieving detailed financial statements for comprehensive analysis..."
+            "body": "Identifying relevant financial periods..."
+        }
+        
+        period_requirement = await classify_financial_period_requirement(ticker, question)
+        logger.info(f"Period requirement: {period_requirement}")
+        
+        yield {
+            "type": "thinking_status",
+            "body": f"Retrieving {period_requirement.period_type} financial data for analysis..."
         }
         
         t_statements = time.perf_counter()
-        annual_financial_statements = [
-            CompanyFinancialConnector.to_dict(item) 
-            for item in company_financial_connector.get_company_financial_statements(ticker)
-        ]
-        quarterly_financial_statements = [
-            CompanyFinancialConnector.to_dict(item) 
-            for item in company_financial_connector.get_company_quarterly_financial_statements(ticker)
-        ]
+        
+        # Fetch only the required annual statements
+        if period_requirement.period_type in ["annual", "both"]:
+            if period_requirement.specific_years:
+                annual_statements_raw = company_financial_connector.get_company_financial_statements_by_years(
+                    ticker, period_requirement.specific_years
+                )
+                logger.info(f"Fetched {len(annual_statements_raw)} annual statements for years: {period_requirement.specific_years}")
+            elif period_requirement.num_periods:
+                annual_statements_raw = company_financial_connector.get_company_financial_statements_recent(
+                    ticker, period_requirement.num_periods
+                )
+                logger.info(f"Fetched {len(annual_statements_raw)} most recent annual statements")
+            else:
+                # Fallback: get last 3 years by default
+                annual_statements_raw = company_financial_connector.get_company_financial_statements_recent(ticker, 3)
+                logger.info(f"Fetched {len(annual_statements_raw)} annual statements (default: 3 most recent)")
+            
+            annual_financial_statements = [
+                CompanyFinancialConnector.to_dict(item) 
+                for item in annual_statements_raw
+            ]
+        
+        # Fetch only the required quarterly statements
+        if period_requirement.period_type in ["quarterly", "both"]:
+            if period_requirement.specific_quarters:
+                quarterly_statements_raw = company_financial_connector.get_company_quarterly_financial_statements_by_quarters(
+                    ticker, period_requirement.specific_quarters
+                )
+                logger.info(f"Fetched {len(quarterly_statements_raw)} quarterly statements for: {period_requirement.specific_quarters}")
+            elif period_requirement.num_periods:
+                quarterly_statements_raw = company_financial_connector.get_company_quarterly_financial_statements_recent(
+                    ticker, period_requirement.num_periods
+                )
+                logger.info(f"Fetched {len(quarterly_statements_raw)} most recent quarterly statements")
+            else:
+                # Fallback: get last 4 quarters by default
+                quarterly_statements_raw = company_financial_connector.get_company_quarterly_financial_statements_recent(ticker, 4)
+                logger.info(f"Fetched {len(quarterly_statements_raw)} quarterly statements (default: 4 most recent)")
+            
+            quarterly_financial_statements = [
+                CompanyFinancialConnector.to_dict(item) 
+                for item in quarterly_statements_raw
+            ]
+        
         t_statements_end = time.perf_counter()
-        logger.info(f"Profiling get_financial_statements: {t_statements_end - t_statements:.4f}s")
+        logger.info(f"Profiling get_financial_statements (optimized): {t_statements_end - t_statements:.4f}s")
+        logger.info(f"Fetched {len(annual_financial_statements)} annual + {len(quarterly_financial_statements)} quarterly statements")
 
     yield {
         "type": "thinking_status", 
