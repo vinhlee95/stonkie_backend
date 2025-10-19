@@ -5,7 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
-from analyzer import analyze_financial_data_from_question
+from services.financial_analyzer import FinancialAnalyzer
 from enum import Enum
 from services.company import get_key_stats_for_ticker, handle_company_report, get_swot_analysis_for_ticker, get_all_companies
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
@@ -48,6 +48,9 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# Initialize financial analyzer
+financial_analyzer = FinancialAnalyzer()
 
 app = FastAPI()
 
@@ -174,7 +177,7 @@ async def analyze_financial_data(request: Request):
 
         async def generate_analysis():
             try:
-                async for chunk in analyze_financial_data_from_question(ticker, question, use_google_search, use_url_context):
+                async for chunk in financial_analyzer.analyze_question(ticker, question, use_google_search, use_url_context):
                     # Check if the client has disconnected
                     if await request.is_disconnected():
                         return
