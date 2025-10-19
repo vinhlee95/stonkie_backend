@@ -1,0 +1,24 @@
+# Ruff configuration
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+exclude = [
+    ".git",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",
+    "outputs",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # Errors, pyflakes, import sorting
+ignore = ["E501"]  # Line too long
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports OK in __init__
+"alembic/versions/*.py" = ["ALL"]  # Ignore migrations
+"alembic/env.py" = ["E402"]  # Module-level import after code (intentional)
+"scripts/*.py" = ["E402", "E722"]  # Scripts: imports after path setup, bare except OK
+"external_knowledge/*.py" = ["E402"]  # Module-level import after load_dotenv

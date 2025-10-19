@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime
+from sqlalchemy import JSON, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
+
 from connectors.database import Base
+
 
 class CompanyFinancials(Base):
     __tablename__ = "company_financials"

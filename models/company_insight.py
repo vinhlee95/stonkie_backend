@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime
+from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.sql import func
+
 from connectors.database import Base
+
 
 class CompanyInsight(Base):
     __tablename__ = "company_insights"

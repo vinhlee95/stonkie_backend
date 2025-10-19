@@ -1,25 +1,29 @@
+import json
+import os
+import random
+import uuid
+from datetime import datetime
 from logging import getLogger
-from connectors.company_financial import CompanyFinancialConnector
+from typing import Any, AsyncGenerator, Dict
+from urllib.parse import urlencode
+
+import requests
+from pydantic import BaseModel
+from sqlalchemy.inspection import inspect
+
 from agent.agent import Agent
 from ai_models.model_name import ModelName
-import json
-from sqlalchemy.inspection import inspect
-from datetime import datetime
-from typing import AsyncGenerator, Dict, Any
-from connectors.company_insight import CompanyInsightConnector, CreateCompanyInsightDto, CompanyInsightDto, InsightType
-import uuid
-import requests
-from urllib.parse import urlencode
-import os
 from connectors.company import CompanyConnector
-import random
-from pydantic import BaseModel
+from connectors.company_financial import CompanyFinancialConnector
+from connectors.company_insight import CompanyInsightConnector, CompanyInsightDto, CreateCompanyInsightDto, InsightType
 
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
+
 
 class CompanyInsight(BaseModel):
     title: str
     content: str
+
 
 logger = getLogger(__name__)
 
@@ -31,14 +35,15 @@ agent = Agent(model_type="gemini", model_name=ModelName.Gemini25FlashLite)
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
 
+
 async def fetch_unsplash_image(ticker: str) -> str:
     """
     Fetch a thumbnail image from Unsplash for a given company ticker.
-    Return the full url of the image for now. 
+    Return the full url of the image for now.
     Store different sizes if further optimizations are needed.
     """
     company_name = company_connector.get_by_ticker(ticker).name
-    
+
     async def generate_image_query(company_name: str) -> str:
         # Add randomization to the prompt to ensure different queries
         aspects = [
@@ -59,14 +64,14 @@ async def fetch_unsplash_image(ticker: str) -> str:
             "distribution",
             "retail",
         ]
-        
+
         # Initialize cache for this ticker if not exists
         if ticker not in _query_cache:
             _query_cache[ticker] = set()
-            
+
         already_used_queries = _query_cache[ticker]
         print("already_used_queries", already_used_queries)
-        
+
         aspect = random.choice(aspects)
         prompt = f"""
             You are a creative image search expert. Generate a search query for finding a relevant image of {company_name}.
@@ -89,13 +94,9 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        response = agent.generate_content(
-            prompt, 
-            model_name=ModelName.Gemini25FlashLite,
-            stream=False
-        )
+        response = agent.generate_content(prompt, model_name=ModelName.Gemini25FlashLite, stream=False)
         query = response.text.strip()
-        
+
         # Add the new query to cache
         _query_cache[ticker].add(query)
         return query
@@ -104,28 +105,18 @@ async def fetch_unsplash_image(ticker: str) -> str:
     print(query)
 
     if company_name:
-        params = {
-            'query': query,
-            'page': 1,
-            'per_page': 1,
-            'orientation': 'landscape'
-        }
-    
-    headers = {
-        'Authorization': f'Client-ID {UNSPLASH_ACCESS_KEY}'
-    }
-    
-    response = requests.get(
-        f'https://api.unsplash.com/search/photos?{urlencode(params)}',
-        headers=headers
-    )
-    
+        params = {"query": query, "page": 1, "per_page": 1, "orientation": "landscape"}
+
+    headers = {"Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}"}
+
+    response = requests.get(f"https://api.unsplash.com/search/photos?{urlencode(params)}", headers=headers)
+
     res = response.json()
     result = res.get("results")[0]
     url = result.get("urls").get("full")
 
     return url
-    
+
 
 def to_dict(model_instance) -> Dict[str, Any]:
     """Convert SQLAlchemy model to dictionary, handling datetime fields"""
@@ -137,6 +128,7 @@ def to_dict(model_instance) -> Dict[str, Any]:
             value = value.isoformat()
         result[c.key] = value
     return result
+
 
 async def persist_insight(ticker: str, insight_type: str, title: str, content: str) -> CompanyInsightDto | None:
     """Persist an insight to the database."""
@@ -150,25 +142,27 @@ async def persist_insight(ticker: str, insight_type: str, title: str, content: s
             insight_type=insight_type,
             title=title,
             content=content,
-            thumbnail_url=thumbnail_url
+            thumbnail_url=thumbnail_url,
         )
         new_insight = company_insight_connector.create_one(insight_dto)
-        logger.info("Persist insight for company", {
-            "ticker": ticker,
-            "insight_type": insight_type
-        })
+        logger.info("Persist insight for company", {"ticker": ticker, "insight_type": insight_type})
         return new_insight
     except Exception as e:
-        logger.error(f"Error persisting insight to database", {
-            "ticker": ticker,
-            "insight_type": insight_type,
-            "error": str(e)
-        })
+        logger.error(
+            "Error persisting insight to database", {"ticker": ticker, "insight_type": insight_type, "error": str(e)}
+        )
         return None
+
 
 async def process_insight(ticker: str, insight: CompanyInsight, insight_type: InsightType) -> dict:
     new_insight = await persist_insight(ticker, insight_type, insight.title, insight.content)
-    return {"title": new_insight.title, "content": new_insight.content, "slug": new_insight.slug, "imageUrl": new_insight.thumbnail_url}
+    return {
+        "title": new_insight.title,
+        "content": new_insight.content,
+        "slug": new_insight.slug,
+        "imageUrl": new_insight.thumbnail_url,
+    }
+
 
 async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -180,19 +174,19 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
                 [insight for insight in existing_insights if insight.insight_type == InsightType.GROWTH],
                 key=lambda x: x.created_at,
             )
-            
+
             if growth_insights:
                 # Stream existing insights in the same format
                 for insight in growth_insights:
                     yield {
-                        "type": "success", 
+                        "type": "success",
                         "data": {
                             "title": insight.title,
-                            "content": insight.content, 
-                            "cached": True, 
+                            "content": insight.content,
+                            "cached": True,
                             "slug": insight.slug,
-                            "imageUrl": insight.thumbnail_url
-                        }
+                            "imageUrl": insight.thumbnail_url,
+                        },
                     }
                 return
 
@@ -244,24 +238,15 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
             prompt=prompt,
             model_name=ModelName.Gemini25FlashLite,
             stream=False,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": list[CompanyInsight]
-            }
+            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.GROWTH)
-            yield {
-                "type": "success",
-                "data": saved_insight
-            }
+            yield {"type": "success", "data": saved_insight}
 
     except Exception as e:
-        logger.error(f"Error getting growth insights for company", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error getting growth insights for company", {"ticker": ticker, "error": str(e)})
         yield {"type": "error", "content": "Error getting growth insights for company"}
 
 
@@ -273,14 +258,14 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             # Stream existing insights in the same format
             for insight in existing_insights:
                 yield {
-                    "type": "success", 
+                    "type": "success",
                     "data": {
                         "title": insight.title,
-                        "content": insight.content, 
-                        "cached": True, 
+                        "content": insight.content,
+                        "cached": True,
                         "slug": insight.slug,
-                        "imageUrl": insight.thumbnail_url
-                    }
+                        "imageUrl": insight.thumbnail_url,
+                    },
                 }
             return
 
@@ -333,25 +318,17 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             prompt=prompt,
             model_name=ModelName.Gemini25FlashLite,
             stream=False,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": list[CompanyInsight]
-            }
+            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.EARNINGS)
-            yield {
-                "type": "success",
-                "data": saved_insight
-            }
+            yield {"type": "success", "data": saved_insight}
 
     except Exception as e:
-        logger.error(f"Error getting earnings insights for company", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error getting earnings insights for company", {"ticker": ticker, "error": str(e)})
         yield {"type": "error", "content": "Error getting earnings insights for company"}
+
 
 async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
     try:
@@ -362,14 +339,14 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             # Stream existing insights in the same format
             for insight in existing_insights:
                 yield {
-                    "type": "success", 
+                    "type": "success",
                     "data": {
                         "title": insight.title,
-                        "content": insight.content, 
-                        "cached": True, 
+                        "content": insight.content,
+                        "cached": True,
                         "slug": insight.slug,
-                        "imageUrl": insight.thumbnail_url
-                    }
+                        "imageUrl": insight.thumbnail_url,
+                    },
                 }
             return
 
@@ -425,24 +402,15 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             prompt=prompt,
             model_name=ModelName.Gemini25FlashLite,
             stream=False,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": list[CompanyInsight]
-            }
+            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.CASH_FLOW)
-            yield {
-                "type": "success",
-                "data": saved_insight
-            }
+            yield {"type": "success", "data": saved_insight}
 
     except Exception as e:
-        logger.error(f"Error getting cash flow insights for company", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error getting cash flow insights for company", {"ticker": ticker, "error": str(e)})
         yield {"type": "error", "content": "Error getting cash flow insights for company"}
 
 
@@ -453,7 +421,7 @@ def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Di
         return get_earning_insights_for_ticker(ticker)
     if type == InsightType.CASH_FLOW:
         return get_cash_flow_insights_for_ticker(ticker)
-    
+
     raise Exception(f"Invalid insight type: {type}")
 
 

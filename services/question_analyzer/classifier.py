@@ -1,42 +1,43 @@
 """Question classification logic using AI models."""
 
+import json
 import logging
+import re
 import time
 from typing import Optional
-import json
-import re
 
 from agent.agent import Agent
 from ai_models.model_name import ModelName
-from .types import QuestionType, FinancialDataRequirement, FinancialPeriodRequirement
+
+from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 
 logger = logging.getLogger(__name__)
 
 
 class QuestionClassifier:
     """Classifies questions to determine handling strategy."""
-    
+
     def __init__(self, agent: Optional[Agent] = None):
         """
         Initialize the classifier.
-        
+
         Args:
             agent: AI agent for classification. Creates default if not provided.
         """
         self.agent = agent or Agent(model_type="gemini")
-    
+
     async def classify_question_type(self, question: str) -> Optional[str]:
         """
         Classify question as general finance, company general, or company-specific finance.
-        
+
         Args:
             question: The question to classify
-            
+
         Returns:
             QuestionType value or None if classification fails
         """
         t_start = time.perf_counter()
-        
+
         prompt = f"""Classify the following question into one of these three categories:
         1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, or questions about individuals that don't require specific company financial statements
         2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements
@@ -60,13 +61,11 @@ class QuestionClassifier:
 
         try:
             response = self.agent.generate_content(
-                prompt=[prompt], 
-                model_name=ModelName.Gemini25FlashLite,
-                stream=False
+                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
             )
-            
+
             response_text = self._extract_text_from_response(response)
-            
+
             if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
                 return QuestionType.COMPANY_SPECIFIC_FINANCE.value
             elif QuestionType.COMPANY_GENERAL.value in response_text:
@@ -75,31 +74,27 @@ class QuestionClassifier:
                 return QuestionType.GENERAL_FINANCE.value
             else:
                 raise ValueError(f"Unknown question type: {response_text}")
-                
+
         except Exception as e:
             logger.error(f"Error classifying question type: {e}")
             return None
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_question_type: {t_end - t_start:.4f}s")
-    
-    async def classify_data_requirement(
-        self, 
-        ticker: str, 
-        question: str
-    ) -> FinancialDataRequirement:
+
+    async def classify_data_requirement(self, ticker: str, question: str) -> FinancialDataRequirement:
         """
         Determine what level of financial data is needed.
-        
+
         Args:
             ticker: Company ticker symbol
             question: The question being asked
-            
+
         Returns:
             FinancialDataRequirement level
         """
         t_start = time.perf_counter()
-        
+
         prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed:
             Question: "{question}"
 
@@ -125,44 +120,38 @@ class QuestionClassifier:
 
         try:
             response = self.agent.generate_content(
-                prompt=[prompt], 
-                model_name=ModelName.Gemini25FlashLite,
-                stream=False
+                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
             )
-            
+
             response_text = self._extract_text_from_response(response).lower().strip()
-            
+
             if "detailed" in response_text:
                 return FinancialDataRequirement.DETAILED
             elif "basic" in response_text:
                 return FinancialDataRequirement.BASIC
             else:
                 return FinancialDataRequirement.NONE
-                
+
         except Exception as e:
             logger.error(f"Error classifying data requirement: {e}")
             return FinancialDataRequirement.BASIC
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_data_requirement: {t_end - t_start:.4f}s")
-    
-    async def classify_period_requirement(
-        self,
-        ticker: str,
-        question: str
-    ) -> FinancialPeriodRequirement:
+
+    async def classify_period_requirement(self, ticker: str, question: str) -> FinancialPeriodRequirement:
         """
         Determine which specific financial periods are needed.
-        
+
         Args:
             ticker: Company ticker symbol
             question: The question being asked
-            
+
         Returns:
             FinancialPeriodRequirement specification
         """
         t_start = time.perf_counter()
-        
+
         prompt = f"""Analyze this question about {ticker.upper()} and determine which financial periods are needed:
             Question: "{question}"
 
@@ -198,58 +187,56 @@ class QuestionClassifier:
 
         try:
             response = self.agent.generate_content(
-                prompt=[prompt], 
-                model_name=ModelName.Gemini25FlashLite,
-                stream=False
+                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
             )
-            
+
             response_text = self._extract_text_from_response(response)
             parsed = self._parse_json_from_response(response_text)
-            
+
             return FinancialPeriodRequirement(
                 period_type=parsed.get("period_type", "annual"),
                 specific_years=parsed.get("specific_years"),
                 specific_quarters=parsed.get("specific_quarters"),
-                num_periods=parsed.get("num_periods")
+                num_periods=parsed.get("num_periods"),
             )
-                
+
         except Exception as e:
             logger.error(f"Error classifying period requirement: {e}")
             return FinancialPeriodRequirement(period_type="annual", num_periods=3)
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_period_requirement: {t_end - t_start:.4f}s")
-    
+
     def _extract_text_from_response(self, response) -> str:
         """Extract text from AI model response."""
         response_text = ""
         try:
-            response_text = getattr(response, 'text', '')
-        except:
+            response_text = getattr(response, "text", "")
+        except Exception:
             pass
-        
+
         if not response_text:
             try:
                 for part in response:
-                    if hasattr(part, 'text'):
+                    if hasattr(part, "text"):
                         response_text += part.text
-            except:
+            except Exception:
                 pass
-        
+
         return response_text.strip()
-    
+
     def _parse_json_from_response(self, response_text: str) -> dict:
         """Parse JSON from response, handling markdown code blocks."""
         # Try markdown code block first
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
         if json_match:
             json_str = json_match.group(1)
         else:
             # Try raw JSON
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(0)
             else:
                 raise ValueError(f"No JSON found in response: {response_text}")
-        
+
         return json.loads(json_str)

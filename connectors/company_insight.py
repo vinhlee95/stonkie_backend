@@ -1,15 +1,19 @@
-from enum import StrEnum
-from models.company_insight import CompanyInsight
-from connectors.database import SessionLocal
-from datetime import datetime
-from typing import Any
-from sqlalchemy.inspection import inspect
 from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
+
+from sqlalchemy.inspection import inspect
+
+from connectors.database import SessionLocal
+from models.company_insight import CompanyInsight
+
 
 class InsightType(StrEnum):
     GROWTH = "growth"
     EARNINGS = "earnings"
     CASH_FLOW = "cash_flow"
+
 
 @dataclass(frozen=True)
 class CompanyInsightDto:
@@ -22,6 +26,7 @@ class CompanyInsightDto:
     created_at: datetime
     thumbnail_url: str
 
+
 @dataclass(frozen=True)
 class CreateCompanyInsightDto:
     company_symbol: str
@@ -30,6 +35,7 @@ class CreateCompanyInsightDto:
     title: str
     content: str
     thumbnail_url: str
+
 
 class CompanyInsightConnector:
     def _to_dict(self, model_instance) -> dict[str, Any]:
@@ -50,7 +56,11 @@ class CompanyInsightConnector:
 
     def get_by_type(self, ticker: str, insight_type: InsightType) -> list[CompanyInsightDto]:
         with SessionLocal() as db:
-            insights = db.query(CompanyInsight).filter(CompanyInsight.company_symbol == ticker, CompanyInsight.insight_type == insight_type).all()
+            insights = (
+                db.query(CompanyInsight)
+                .filter(CompanyInsight.company_symbol == ticker, CompanyInsight.insight_type == insight_type)
+                .all()
+            )
             return [CompanyInsightDto(**self._to_dict(insight)) for insight in insights]
 
     def create_one(self, data: CreateCompanyInsightDto) -> CompanyInsightDto:

@@ -1,58 +1,59 @@
 import json
-from connectors.database import SessionLocal
-from agent.agent import Agent
-from typing import AsyncGenerator
 from logging import getLogger
+from typing import AsyncGenerator
+
+from agent.agent import Agent
 from connectors.company_financial import CompanyFinancialConnector
 
 logger = getLogger(__name__)
 
 company_financial_connector = CompanyFinancialConnector()
 
+
 async def get_filtered_financial_data(ticker: str, filter_type: str):
     """Fetch and filter financial data from the database."""
-    db = SessionLocal()
     try:
         financial_data = company_financial_connector.get_company_revenue_data(ticker).all()
         if not financial_data:
             return None
 
         # Transform SQLAlchemy objects into dictionaries
-        return [{
-            'year': data.year,
-            'revenue_breakdown': [item for item in data.revenue_breakdown if item.get("type") == filter_type]
-        } for data in financial_data]
+        return [
+            {
+                "year": data.year,
+                "revenue_breakdown": [item for item in data.revenue_breakdown if item.get("type") == filter_type],
+            }
+            for data in financial_data
+        ]
     except Exception as e:
-        logger.error(f"Error fetching financial data", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error fetching financial data", {"ticker": ticker, "error": str(e)})
         return None
+
 
 async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
     """Process streaming insights from the AI response."""
     accumulated_text = ""
     current_insight = ""
     in_insight = False
-    
+
     async for chunk in response:
         chunk_text = chunk.text
         accumulated_text += chunk_text
-        
+
         # Process any complete insights
         while "---INSIGHT_START---" in accumulated_text and "---INSIGHT_END---" in accumulated_text:
             start_idx = accumulated_text.find("---INSIGHT_START---") + len("---INSIGHT_START---")
             end_idx = accumulated_text.find("---INSIGHT_END---")
-            
+
             if start_idx > 0 and end_idx > start_idx:
                 insight_text = accumulated_text[start_idx:end_idx].strip()
                 yield {"type": "success", "data": {"content": insight_text}}
-                
+
                 # Remove processed insight from accumulated text
-                accumulated_text = accumulated_text[end_idx + len("---INSIGHT_END---"):]
+                accumulated_text = accumulated_text[end_idx + len("---INSIGHT_END---") :]
                 current_insight = ""
                 in_insight = False
-        
+
         # Handle streaming content between insights
         if "---INSIGHT_START---" in accumulated_text and not in_insight:
             in_insight = True
@@ -60,15 +61,18 @@ async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
             current_insight = accumulated_text[start_idx:]
         elif in_insight:
             current_insight += chunk_text
-        
+
         # Stream current insight if it's meaningful and doesn't contain markers
-        if current_insight.strip() and not any(marker in current_insight for marker in ["---INSIGHT_START---", "---INSIGHT_END---", "---COMPLETE---"]):
+        if current_insight.strip() and not any(
+            marker in current_insight for marker in ["---INSIGHT_START---", "---INSIGHT_END---", "---COMPLETE---"]
+        ):
             yield {"type": "stream", "content": current_insight.strip()}
             current_insight = ""
-        
+
         # Check if we're done
         if "---COMPLETE---" in accumulated_text:
             break
+
 
 async def get_revenue_insights_for_company_product(ticker: str):
     try:
@@ -116,16 +120,13 @@ async def get_revenue_insights_for_company_product(ticker: str):
             At the end of each insight, specify the source of the insight. Specify the time period of the source.
             Do not include any other text or formatting outside of these markers.
         """
-        
+
         response = await agent.generate_content(prompt=prompt, stream=True)
         async for insight in process_streaming_insights(response):
             yield insight
 
     except Exception as e:
-        logger.error(f"Error getting revenue insights for company", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error getting revenue insights for company", {"ticker": ticker, "error": str(e)})
         yield {"type": "error", "content": str(e)}
 
 
@@ -175,14 +176,11 @@ async def get_revenue_insights_for_company_region(ticker: str):
             At the end of each insight, specify the source of the insight. Specify the time period of the source.
             Do not include any other text or formatting outside of these markers.
         """
-        
+
         response = await agent.generate_content(prompt=prompt, stream=True)
         async for insight in process_streaming_insights(response):
             yield insight
 
     except Exception as e:
-        logger.error(f"Error getting revenue insights for company", {
-            "ticker": ticker,
-            "error": str(e)
-        })
+        logger.error("Error getting revenue insights for company", {"ticker": ticker, "error": str(e)})
         yield {"type": "error", "content": str(e)}

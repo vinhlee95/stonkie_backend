@@ -1,18 +1,9 @@
 """Question analyzer service for financial analysis."""
 
-from .types import (
-    QuestionType,
-    FinancialDataRequirement,
-    FinancialPeriodRequirement,
-    AnalysisChunk
-)
 from .classifier import QuestionClassifier
 from .data_optimizer import FinancialDataOptimizer
-from .handlers import (
-    GeneralFinanceHandler,
-    CompanyGeneralHandler,
-    CompanySpecificFinanceHandler
-)
+from .handlers import CompanyGeneralHandler, CompanySpecificFinanceHandler, GeneralFinanceHandler
+from .types import AnalysisChunk, FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 
 __all__ = [
     "QuestionType",

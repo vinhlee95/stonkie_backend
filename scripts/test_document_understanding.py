@@ -1,7 +1,6 @@
-from google import genai
-from google.genai import types
-import httpx
 import os
+
+from google import genai
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -23,19 +22,19 @@ doc_url = "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000320193/a411a029-368f-44
 # print(response.text)
 
 from google import genai
-from google.genai.types import Tool, GenerateContentConfig
+from google.genai.types import GenerateContentConfig
 
 tools = [
-  {"url_context": {}},
+    {"url_context": {}},
 ]
 
-apple_filing_url = 'https://investor.apple.com/sec-filings/default.aspx'
+apple_filing_url = "https://investor.apple.com/sec-filings/default.aspx"
 response = client.models.generate_content(
-    model='gemini-2.5-flash',
+    model="gemini-2.5-flash",
     contents=f"Summarise this PDF document: {doc_url}",
     config=GenerateContentConfig(
         tools=tools,
-    )
+    ),
 )
 
 for each in response.candidates[0].content.parts:

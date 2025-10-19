@@ -7,3 +7,8 @@ __pycache__/
 .netlify
 .vscode
 scripts/*.pdf
+# Ruff cache
+.ruff_cache/
+
+# Pre-commit
+.pre-commit-config.yaml.bak

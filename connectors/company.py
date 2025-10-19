@@ -1,21 +1,25 @@
-from typing import Any
-from urllib.parse import urlencode
+import logging
 import os
-from pydantic import BaseModel
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from connectors.database import SessionLocal
-import logging
+from typing import Any
+from urllib.parse import urlencode
+
+from pydantic import BaseModel
 from sqlalchemy.inspection import inspect
+
+from connectors.database import SessionLocal
 from external_knowledge.company_fundamental import get_company_fundamental
 from models.company_fundamental import CompanyFundamental
 
 logger = logging.getLogger(__name__)
 
+
 class Company(BaseModel):
     name: str
     ticker: str
     logo_url: str = ""
+
 
 @dataclass(frozen=True)
 class CompanyFundamentalDto:
@@ -33,6 +37,7 @@ class CompanyFundamentalDto:
     dividend_yield: float
     logo_url: str | None
 
+
 def safe_int(value, default=0):
     try:
         if value in [None, "None", ""]:
@@ -41,6 +46,7 @@ def safe_int(value, default=0):
     except (ValueError, TypeError):
         return default
 
+
 def safe_float(value, default=0.0):
     try:
         if value in [None, "None", ""]:
@@ -48,6 +54,7 @@ def safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
 
 @dataclass(frozen=True)
 class CompanyConnector:
@@ -67,7 +74,7 @@ class CompanyConnector:
         if not company_fundamental:
             logger.info(f"No company fundamental data found from external source: {ticker}")
             return None
-        
+
         # Persist data
         market_cap = safe_int(company_fundamental.get("MarketCapitalization"))
         dividend_yield = safe_float(company_fundamental.get("DividendYield"))
@@ -91,41 +98,37 @@ class CompanyConnector:
             country=company_fundamental.get("Country", ""),
             exchange=company_fundamental.get("Exchange", ""),
             dividend_yield=dividend_yield,
-            logo_url=self.get_company_logo_url_from_ticker(ticker)
+            logo_url=self.get_company_logo_url_from_ticker(ticker),
         )
-    
+
     def get_all(self) -> list[Company]:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).all()
             companies = []
             for item in data:
                 # Safely extract data fields using getattr to avoid SQLAlchemy issues
-                item_data = getattr(item, 'data', None) or {}
+                item_data = getattr(item, "data", None) or {}
                 name = item_data.get("name", "") or ""
-                ticker = str(getattr(item, 'company_symbol', ""))
+                ticker = str(getattr(item, "company_symbol", ""))
                 logo_url = item_data.get("logo_url") or self.get_company_logo_url(ticker)
-                
-                companies.append(Company(
-                    name=name,
-                    ticker=ticker,
-                    logo_url=logo_url
-                ))
+
+                companies.append(Company(name=name, ticker=ticker, logo_url=logo_url))
             return companies
-    
+
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
             if not data or data.data.get("name") == "" or data.data.get("market_cap") == 0:
                 # Fetch the data from API and persist to DB
                 return self.persist_fundamental_data(ticker)
-            
+
             # Check if data is fresh (not older than 1 day)
             if data.updated_at < datetime.now(timezone.utc) - timedelta(days=1):
                 # Refresh the data
                 updated_company_data = self._get_fresh_company_data(ticker)
                 if not updated_company_data:
                     return None
-                
+
                 if updated_company_data.name == "" or updated_company_data.market_cap == 0:
                     logger.error(f"Skip refreshing fundamental data for ticker {ticker} because it is empty")
                 else:
@@ -136,19 +139,19 @@ class CompanyConnector:
                     db.refresh(data)
 
             return CompanyFundamentalDto(**data.data)
-        
+
     def persist_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         data = self._get_fresh_company_data(ticker)
         if not data:
             return None
-        
+
         with SessionLocal() as db:
             try:
                 # Check if record already exists
-                existing_record = db.query(CompanyFundamental).filter(
-                    CompanyFundamental.company_symbol == ticker
-                ).first()
-                
+                existing_record = (
+                    db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
+                )
+
                 if existing_record:
                     # Update existing record
                     logger.info(f"Updating existing fundamental data for {ticker}")
@@ -160,10 +163,7 @@ class CompanyConnector:
                 else:
                     # Create new record
                     logger.info(f"Creating new fundamental data for {ticker}")
-                    fundamental_data = CompanyFundamental(
-                        company_symbol=ticker,
-                        data=data.__dict__
-                    )
+                    fundamental_data = CompanyFundamental(company_symbol=ticker, data=data.__dict__)
                     db.add(fundamental_data)
                     db.commit()
                     db.refresh(fundamental_data)
@@ -185,8 +185,8 @@ class CompanyConnector:
 
         https://developers.brandfetch.com/dashboard/logo-api
         """
-        API_KEY = os.getenv('BRAND_FETCH_API_KEY')
-        params = urlencode({'c': API_KEY })
+        API_KEY = os.getenv("BRAND_FETCH_API_KEY")
+        params = urlencode({"c": API_KEY})
         return f"https://cdn.brandfetch.io/{ticker.upper()}/w/100/h/100?{params}"
 
     def get_company_logo_url_from_ticker(self, ticker: str) -> str:
@@ -196,26 +196,20 @@ class CompanyConnector:
         company = self.get_by_ticker(ticker)
         if company:
             return company.logo_url
-        
+
         return self.get_company_logo_url(ticker)
 
     def get_by_ticker(self, ticker: str) -> Company | None:
         with SessionLocal() as db:
-            data = db.query(CompanyFundamental).filter(
-                CompanyFundamental.company_symbol == ticker.upper()
-            ).first()
-            
+            data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker.upper()).first()
+
             if not data:
                 return None
-            
+
             # Safely extract data fields using getattr to avoid SQLAlchemy issues
-            item_data = getattr(data, 'data', None) or {}
+            item_data = getattr(data, "data", None) or {}
             name = item_data.get("name", "") or ""
-            company_ticker = str(getattr(data, 'company_symbol', ""))
+            company_ticker = str(getattr(data, "company_symbol", ""))
             logo_url = item_data.get("logo_url") or ""
-            
-            return Company(
-                name=name,
-                ticker=company_ticker,
-                logo_url=logo_url
-            )
+
+            return Company(name=name, ticker=company_ticker, logo_url=logo_url)

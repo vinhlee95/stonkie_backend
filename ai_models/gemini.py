@@ -1,21 +1,26 @@
 import os
-from typing import AsyncGenerator, Optional, Generator
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
-from ai_models.model_name import ModelName
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import AsyncGenerator, Generator, Optional
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+from ai_models.model_name import ModelName
+
 
 class ContentType(StrEnum):
     Answer = "answer"
     Ground = "ground"
     Thought = "thought"
 
+
 @dataclass(frozen=True)
 class ContentGround:
     text: str
     uri: str
+
 
 @dataclass(frozen=True)
 class ContentPart:
@@ -26,10 +31,12 @@ class ContentPart:
     def __repr__(self) -> str:
         return f"Content part of type {self.type}. Text: {self.text}. Ground: {self.ground}"
 
+
 load_dotenv()
 
+
 class GeminiModel:
-    def __init__(self, model_name: str | None=None):
+    def __init__(self, model_name: str | None = None):
         """Initialize the Gemini agent with API key configuration"""
         self.MODEL_NAME = model_name or ModelName.GeminiFlash
         self.client = genai.Client(
@@ -37,16 +44,15 @@ class GeminiModel:
         )
         self.chat = self.client.chats.create(model=self.MODEL_NAME)
 
-
     def generate_content(
-        self, 
-        prompt: str | list[str], 
+        self,
+        prompt: str | list[str],
         model_name: str | None = None,
-        stream: bool = True, 
-        thought: bool = False, 
+        stream: bool = True,
+        thought: bool = False,
         use_google_search: bool = False,
         use_url_context: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Generator[ContentPart, None, None] | types.GenerateContentResponse:
         """
         Generate content using the Gemini model
@@ -76,13 +82,9 @@ class GeminiModel:
             raise ValueError("Prompt must be either a string or a list of strings")
 
         model_name = model_name or self.MODEL_NAME
-        
-        search_tool = types.Tool(
-            google_search=types.GoogleSearch()
-        )
-        url_context_tool = types.Tool(
-            url_context=types.UrlContext()
-        )
+
+        search_tool = types.Tool(google_search=types.GoogleSearch())
+        url_context_tool = types.Tool(url_context=types.UrlContext())
 
         # Extract config handling logic
         config_kwargs = {"config": kwargs["config"]} if "config" in kwargs else {}
@@ -123,7 +125,7 @@ class GeminiModel:
                         include_thoughts=True,
                         thinking_budget=1024,
                     ),
-                    tools=tools
+                    tools=tools,
                 )
 
                 # Merge with config from kwargs if it exists
@@ -133,56 +135,47 @@ class GeminiModel:
                             include_thoughts=True,
                             thinking_budget=1024,
                         ),
-                        **kwargs["config"]
+                        **kwargs["config"],
                     )
                 response = self.chat.send_message_stream(
-                    prompt, 
-                    config=base_config,
-                    **{k: v for k, v in kwargs.items() if k != "config"}
+                    prompt, config=base_config, **{k: v for k, v in kwargs.items() if k != "config"}
                 )
             else:
-                response = self.chat.send_message_stream(
-                    prompt,
-                    **config_kwargs
-                )
+                response = self.chat.send_message_stream(prompt, **config_kwargs)
 
             # For streaming responses, yield text parts
             for chunk in response:
                 for candidate in chunk.candidates:
-                    if candidate.grounding_metadata != None and candidate.grounding_metadata.grounding_chunks != None:
+                    if (
+                        candidate.grounding_metadata is not None
+                        and candidate.grounding_metadata.grounding_chunks is not None
+                    ):
                         for grounding_chunk in candidate.grounding_metadata.grounding_chunks:
                             yield ContentPart(
                                 type=ContentType.Ground,
                                 text="",
-                                ground=ContentGround(
-                                    text=grounding_chunk.web.title,
-                                    uri=grounding_chunk.web.uri
-                                )
+                                ground=ContentGround(text=grounding_chunk.web.title, uri=grounding_chunk.web.uri),
                             )
 
                 for part in chunk.candidates[0].content.parts:
                     if part.thought:
-                        yield ContentPart(
-                            type=ContentType.Thought,
-                            text=part.text
-                        )
+                        yield ContentPart(type=ContentType.Thought, text=part.text)
                     else:
-                        yield ContentPart(
-                            type=ContentType.Answer,
-                            text=part.text
-                        )
+                        yield ContentPart(type=ContentType.Answer, text=part.text)
 
         return stream_generator()
-    
-    async def generate_content_and_normalize_results(self, prompt, model_name: str | None = None, **kwargs) -> AsyncGenerator[str, None]:
+
+    async def generate_content_and_normalize_results(
+        self, prompt, model_name: str | None = None, **kwargs
+    ) -> AsyncGenerator[str, None]:
         """
         Generate content and normalize the streaming results by processing complete lines
         and cleaning up the output format.
-        
+
         Args:
             prompt: The input prompt
             **kwargs: Additional parameters for content generation
-            
+
         Yields:
             str: Cleaned and normalized text chunks
         """
@@ -190,14 +183,14 @@ class GeminiModel:
         for part in self.generate_content(prompt, model_name, **kwargs):
             buffer += part.text
             # Process complete lines if we have a newline
-            while '\n' in buffer:
-                line, buffer = buffer.split('\n', 1)
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
                 clean_line = line.replace("*", "").strip()
                 if clean_line:
                     yield clean_line
-        
+
         # Don't forget to process any remaining text in the buffer
         if buffer:
             clean_line = buffer.replace("*", "").strip()
             if clean_line:
-                yield clean_line      
+                yield clean_line
