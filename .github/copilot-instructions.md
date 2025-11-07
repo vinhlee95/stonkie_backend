@@ -1,5 +1,23 @@
 # Stonkie Backend - GitHub Copilot Instructions
 
+## Response Guidelines
+
+### Code Example Policy
+
+**In "Ask" mode (chat/questions), provide MINIMAL code examples:**
+
+- Focus on **explanations, concepts, and trade-offs** rather than complete implementations
+- Show **only essential snippets** (2-5 lines) to illustrate key points
+- Use **pseudocode or descriptions** when full code isn't necessary
+- Provide **bullet points and architectural guidance** instead of boilerplate
+- Only include complete code examples when explicitly requested or when editing files
+
+**In "Edit" mode (file changes), provide complete, production-ready code with:**
+- Full type annotations
+- Comprehensive error handling
+- Proper logging and documentation
+- All necessary imports
+
 ## Project Overview
 
 Stonkie is an AI-driven financial analysis platform that provides automated company insights, financial statement analysis, and intelligent reporting capabilities. The backend is built with FastAPI, PostgreSQL, and integrates multiple AI models (OpenAI GPT, Google Gemini) for natural language processing and financial analysis.
@@ -374,3 +392,4 @@ LOG_LEVEL=INFO|DEBUG|WARNING
 2. **New Features**: Create service → Add connector if needed → Implement API endpoint
 3. **AI Integration**: Use Agent abstraction → Handle streaming responses → Add error handling
 4. **Code Review**: Ensure type hints → Check error handling → Validate architecture compliance
+
