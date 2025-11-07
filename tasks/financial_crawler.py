@@ -424,50 +424,50 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         openai_agent = Agent(model_type="openai")
 
         prompt = f"""
-Extract financial data from the following HTML table and format it as a JSON list.
-Each object in the list must represent a single period and have the following structure:
-{{
-    "period_end_year": number,
-    "metrics": {{"metric_name": number}}
-}}
+            Extract financial data from the following HTML table and format it as a JSON list.
+            Each object in the list must represent a single period and have the following structure:
+            {{
+                "period_end_year": number,
+                "metrics": {{"metric_name": number}}
+            }}
 
-Follow these strict instructions:
+            Follow these strict instructions:
 
-- The periods are: {periods}.
-- Each period object must contain a metrics object.
-- The table rows are represented by <div> elements with class "row". Inside each row:
-    - The metric name is located in a child <div> with class "rowTitle".
-    - The values for the periods are in child <div> elements with class "column" (excluding the one containing the title).
-- You must include every metric found in a rowTitle element exactly as it appears in the text (including symbols, spacing, and casing). Do not skip or merge similar rows. Treat duplicate names as separate metrics if they appear as distinct rows in the HTML.
-- For each metric, extract its corresponding values from the following "column" elements. They are ordered left to right and align with the period order provided.
-- Clean each numerical value as follows:
-    - Remove any commas.
-    - Convert the string to a number.
-    - If the value is exactly "--", omit that metric entirely from the corresponding period's metrics. Do not include it with null or zero.
-- Even if a metric has -- for all periods, still include its name and row position when processing. It may have valid data in the future or in other contexts.
-- Do not infer or assume any data. Only extract what is explicitly present in the provided HTML.
-- For period_end_year, extract the year from the date (e.g., "12/31/2024" becomes 2024). If the period is "TTM", use "TTM" as the period_end_year.
-- The final output must be a JSON array only (no explanation, no code block markers). Example output:
-[
-    {{
-        "period_end_year": "TTM",
-        "metrics": {{
-            "Revenue": 1000000,
-            "Net Income": 500000
-        }}
-    }},
-    {{
-        "period_end_year": 2024,
-        "metrics": {{
-            "Revenue": 900000,
-            "Net Income": 450000
-        }}
-    }}
-]
+            - The periods are: {periods}.
+            - Each period object must contain a metrics object.
+            - The table rows are represented by <div> elements with class "row". Inside each row:
+                - The metric name is located in a child <div> with class "rowTitle".
+                - The values for the periods are in child <div> elements with class "column" (excluding the one containing the title).
+            - You must include every metric found in a rowTitle element exactly as it appears in the text (including symbols, spacing, and casing). Do not skip or merge similar rows. Treat duplicate names as separate metrics if they appear as distinct rows in the HTML.
+            - For each metric, extract its corresponding values from the following "column" elements. They are ordered left to right and align with the period order provided.
+            - Clean each numerical value as follows:
+                - Remove any commas.
+                - Convert the string to a number.
+                - If the value is exactly "--", omit that metric entirely from the corresponding period's metrics. Do not include it with null or zero.
+            - Even if a metric has -- for all periods, still include its name and row position when processing. It may have valid data in the future or in other contexts.
+            - Do not infer or assume any data. Only extract what is explicitly present in the provided HTML.
+            - For period_end_year, extract the year from the date (e.g., "12/31/2024" becomes 2024). If the period is "TTM", use "TTM" as the period_end_year.
+            - The final output must be a JSON array only (no explanation, no code block markers). Example output:
+            [
+                {{
+                    "period_end_year": "TTM",
+                    "metrics": {{
+                        "Revenue": 1000000,
+                        "Net Income": 500000
+                    }}
+                }},
+                {{
+                    "period_end_year": 2024,
+                    "metrics": {{
+                        "Revenue": 900000,
+                        "Net Income": 450000
+                    }}
+                }}
+            ]
 
-Now process the following HTML table:
-{table_body_html}
-"""
+            Now process the following HTML table:
+            {table_body_html}
+        """
 
         json_response = openai_agent.generate_content(prompt=prompt, stream=False)
 
