@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from enum import StrEnum
 
 from agent.agent import Agent
 from connectors.company import Company, CompanyConnector, CompanyFundamentalDto
@@ -20,6 +21,13 @@ COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 
 company_financial_connector = CompanyFinancialConnector()
 company_connector = CompanyConnector()
+
+
+class PeriodType(StrEnum):
+    """Period type for financial statements."""
+
+    ANNUALLY = "annually"
+    QUARTERLY = "quarterly"
 
 
 def get_key_stats_for_ticker(ticker: str) -> CompanyFundamentalDto | None:
@@ -301,7 +309,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
         # Get statements based on period type
         statements = (
             company_financial_connector.get_company_quarterly_financial_statements(ticker)
-            if period_type == "quarterly"
+            if period_type == PeriodType.QUARTERLY
             else company_financial_connector.get_company_financial_statements(ticker)
         )
 
@@ -325,7 +333,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             # Create statement data based on period type
             statement_data = {"data": data_field}
 
-            if period_type == "quarterly":
+            if period_type == PeriodType.QUARTERLY:
                 statement_data["period_end_quarter"] = statement.period_end_quarter
             else:
                 statement_data.update({"period_end_year": statement.period_end_year, "is_ttm": statement.is_ttm})
@@ -334,8 +342,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
 
         if len(filtered_statements) == 0:
             # Dispatch the task to start crawling if no data found
-            # TODO: use PeriodType here
-            if period_type == "annually":
+            if period_type == PeriodType.ANNUALLY:
                 logger.info(f"No annual financial data found for {ticker} - {report_type}, dispatching crawl task")
 
                 # Queue Celery task for background crawling
@@ -346,7 +353,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                 # Return empty list for now, client will poll later to check if data is available
                 return []
 
-            if period_type == "quarterly":
+            if period_type == PeriodType.QUARTERLY:
                 # TODO: dispatch quarterly crawling task
                 return filtered_statements
 

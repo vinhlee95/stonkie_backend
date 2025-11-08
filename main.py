@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
+    PeriodType,
     get_all_companies,
     get_company_financial_statements,
     get_key_stats_for_ticker,
@@ -90,11 +91,6 @@ class ReportType(Enum):
     INCOME_STATEMENT = "income_statement"
     BALANCE_SHEET = "balance_sheet"
     CASH_FLOW = "cash_flow"
-
-
-class PeriodType(Enum):
-    ANNUALLY = "annually"
-    QUARTERLY = "quarterly"
 
 
 @app.get("/api/companies/{ticker}/statements")
