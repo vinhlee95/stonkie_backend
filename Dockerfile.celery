@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
 
 # Set working directory
 WORKDIR /app
@@ -8,14 +8,6 @@ COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Playwright and its browsers with dependencies
-# Using playwright install-deps before install to ensure system deps are present
-RUN apt-get update && \
-    playwright install-deps chromium && \
-    playwright install chromium && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
 
 # Copy application code
 COPY . .
