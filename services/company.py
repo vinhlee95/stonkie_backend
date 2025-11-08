@@ -14,6 +14,7 @@ from connectors.vector_store import (
     search_similar_content_and_format_to_texts,
 )
 from models.company_financial import CompanyFinancials
+from tasks.financial_crawler import crawl_annual_financial_data_task
 
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 
@@ -330,6 +331,24 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                 statement_data.update({"period_end_year": statement.period_end_year, "is_ttm": statement.is_ttm})
 
             filtered_statements.append(statement_data)
+
+        if len(filtered_statements) == 0:
+            # Dispatch the task to start crawling if no data found
+            # TODO: use PeriodType here
+            if period_type == "annually":
+                logger.info(f"No annual financial data found for {ticker} - {report_type}, dispatching crawl task")
+
+                # Queue Celery task for background crawling
+                task = crawl_annual_financial_data_task.delay(ticker, report_type)
+
+                logger.info(f"Crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
+
+                # Return empty list for now, client will poll later to check if data is available
+                return []
+
+            if period_type == "quarterly":
+                # TODO: dispatch quarterly crawling task
+                return filtered_statements
 
         return filtered_statements
 
