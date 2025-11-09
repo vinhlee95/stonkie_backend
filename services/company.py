@@ -314,7 +314,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
         )
 
         # If no statements found, dispatch crawling tasks for all report types, do annual first
-        if len(statements) == 0 and period_type == PeriodType.ANNUALLY:
+        if len(statements) == 0 and period_type in [PeriodType.ANNUALLY, None]:
             logger.info(f"No financial data found for {ticker}, dispatching annual crawl task")
             for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
                 task = crawl_annual_financial_data_task.delay(ticker, rpt_type)
