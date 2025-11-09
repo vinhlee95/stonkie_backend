@@ -5,6 +5,7 @@ import time
 from enum import StrEnum
 
 from agent.agent import Agent
+from connectors.cache import can_dispatch_task, set_task_state
 from connectors.company import Company, CompanyConnector, CompanyFundamentalDto
 from connectors.company_financial import CompanyFinancialConnector
 from connectors.database import Base, SessionLocal, engine
@@ -315,10 +316,27 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
 
         # If no statements found, dispatch crawling tasks for all report types, do annual first
         if len(statements) == 0 and period_type in [PeriodType.ANNUALLY, None]:
-            logger.info(f"No financial data found for {ticker}, dispatching annual crawl task")
+            logger.info(f"No financial data found for {ticker}, checking task states")
+
             for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
+                # Check if we can dispatch a new task
+                decision = can_dispatch_task(ticker, rpt_type, "annually")
+
+                if not decision.can_dispatch:
+                    logger.info(
+                        f"Skipping task dispatch for {ticker} - {rpt_type}: {decision.reason}"
+                        + (f", existing task_id: {decision.existing_task_id}" if decision.existing_task_id else "")
+                    )
+                    continue
+
+                # Dispatch new task
                 task = crawl_annual_financial_data_task.delay(ticker, rpt_type)
                 logger.info(f"Crawl task queued for {ticker} - {rpt_type}, task_id: {task.id}")
+
+                # Store task state in Redis
+                set_task_state(
+                    ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="annually"
+                )
 
             # Return empty list for now, client will poll later to check if data is available
             return []

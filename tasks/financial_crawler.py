@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from agent.agent import Agent
 from celery_app import celery_app
+from connectors.cache import set_task_state
 from connectors.database import get_db
 from models.company_financial_statement import CompanyFinancialStatement
 
@@ -395,6 +396,11 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         dict with status and details
     """
     try:
+        # Update task state to running
+        set_task_state(
+            ticker=ticker, report_type=statement_type, status="running", task_id=self.request.id, period_type="annually"
+        )
+
         logger.info(f"🚀 Starting annual financial data crawl for {ticker} - {statement_type}")
 
         # Map statement type to Yahoo Finance URL
@@ -491,10 +497,30 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
             "message": f"Successfully crawled and saved {statement_type} for {ticker}",
         }
 
+        # Update task state to completed
+        set_task_state(
+            ticker=ticker,
+            report_type=statement_type,
+            status="completed",
+            task_id=self.request.id,
+            period_type="annually",
+        )
+
         logger.info(f"✅ Annual financial data crawl completed for {ticker} - {statement_type}")
         return result
 
     except Exception as e:
         logger.error(f"❌ Annual financial data crawl failed for {ticker} - {statement_type}: {e}")
+
+        # Update task state to failed
+        set_task_state(
+            ticker=ticker,
+            report_type=statement_type,
+            status="failed",
+            task_id=self.request.id,
+            period_type="annually",
+            error=str(e),
+        )
+
         # Retry with exponential backoff
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
