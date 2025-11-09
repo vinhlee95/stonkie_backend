@@ -313,6 +313,18 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             else company_financial_connector.get_company_financial_statements(ticker)
         )
 
+        # If no statements found, dispatch crawling tasks for all report types, do annual first
+        if len(statements) == 0:
+            logger.info(f"No financial data found for {ticker}, dispatching annual crawl task")
+            for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
+                task = crawl_annual_financial_data_task.delay(ticker, rpt_type)
+                logger.info(f"Crawl task queued for {ticker} - {rpt_type}, task_id: {task.id}")
+
+            # Return empty list for now, client will poll later to check if data is available
+            return []
+
+            # TODO: dispatch quarterly crawling task
+
         if not report_type:
             return statements
 
