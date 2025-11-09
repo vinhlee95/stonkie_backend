@@ -27,7 +27,10 @@ def get_company_fundamental(ticker: str) -> dict | None:
         response.raise_for_status()
 
         data = response.json()
-        _company_fundamental_cache[ticker] = data
+
+        if not data or not data.get("Name") or not data.get("MarketCapitalization"):
+            logger.error(f"Invalid fundamental data found for ticker {ticker}", {"data": data})
+            return None
 
         logger.info(
             "Fetched fundamental data for ticker",
@@ -36,6 +39,8 @@ def get_company_fundamental(ticker: str) -> dict | None:
                 "data": data,
             },
         )
+
+        _company_fundamental_cache[ticker] = data
         return data
     except Exception as ex:
         print(ex)
