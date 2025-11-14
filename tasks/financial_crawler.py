@@ -284,7 +284,7 @@ def _extract_financial_data_from_page(url: str) -> Optional[Tuple[str, list]]:
 
                 # Handle cookie banner
                 try:
-                    page.wait_for_selector(".accept-all", timeout=10000)
+                    page.wait_for_selector(".accept-all", timeout=5000)
                     page.click(".accept-all")
                     logger.info("Accepted cookies")
                     page.wait_for_timeout(2000)
