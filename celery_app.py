@@ -4,11 +4,22 @@ Celery application configuration for background task processing.
 
 import logging
 import os
+import sys
 
 from celery import Celery
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Configure logging for Celery
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_level = getattr(logging, log_level, logging.INFO)
+
+logging.basicConfig(
+    level=numeric_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],  # Force stdout instead of stderr
+)
 
 logger = logging.getLogger(__name__)
 
