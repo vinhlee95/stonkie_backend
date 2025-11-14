@@ -37,6 +37,13 @@ RUN playwright install-deps chromium
 # Copy the entire project
 COPY . .
 
+# Create a non-root user for running Celery
+RUN useradd -m -u 1000 celeryuser && \
+    chown -R celeryuser:celeryuser /app
+
+# Switch to non-root user
+USER celeryuser
+
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
