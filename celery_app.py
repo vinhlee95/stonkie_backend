@@ -55,7 +55,9 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     # Worker
     worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=1000,
+    worker_max_tasks_per_child=1,  # Restart worker after each task to free memory (Playwright browsers)
+    # Pool configuration
+    worker_pool_restarts=True,  # Enable pool restarts
 )
 
 logger.info(f"Celery configured with broker: {REDIS_URL}")
