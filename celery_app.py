@@ -43,6 +43,8 @@ celery_app.conf.update(
     # Timezone
     timezone="UTC",
     enable_utc=True,
+    # Broker connection
+    broker_connection_retry_on_startup=True,  # Retry broker connection on startup
     # Task execution
     task_track_started=True,
     task_time_limit=300,  # 5 minutes max per task
