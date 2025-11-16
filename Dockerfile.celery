@@ -30,19 +30,23 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and Chromium browser
-RUN playwright install chromium
+# Install Playwright system dependencies as root
 RUN playwright install-deps chromium
-
-# Copy the entire project
-COPY . .
 
 # Create a non-root user for running Celery
 RUN useradd -m -u 1000 celeryuser && \
     chown -R celeryuser:celeryuser /app
 
+# Copy the entire project
+COPY . .
+RUN chown -R celeryuser:celeryuser /app
+
 # Switch to non-root user
 USER celeryuser
+
+# Install Playwright Chromium browser as celeryuser
+# This installs the browser in /home/celeryuser/.cache/ms-playwright/
+RUN playwright install chromium
 
 # Set environment variables
 ENV PYTHONPATH=/app
