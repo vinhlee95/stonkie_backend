@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -27,29 +26,18 @@ from services.company_report import generate_detailed_report_for_insight, genera
 from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
+from utils.logging import setup_local_logging, setup_production_logging
 
 load_dotenv()
 
 environment = os.getenv("ENV", "local").lower()
-
-# Get log level from environment variable, default to INFO
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-numeric_level = getattr(logging, log_level, logging.INFO)
 
-# Configure logging with more detailed format
+# Setup logging based on environment
 if environment == "local":
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stdout,  # Direct all logging to stdout
-    )
+    setup_local_logging(log_level)
 else:
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(name)s - %(levelname)s - %(message)s",
-        stream=sys.stdout,  # Direct all logging to stdout
-    )
+    setup_production_logging(log_level)
 
 # Mute specific loggers
 logging.getLogger("google_genai").setLevel(logging.WARNING)
