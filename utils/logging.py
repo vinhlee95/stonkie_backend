@@ -25,7 +25,7 @@ class JSONFormatter(logging.Formatter):
         # Add metadata from extra fields
         metadata = {}
         for key, value in record.__dict__.items():
-            # Skip standard logging attributes
+            # Skip standard logging attributes and unwanted fields
             if key not in (
                 "name",
                 "msg",
@@ -49,6 +49,7 @@ class JSONFormatter(logging.Formatter):
                 "stack_info",
                 "getMessage",
                 "message",
+                "taskName",  # Exclude taskName from metadata
             ):
                 metadata[key] = value
 

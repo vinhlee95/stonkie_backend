@@ -40,7 +40,7 @@ def get_company_fundamental(ticker: str) -> dict | None:
             )
             return None
 
-        logger.info("Fetched fundamental data for ticker", extra={"ticker": ticker, "data_keys": list(data.keys())})
+        logger.info("Fetched fundamental data for ticker", extra={"ticker": ticker, "data": data})
 
         _company_fundamental_cache[ticker] = data
         return data
