@@ -13,7 +13,7 @@ python-multipart==0.0.20
 pinecone==6.0.1
 openai==1.77.0
 alembic==1.15.2
-pillow==11.2.1
+pillow==11.3.0
 google-genai==1.16.1
 celery==5.4.0
 redis==5.0.1
