@@ -69,6 +69,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             Dictionary chunks with analysis results
         """
         t_start = time.perf_counter()
+        MODEL_NAME = ModelName.Gemini25FlashLite
 
         try:
             yield {"type": "thinking_status", "body": "Structuring the answer..."}
@@ -84,7 +85,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     Break the answer into different paragraphs for better readability. 
                     In the last paragraph, give an example of how this concept is used in a real-world situation
                 """,
-                model_name=ModelName.Gemini25FlashLite,
+                model_name=MODEL_NAME,
                 stream=True,
                 use_google_search=use_google_search,
                 use_url_context=use_url_context,
@@ -92,6 +93,9 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 yield {"type": "answer", "body": part.text}
             t_model_end = time.perf_counter()
             logger.info(f"Profiling GeneralFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
+
+            # Yield the model used for answer
+            yield {"type": "model_used", "body": MODEL_NAME}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
@@ -143,12 +147,15 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 Make sure to specify the source of the answer at the end of the analysis.
             """
 
+            MODEL_NAME = ModelName.Gemini25FlashLite
+
             t_model = time.perf_counter()
             for part in self.agent.generate_content(
                 prompt=prompt,
-                model_name=ModelName.GeminiFlash,
+                model_name=MODEL_NAME,
                 stream=True,
-                thought=True,
+                # Disable thought for now to get more speed and reduce cost. In the future, we can enable this via client preference on the front-end
+                # thought=True,
                 use_google_search=use_google_search,
                 use_url_context=use_url_context,
             ):
@@ -166,6 +173,9 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                     logger.warning(f"Unknown content part {str(part)}")
             t_model_end = time.perf_counter()
             logger.info(f"Profiling CompanyGeneralHandler model_generate_content: {t_model_end - t_model:.4f}s")
+
+            # Yield the model used for answer
+            yield {"type": "model_used", "body": MODEL_NAME}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
@@ -219,6 +229,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         """
         t_start = time.perf_counter()
         ticker = ticker.lower().strip()
+        MODEL_NAME = ModelName.GeminiFlash
 
         # Determine what financial data we need
         yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
@@ -265,7 +276,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             t_model = time.perf_counter()
             for part in self.agent.generate_content(
                 [financial_context, analysis_prompt],
-                model_name=ModelName.GeminiFlash,
+                model_name=MODEL_NAME,
                 stream=True,
                 thought=True,
                 use_google_search=use_google_search,
@@ -289,6 +300,9 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
             t_model_end = time.perf_counter()
             logger.info(f"Profiling CompanySpecificFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
+
+            # Yield the model used for answer
+            yield {"type": "model_used", "body": MODEL_NAME}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
