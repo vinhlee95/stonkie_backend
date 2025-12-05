@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from langfuse import observe
 
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
@@ -147,6 +148,7 @@ async def get_revenue_insights_region(ticker: str):
 
 
 @app.post("/api/company/analyze")
+@observe(as_type="generation")
 async def analyze_financial_data(request: Request):
     """
     Analyze financial statements for a given ticker symbol based on a specific question,
@@ -177,6 +179,7 @@ async def analyze_financial_data(request: Request):
                         return
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
+
             except asyncio.CancelledError:
                 # Handle cancellation
                 logger.info("Client cancelled request to analyze financial data", {"ticker": ticker})

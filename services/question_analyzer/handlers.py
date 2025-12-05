@@ -2,7 +2,10 @@
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
+
+from langfuse import get_client, observe
 
 from agent.agent import Agent
 from ai_models.gemini import ContentType
@@ -14,6 +17,7 @@ from .data_optimizer import FinancialDataOptimizer
 from .types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
+langfuse = get_client()
 
 
 class BaseQuestionHandler:
@@ -74,23 +78,57 @@ class GeneralFinanceHandler(BaseQuestionHandler):
         try:
             yield {"type": "thinking_status", "body": "Structuring the answer..."}
 
+            prompt = f"""
+                Please explain this financial concept or answer this question:
+
+                {question}.
+
+                Give a short answer in less than 150 words. 
+                Break the answer into different paragraphs for better readability. 
+                In the last paragraph, give an example of how this concept is used in a real-world situation
+            """
+
             t_model = time.perf_counter()
-            for part in self.agent.generate_content(
-                prompt=f"""
-                    Please explain this financial concept or answer this question:
+            with langfuse.start_as_current_observation(
+                as_type="generation", name="general-finance-llm-call", model=MODEL_NAME
+            ) as gen:
+                gen.update(input={"prompt": prompt, "use_google_search": use_google_search})
 
-                    {question}.
+                first_chunk_received = False
+                completion_start_time = None
+                output_tokens = 0
 
-                    Give a short answer in less than 150 words. 
-                    Break the answer into different paragraphs for better readability. 
-                    In the last paragraph, give an example of how this concept is used in a real-world situation
-                """,
-                model_name=MODEL_NAME,
-                stream=True,
-                use_google_search=use_google_search,
-                use_url_context=use_url_context,
-            ):
-                yield {"type": "answer", "body": part.text}
+                for part in self.agent.generate_content(
+                    prompt=prompt,
+                    model_name=MODEL_NAME,
+                    stream=True,
+                    use_google_search=use_google_search,
+                    use_url_context=use_url_context,
+                ):
+                    if not first_chunk_received:
+                        completion_start_time = datetime.now(timezone.utc)
+                        t_first_chunk = time.perf_counter()
+                        ttft = t_first_chunk - t_model
+                        logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
+                        gen.update(completion_start_time=completion_start_time)
+                        first_chunk_received = True
+
+                    yield {"type": "answer", "body": part.text}
+                    output_tokens += len(part.text.split())  # Rough token estimation
+
+                # Update generation with output and usage
+                gen.update(
+                    output={"answer": "streaming_response"},
+                    usage_details={"output_tokens": output_tokens},
+                    metadata={
+                        "use_google_search": use_google_search,
+                        "use_url_context": use_url_context,
+                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
+                        if completion_start_time
+                        else None,
+                    },
+                )
+
             t_model_end = time.perf_counter()
             logger.info(f"Profiling GeneralFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
 
@@ -112,8 +150,13 @@ class GeneralFinanceHandler(BaseQuestionHandler):
 class CompanyGeneralHandler(BaseQuestionHandler):
     """Handles general questions about companies."""
 
+    @observe(name="company_general_handler")
     async def handle(
-        self, ticker: str, question: str, use_google_search: bool, use_url_context: bool
+        self,
+        ticker: str,
+        question: str,
+        use_google_search: bool,
+        use_url_context: bool,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company general questions.
@@ -142,7 +185,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 You are an expert about a business. Answer the following question about {company_name} (ticker: {ticker}):
                 {question}.
 
-                Keep the response concise in under 150 words. Do not repeat points or facts. Connect the facts to a compelling story.
+                Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.
                 Make sure to specify the source of the answer at the end of the analysis.
             """
@@ -150,27 +193,66 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             MODEL_NAME = ModelName.Gemini25FlashLite
 
             t_model = time.perf_counter()
-            for part in self.agent.generate_content(
-                prompt=prompt,
-                model_name=MODEL_NAME,
-                stream=True,
-                # Disable thought for now to get more speed and reduce cost. In the future, we can enable this via client preference on the front-end
-                # thought=True,
-                use_google_search=use_google_search,
-                use_url_context=use_url_context,
-            ):
-                if part.type == ContentType.Thought:
-                    yield {"type": "thinking_status", "body": part.text}
-                elif part.type == ContentType.Answer:
-                    yield {"type": "answer", "body": part.text}
-                elif part.type == ContentType.Ground:
-                    yield {
-                        "type": "google_search_ground",
-                        "body": part.ground.text if part.ground else "",
-                        "url": part.ground.uri if part.ground else "",
+            with langfuse.start_as_current_observation(
+                as_type="generation", name="company-general-llm-call", model=MODEL_NAME
+            ) as gen:
+                gen.update(
+                    input={
+                        "prompt": prompt,
+                        "ticker": ticker,
+                        "company_name": company_name,
+                        "use_google_search": use_google_search,
                     }
-                else:
-                    logger.warning(f"Unknown content part {str(part)}")
+                )
+
+                first_chunk_received = False
+                completion_start_time = None
+                output_tokens = 0
+
+                for part in self.agent.generate_content(
+                    prompt=prompt,
+                    model_name=MODEL_NAME,
+                    stream=True,
+                    # Disable thought for now to get more speed and reduce cost. In the future, we can enable this via client preference on the front-end
+                    # thought=True,
+                    use_google_search=use_google_search,
+                    use_url_context=use_url_context,
+                ):
+                    if part.type == ContentType.Thought:
+                        yield {"type": "thinking_status", "body": part.text}
+                    elif part.type == ContentType.Answer:
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling CompanyGeneralHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
+                        yield {"type": "answer", "body": part.text}
+                        output_tokens += len(part.text.split())  # Rough token estimation
+                    elif part.type == ContentType.Ground:
+                        yield {
+                            "type": "google_search_ground",
+                            "body": part.ground.text if part.ground else "",
+                            "url": part.ground.uri if part.ground else "",
+                        }
+                    else:
+                        logger.warning(f"Unknown content part {str(part)}")
+
+                # Update generation with output and usage
+                gen.update(
+                    output={"answer": "streaming_response"},
+                    usage_details={"output_tokens": output_tokens},
+                    metadata={
+                        "ticker": ticker,
+                        "use_google_search": use_google_search,
+                        "use_url_context": use_url_context,
+                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
+                        if completion_start_time
+                        else None,
+                    },
+                )
+
             t_model_end = time.perf_counter()
             logger.info(f"Profiling CompanyGeneralHandler model_generate_content: {t_model_end - t_model:.4f}s")
 
@@ -274,29 +356,68 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             """
 
             t_model = time.perf_counter()
-            for part in self.agent.generate_content(
-                [financial_context, analysis_prompt],
-                model_name=MODEL_NAME,
-                stream=True,
-                thought=True,
-                use_google_search=use_google_search,
-                use_url_context=use_url_context,
-            ):
-                if part.type == ContentType.Thought:
-                    yield {"type": "thinking_status", "body": part.text}
-                elif part.type == ContentType.Answer:
-                    yield {
-                        "type": "answer",
-                        "body": part.text if part.text else "❌ No analysis generated from the model",
+            with langfuse.start_as_current_observation(
+                as_type="generation", name="company-specific-finance-llm-call", model=MODEL_NAME
+            ) as gen:
+                gen.update(
+                    input={
+                        "financial_context": financial_context[:500],  # Truncate for readability
+                        "analysis_prompt": analysis_prompt,
+                        "ticker": ticker,
+                        "use_google_search": use_google_search,
                     }
-                elif part.type == ContentType.Ground:
-                    yield {
-                        "type": "google_search_ground",
-                        "body": part.ground.text if part.ground else "",
-                        "url": part.ground.uri if part.ground else "",
-                    }
-                else:
-                    logger.warning(f"Unknown content part {str(part)}")
+                )
+
+                first_chunk_received = False
+                completion_start_time = None
+                output_tokens = 0
+
+                for part in self.agent.generate_content(
+                    [financial_context, analysis_prompt],
+                    model_name=MODEL_NAME,
+                    stream=True,
+                    thought=True,
+                    use_google_search=use_google_search,
+                    use_url_context=use_url_context,
+                ):
+                    if part.type == ContentType.Thought:
+                        yield {"type": "thinking_status", "body": part.text}
+                    elif part.type == ContentType.Answer:
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling CompanySpecificFinanceHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
+                        yield {
+                            "type": "answer",
+                            "body": part.text if part.text else "❌ No analysis generated from the model",
+                        }
+                        output_tokens += len(part.text.split())  # Rough token estimation
+                    elif part.type == ContentType.Ground:
+                        yield {
+                            "type": "google_search_ground",
+                            "body": part.ground.text if part.ground else "",
+                            "url": part.ground.uri if part.ground else "",
+                        }
+                    else:
+                        logger.warning(f"Unknown content part {str(part)}")
+
+                # Update generation with output and usage
+                gen.update(
+                    output={"answer": "streaming_response"},
+                    usage_details={"output_tokens": output_tokens},
+                    metadata={
+                        "ticker": ticker,
+                        "data_requirement": data_requirement,
+                        "use_google_search": use_google_search,
+                        "use_url_context": use_url_context,
+                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
+                        if completion_start_time
+                        else None,
+                    },
+                )
 
             t_model_end = time.perf_counter()
             logger.info(f"Profiling CompanySpecificFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
