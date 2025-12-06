@@ -106,6 +106,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     use_url_context=use_url_context,
                 ):
                     if not first_chunk_received:
+                        # This is important to track time-to-first-token in Langfuse
                         completion_start_time = datetime.now(timezone.utc)
                         t_first_chunk = time.perf_counter()
                         ttft = t_first_chunk - t_model
@@ -118,14 +119,10 @@ class GeneralFinanceHandler(BaseQuestionHandler):
 
                 # Update generation with output and usage
                 gen.update(
-                    output={"answer": "streaming_response"},
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
-                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
-                        if completion_start_time
-                        else None,
                     },
                 )
 
@@ -222,12 +219,14 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                         yield {"type": "thinking_status", "body": part.text}
                     elif part.type == ContentType.Answer:
                         if not first_chunk_received:
+                            # This is important to track time-to-first-token in Langfuse
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
                             ttft = t_first_chunk - t_model
                             logger.info(f"Profiling CompanyGeneralHandler time_to_first_token: {ttft:.4f}s")
                             gen.update(completion_start_time=completion_start_time)
                             first_chunk_received = True
+
                         yield {"type": "answer", "body": part.text}
                         output_tokens += len(part.text.split())  # Rough token estimation
                     elif part.type == ContentType.Ground:
@@ -241,15 +240,11 @@ class CompanyGeneralHandler(BaseQuestionHandler):
 
                 # Update generation with output and usage
                 gen.update(
-                    output={"answer": "streaming_response"},
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "ticker": ticker,
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
-                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
-                        if completion_start_time
-                        else None,
                     },
                 )
 
@@ -384,12 +379,14 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                         yield {"type": "thinking_status", "body": part.text}
                     elif part.type == ContentType.Answer:
                         if not first_chunk_received:
+                            # This is important to track time-to-first-token in Langfuse
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
                             ttft = t_first_chunk - t_model
                             logger.info(f"Profiling CompanySpecificFinanceHandler time_to_first_token: {ttft:.4f}s")
                             gen.update(completion_start_time=completion_start_time)
                             first_chunk_received = True
+
                         yield {
                             "type": "answer",
                             "body": part.text if part.text else "❌ No analysis generated from the model",
@@ -406,16 +403,12 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
                 # Update generation with output and usage
                 gen.update(
-                    output={"answer": "streaming_response"},
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "ticker": ticker,
                         "data_requirement": data_requirement,
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
-                        "time_to_first_token_ms": round((completion_start_time.timestamp() - t_model) * 1000, 2)
-                        if completion_start_time
-                        else None,
                     },
                 )
 
