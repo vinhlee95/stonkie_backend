@@ -44,15 +44,21 @@ class BaseQuestionHandler:
         Yields:
             Dictionary with type "related_question" and body containing the question
         """
-        prompt = f"""
-            Based on this original question: "{original_question}"
-            Generate 3 related but different follow-up questions that users might want to ask next.
-            Make sure related questions are short and concise. Ideally, less than 15 words each.
-            Return only the questions, do not return the number or order of the question.
-        """
-        response = self.agent.generate_content_and_normalize_results([prompt], model_name=ModelName.Gemini25FlashLite)
-        async for answer in response:
-            yield {"type": "related_question", "body": answer}
+        try:
+            prompt = f"""
+                Based on this original question: "{original_question}"
+                Generate 3 related but different follow-up questions that users might want to ask next.
+                Make sure related questions are short and concise. Ideally, less than 15 words each.
+                Return only the questions, do not return the number or order of the question.
+            """
+            response = self.agent.generate_content_and_normalize_results(
+                [prompt], model_name=ModelName.Gemini25FlashLite
+            )
+            async for answer in response:
+                yield {"type": "related_question", "body": answer}
+        except Exception as e:
+            logger.error(f"Error generating related questions: {e}")
+            # Silently fail - related questions are non-critical
 
 
 class GeneralFinanceHandler(BaseQuestionHandler):
