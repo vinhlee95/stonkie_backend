@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from langfuse import get_client, observe
+from langfuse import get_client
 
 from agent.agent import Agent
 from ai_models.gemini import ContentType
@@ -97,6 +97,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 first_chunk_received = False
                 completion_start_time = None
                 output_tokens = 0
+                full_output = []
 
                 for part in self.agent.generate_content(
                     prompt=prompt,
@@ -115,10 +116,12 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                         first_chunk_received = True
 
                     yield {"type": "answer", "body": part.text}
+                    full_output.append(part.text)
                     output_tokens += len(part.text.split())  # Rough token estimation
 
                 # Update generation with output and usage
                 gen.update(
+                    output="".join(full_output),
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "use_google_search": use_google_search,
@@ -147,7 +150,6 @@ class GeneralFinanceHandler(BaseQuestionHandler):
 class CompanyGeneralHandler(BaseQuestionHandler):
     """Handles general questions about companies."""
 
-    @observe(name="company_general_handler")
     async def handle(
         self,
         ticker: str,
@@ -205,6 +207,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 first_chunk_received = False
                 completion_start_time = None
                 output_tokens = 0
+                full_output = []
 
                 for part in self.agent.generate_content(
                     prompt=prompt,
@@ -228,6 +231,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                             first_chunk_received = True
 
                         yield {"type": "answer", "body": part.text}
+                        full_output.append(part.text)
                         output_tokens += len(part.text.split())  # Rough token estimation
                     elif part.type == ContentType.Ground:
                         yield {
@@ -240,6 +244,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
 
                 # Update generation with output and usage
                 gen.update(
+                    output="".join(full_output),
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "ticker": ticker,
@@ -356,7 +361,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             ) as gen:
                 gen.update(
                     input={
-                        "financial_context": financial_context[:500],  # Truncate for readability
+                        "financial_context": financial_context,
                         "analysis_prompt": analysis_prompt,
                         "ticker": ticker,
                         "use_google_search": use_google_search,
@@ -366,6 +371,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 first_chunk_received = False
                 completion_start_time = None
                 output_tokens = 0
+                full_output = []
 
                 for part in self.agent.generate_content(
                     [financial_context, analysis_prompt],
@@ -391,6 +397,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                             "type": "answer",
                             "body": part.text if part.text else "❌ No analysis generated from the model",
                         }
+                        full_output.append(part.text if part.text else "")
                         output_tokens += len(part.text.split())  # Rough token estimation
                     elif part.type == ContentType.Ground:
                         yield {
@@ -403,6 +410,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
                 # Update generation with output and usage
                 gen.update(
+                    output="".join(full_output),
                     usage_details={"output_tokens": output_tokens},
                     metadata={
                         "ticker": ticker,

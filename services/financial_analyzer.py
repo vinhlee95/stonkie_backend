@@ -4,8 +4,6 @@ import logging
 import time
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from langfuse import observe
-
 from agent.agent import Agent
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
@@ -62,7 +60,6 @@ class FinancialAnalyzer:
             ),
         }
 
-    @observe(name="financial_analysis")
     async def analyze_question(
         self,
         ticker: str,
