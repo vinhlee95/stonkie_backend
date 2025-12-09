@@ -1,6 +1,7 @@
 """Question handlers for different types of financial questions."""
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
@@ -10,6 +11,7 @@ from langfuse import get_client
 from agent.agent import Agent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
+from ai_models.openrouter_client import OpenRouterClient
 from connectors.company import CompanyConnector
 
 from .classifier import QuestionClassifier
@@ -18,6 +20,21 @@ from .types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
 langfuse = get_client()
+_openrouter_client: Optional[OpenRouterClient] = None
+
+
+def get_openrouter_client() -> Optional[OpenRouterClient]:
+    """Lazy init so we only attempt OpenRouter when configured."""
+    global _openrouter_client
+    if _openrouter_client is not None:
+        return _openrouter_client
+
+    try:
+        _openrouter_client = OpenRouterClient()
+    except Exception as e:
+        logger.warning(f"OpenRouter not available: {e}")
+        _openrouter_client = None
+    return _openrouter_client
 
 
 class BaseQuestionHandler:
@@ -95,35 +112,64 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             """
 
             t_model = time.perf_counter()
+            use_openrouter = os.getenv("OPENROUTER_API_KEY") is not None
+            or_client = get_openrouter_client() if use_openrouter else None
+            provider = "gemini"
+            model_used = MODEL_NAME
+
             with langfuse.start_as_current_observation(
-                as_type="generation", name="general-finance-llm-call", model=MODEL_NAME
+                as_type="generation", name="general-finance-llm-call", model=model_used
             ) as gen:
-                gen.update(input={"prompt": prompt, "use_google_search": use_google_search})
+                gen.update(
+                    input={
+                        "prompt": prompt,
+                        "use_google_search": use_google_search,
+                        "provider": provider,
+                        "model": model_used,
+                    }
+                )
 
                 first_chunk_received = False
                 completion_start_time = None
                 output_tokens = 0
                 full_output = []
 
-                for part in self.agent.generate_content(
-                    prompt=prompt,
-                    model_name=MODEL_NAME,
-                    stream=True,
-                    use_google_search=use_google_search,
-                    use_url_context=use_url_context,
-                ):
-                    if not first_chunk_received:
-                        # This is important to track time-to-first-token in Langfuse
-                        completion_start_time = datetime.now(timezone.utc)
-                        t_first_chunk = time.perf_counter()
-                        ttft = t_first_chunk - t_model
-                        logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
-                        gen.update(completion_start_time=completion_start_time)
-                        first_chunk_received = True
+                if or_client:
+                    provider = "openrouter"
+                    model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+                    gen.update(model=model_used, metadata={"provider": provider})
+                    for text_chunk in or_client.stream_chat(prompt, model=model_used):
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
 
-                    yield {"type": "answer", "body": part.text}
-                    full_output.append(part.text)
-                    output_tokens += len(part.text.split())  # Rough token estimation
+                        yield {"type": "answer", "body": text_chunk}
+                        full_output.append(text_chunk)
+                        output_tokens += len(text_chunk.split())
+                else:
+                    for part in self.agent.generate_content(
+                        prompt=prompt,
+                        model_name=MODEL_NAME,
+                        stream=True,
+                        use_google_search=use_google_search,
+                        use_url_context=use_url_context,
+                    ):
+                        if not first_chunk_received:
+                            # This is important to track time-to-first-token in Langfuse
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
+
+                        yield {"type": "answer", "body": part.text}
+                        full_output.append(part.text)
+                        output_tokens += len(part.text.split())  # Rough token estimation
 
                 # Update generation with output and usage
                 gen.update(
@@ -132,6 +178,8 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     metadata={
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
+                        "provider": provider,
+                        "model": model_used,
                     },
                 )
 
@@ -139,7 +187,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             logger.info(f"Profiling GeneralFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
 
             # Yield the model used for answer
-            yield {"type": "model_used", "body": MODEL_NAME}
+            yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
@@ -198,8 +246,13 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             MODEL_NAME = ModelName.Gemini25FlashLite
 
             t_model = time.perf_counter()
+            use_openrouter = os.getenv("OPENROUTER_API_KEY") is not None
+            or_client = get_openrouter_client() if use_openrouter else None
+            provider = "gemini"
+            model_used = MODEL_NAME
+
             with langfuse.start_as_current_observation(
-                as_type="generation", name="company-general-llm-call", model=MODEL_NAME
+                as_type="generation", name="company-general-llm-call", model=model_used
             ) as gen:
                 gen.update(
                     input={
@@ -207,6 +260,8 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                         "ticker": ticker,
                         "company_name": company_name,
                         "use_google_search": use_google_search,
+                        "provider": provider,
+                        "model": model_used,
                     }
                 )
 
@@ -215,20 +270,12 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 output_tokens = 0
                 full_output = []
 
-                for part in self.agent.generate_content(
-                    prompt=prompt,
-                    model_name=MODEL_NAME,
-                    stream=True,
-                    # Disable thought for now to get more speed and reduce cost. In the future, we can enable this via client preference on the front-end
-                    # thought=True,
-                    use_google_search=use_google_search,
-                    use_url_context=use_url_context,
-                ):
-                    if part.type == ContentType.Thought:
-                        yield {"type": "thinking_status", "body": part.text}
-                    elif part.type == ContentType.Answer:
+                if or_client:
+                    provider = "openrouter"
+                    model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+                    gen.update(model=model_used, metadata={"provider": provider})
+                    for text_chunk in or_client.stream_chat(prompt, model=model_used):
                         if not first_chunk_received:
-                            # This is important to track time-to-first-token in Langfuse
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
                             ttft = t_first_chunk - t_model
@@ -236,17 +283,42 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                             gen.update(completion_start_time=completion_start_time)
                             first_chunk_received = True
 
-                        yield {"type": "answer", "body": part.text}
-                        full_output.append(part.text)
-                        output_tokens += len(part.text.split())  # Rough token estimation
-                    elif part.type == ContentType.Ground:
-                        yield {
-                            "type": "google_search_ground",
-                            "body": part.ground.text if part.ground else "",
-                            "url": part.ground.uri if part.ground else "",
-                        }
-                    else:
-                        logger.warning(f"Unknown content part {str(part)}")
+                        yield {"type": "answer", "body": text_chunk}
+                        full_output.append(text_chunk)
+                        output_tokens += len(text_chunk.split())
+                else:
+                    for part in self.agent.generate_content(
+                        prompt=prompt,
+                        model_name=MODEL_NAME,
+                        stream=True,
+                        # Disable thought for now to get more speed and reduce cost. In the future, we can enable this via client preference on the front-end
+                        # thought=True,
+                        use_google_search=use_google_search,
+                        use_url_context=use_url_context,
+                    ):
+                        if part.type == ContentType.Thought:
+                            yield {"type": "thinking_status", "body": part.text}
+                        elif part.type == ContentType.Answer:
+                            if not first_chunk_received:
+                                # This is important to track time-to-first-token in Langfuse
+                                completion_start_time = datetime.now(timezone.utc)
+                                t_first_chunk = time.perf_counter()
+                                ttft = t_first_chunk - t_model
+                                logger.info(f"Profiling CompanyGeneralHandler time_to_first_token: {ttft:.4f}s")
+                                gen.update(completion_start_time=completion_start_time)
+                                first_chunk_received = True
+
+                            yield {"type": "answer", "body": part.text}
+                            full_output.append(part.text)
+                            output_tokens += len(part.text.split())  # Rough token estimation
+                        elif part.type == ContentType.Ground:
+                            yield {
+                                "type": "google_search_ground",
+                                "body": part.ground.text if part.ground else "",
+                                "url": part.ground.uri if part.ground else "",
+                            }
+                        else:
+                            logger.warning(f"Unknown content part {str(part)}")
 
                 # Update generation with output and usage
                 gen.update(
@@ -256,6 +328,8 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                         "ticker": ticker,
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
+                        "provider": provider,
+                        "model": model_used,
                     },
                 )
 
@@ -263,7 +337,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             logger.info(f"Profiling CompanyGeneralHandler model_generate_content: {t_model_end - t_model:.4f}s")
 
             # Yield the model used for answer
-            yield {"type": "model_used", "body": MODEL_NAME}
+            yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
@@ -362,8 +436,16 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             """
 
             t_model = time.perf_counter()
+            use_openrouter = os.getenv("OPENROUTER_API_KEY") is not None
+            or_client = get_openrouter_client() if use_openrouter else None
+            provider = "gemini"
+            model_used = MODEL_NAME
+
+            # Combine prompts for OpenRouter (which expects a single string)
+            combined_prompt = f"{financial_context}\n\n{analysis_prompt}"
+
             with langfuse.start_as_current_observation(
-                as_type="generation", name="company-specific-finance-llm-call", model=MODEL_NAME
+                as_type="generation", name="company-specific-finance-llm-call", model=model_used
             ) as gen:
                 gen.update(
                     input={
@@ -371,6 +453,8 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                         "analysis_prompt": analysis_prompt,
                         "ticker": ticker,
                         "use_google_search": use_google_search,
+                        "provider": provider,
+                        "model": model_used,
                     }
                 )
 
@@ -379,19 +463,13 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 output_tokens = 0
                 full_output = []
 
-                for part in self.agent.generate_content(
-                    [financial_context, analysis_prompt],
-                    model_name=MODEL_NAME,
-                    stream=True,
-                    thought=True,
-                    use_google_search=use_google_search,
-                    use_url_context=use_url_context,
-                ):
-                    if part.type == ContentType.Thought:
-                        yield {"type": "thinking_status", "body": part.text}
-                    elif part.type == ContentType.Answer:
+                if or_client:
+                    provider = "openrouter"
+                    model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+                    gen.update(model=model_used, metadata={"provider": provider})
+                    # Note: OpenRouter doesn't support thought mode, so we skip it
+                    for text_chunk in or_client.stream_chat(combined_prompt, model=model_used):
                         if not first_chunk_received:
-                            # This is important to track time-to-first-token in Langfuse
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
                             ttft = t_first_chunk - t_model
@@ -401,18 +479,45 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
                         yield {
                             "type": "answer",
-                            "body": part.text if part.text else "❌ No analysis generated from the model",
+                            "body": text_chunk if text_chunk else "❌ No analysis generated from the model",
                         }
-                        full_output.append(part.text if part.text else "")
-                        output_tokens += len(part.text.split())  # Rough token estimation
-                    elif part.type == ContentType.Ground:
-                        yield {
-                            "type": "google_search_ground",
-                            "body": part.ground.text if part.ground else "",
-                            "url": part.ground.uri if part.ground else "",
-                        }
-                    else:
-                        logger.warning(f"Unknown content part {str(part)}")
+                        full_output.append(text_chunk if text_chunk else "")
+                        output_tokens += len(text_chunk.split())
+                else:
+                    for part in self.agent.generate_content(
+                        [financial_context, analysis_prompt],
+                        model_name=MODEL_NAME,
+                        stream=True,
+                        thought=True,
+                        use_google_search=use_google_search,
+                        use_url_context=use_url_context,
+                    ):
+                        if part.type == ContentType.Thought:
+                            yield {"type": "thinking_status", "body": part.text}
+                        elif part.type == ContentType.Answer:
+                            if not first_chunk_received:
+                                # This is important to track time-to-first-token in Langfuse
+                                completion_start_time = datetime.now(timezone.utc)
+                                t_first_chunk = time.perf_counter()
+                                ttft = t_first_chunk - t_model
+                                logger.info(f"Profiling CompanySpecificFinanceHandler time_to_first_token: {ttft:.4f}s")
+                                gen.update(completion_start_time=completion_start_time)
+                                first_chunk_received = True
+
+                            yield {
+                                "type": "answer",
+                                "body": part.text if part.text else "❌ No analysis generated from the model",
+                            }
+                            full_output.append(part.text if part.text else "")
+                            output_tokens += len(part.text.split())  # Rough token estimation
+                        elif part.type == ContentType.Ground:
+                            yield {
+                                "type": "google_search_ground",
+                                "body": part.ground.text if part.ground else "",
+                                "url": part.ground.uri if part.ground else "",
+                            }
+                        else:
+                            logger.warning(f"Unknown content part {str(part)}")
 
                 # Update generation with output and usage
                 gen.update(
@@ -423,6 +528,8 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                         "data_requirement": data_requirement,
                         "use_google_search": use_google_search,
                         "use_url_context": use_url_context,
+                        "provider": provider,
+                        "model": model_used,
                     },
                 )
 
@@ -430,7 +537,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             logger.info(f"Profiling CompanySpecificFinanceHandler model_generate_content: {t_model_end - t_model:.4f}s")
 
             # Yield the model used for answer
-            yield {"type": "model_used", "body": MODEL_NAME}
+            yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
             async for related_q in self._generate_related_questions(question):
