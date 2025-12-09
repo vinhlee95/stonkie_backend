@@ -16,11 +16,21 @@ class OpenRouterClient:
         self.default_model = default_model or os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def stream_chat(self, prompt: str, model: str | None = None) -> Iterable[str]:
+    def stream_chat(self, prompt: str, model: str | None = None, use_google_search: bool = False) -> Iterable[str]:
         """
         Stream chat completions as plain text chunks.
+
+        Args:
+            prompt: The user prompt
+            model: Model name (defaults to self.default_model)
+            use_google_search: If True, appends ':online' to model name to enable web search
         """
         chosen_model = model or self.default_model
+
+        # OpenRouter enables web search by appending ':online' to the model name
+        if use_google_search and not chosen_model.endswith(":online"):
+            chosen_model = f"{chosen_model}:online"
+
         response = self.client.chat.completions.create(
             model=chosen_model,
             messages=[{"role": "user", "content": prompt}],

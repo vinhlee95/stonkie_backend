@@ -138,7 +138,9 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     provider = "openrouter"
                     model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
                     gen.update(model=model_used, metadata={"provider": provider})
-                    for text_chunk in or_client.stream_chat(prompt, model=model_used):
+                    for text_chunk in or_client.stream_chat(
+                        prompt, model=model_used, use_google_search=use_google_search
+                    ):
                         if not first_chunk_received:
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
@@ -274,7 +276,9 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                     provider = "openrouter"
                     model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
                     gen.update(model=model_used, metadata={"provider": provider})
-                    for text_chunk in or_client.stream_chat(prompt, model=model_used):
+                    for text_chunk in or_client.stream_chat(
+                        prompt, model=model_used, use_google_search=use_google_search
+                    ):
                         if not first_chunk_received:
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
@@ -468,7 +472,9 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                     model_used = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
                     gen.update(model=model_used, metadata={"provider": provider})
                     # Note: OpenRouter doesn't support thought mode, so we skip it
-                    for text_chunk in or_client.stream_chat(combined_prompt, model=model_used):
+                    for text_chunk in or_client.stream_chat(
+                        combined_prompt, model=model_used, use_google_search=use_google_search
+                    ):
                         if not first_chunk_received:
                             completion_start_time = datetime.now(timezone.utc)
                             t_first_chunk = time.perf_counter()
