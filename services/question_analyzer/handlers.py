@@ -210,7 +210,9 @@ class CompanyGeneralHandler(BaseQuestionHandler):
 
                 Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.
-                Make sure to specify the source of the answer at the end of the analysis.
+                
+                Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
+                Sources: [Source Name](Source Link), [Source Name](Source Link)
             """
 
             t_model = time.perf_counter()
@@ -361,12 +363,21 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 to answer to the question.
             """
 
+            source_prompt = """
+                Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
+                Sources: [Source Name](Source Link), [Source Name](Source Link)
+
+                If the source is from the financial statements provided in the context, no need to link, but mention clearly which statement it is from and which year or quarter it pertains to.
+                MAKE SURE TO FOLLOW THIS FORMAT: 
+                Sources: Annual Report 2023, Quarterly Statement Q1 2024
+            """
+
             t_model = time.perf_counter()
             agent = MultiAgent()
             model_used = agent.model_name
 
             # Combine prompts for OpenRouter (which expects a single string)
-            combined_prompt = f"{financial_context}\n\n{analysis_prompt}"
+            combined_prompt = f"{financial_context}\n\n{analysis_prompt}\n\n{source_prompt}"
 
             with langfuse.start_as_current_observation(
                 as_type="generation", name="company-specific-finance-llm-call", model=model_used
