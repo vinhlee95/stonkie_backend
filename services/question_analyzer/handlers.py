@@ -9,6 +9,7 @@ from langfuse import get_client
 
 from agent.agent import Agent
 from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 from connectors.company import CompanyConnector
 
@@ -85,7 +86,7 @@ class BaseQuestionHandler:
                 Is the current valuation sustainable given industry trends?
             """
 
-            agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
             # Stream complete questions one at a time
             for question in agent.generate_content_by_lines(

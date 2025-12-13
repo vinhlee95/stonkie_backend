@@ -2,14 +2,16 @@ import json
 
 from openai import OpenAI
 
+from ai_models.model_name import ModelName
+
 
 class OpenAIModel:
     def __init__(self, model_name: str | None = None):
         # https://platform.openai.com/docs/models
         self.client = OpenAI()
-        self.model = model_name or "gpt-4.1-mini"
+        self.model = model_name or ModelName.Gpt4Mini
 
-    def generate_embedding(self, input: str, model: str = "text-embedding-3-small"):
+    def generate_embedding(self, input: str, model: str = ModelName.TextEmbeddingSmall):
         response = self.client.embeddings.create(model=model, input=input, encoding_format="float")
 
         return response.data[0].embedding

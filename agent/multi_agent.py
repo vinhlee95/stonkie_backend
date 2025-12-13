@@ -1,22 +1,26 @@
 import re
 from typing import Iterable
 
+from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
 
 class MultiAgent:
     """Wrapper class for OpenRouter client to provide consistent interface across codebase"""
 
-    def __init__(self, model_name: str | None = None):
+    def __init__(self, model_name: ModelName | str | None = None):
         """
         Initialize the OpenRouter client wrapper
 
         Args:
-            model_name: The model to use (defaults to OpenRouterClient's default)
+            model_name: The model to use (ModelName enum or string, defaults to ModelName.Gemini25Flash)
+                       Uses generic model names - OpenRouter-specific formatting is handled internally
             api_key: OpenRouter API key (defaults to env var OPENROUTER_API_KEY)
             base_url: OpenRouter base URL (defaults to env var or https://openrouter.ai/api/v1)
         """
-        self.client = OpenRouterClient(model_name=model_name)
+        # Convert enum to string if needed
+        model_str = model_name.value if isinstance(model_name, ModelName) else model_name
+        self.client = OpenRouterClient(model_name=model_str)
 
     @property
     def model_name(self) -> str:
@@ -69,7 +73,8 @@ class MultiAgent:
             Complete, cleaned lines of text one at a time
 
         Example:
-            >>> agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+            >>> from ai_models.model_name import ModelName
+            >>> agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
             >>> prompt = "Generate 3 questions about Python, one per line"
             >>> for question in agent.generate_content_by_lines(prompt, max_lines=3):
             ...     print(f"Question: {question}")

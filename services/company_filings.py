@@ -95,7 +95,7 @@ async def analyze_financial_report(
             - Do NOT number the questions or add any prefixes
         """
 
-        related_agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+        related_agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
         for question in related_agent.generate_content_by_lines(
             prompt=related_question_prompt,
             use_google_search=False,

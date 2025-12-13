@@ -1,6 +1,7 @@
 from logging import getLogger
 
 from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 
 company_connector = CompanyConnector()
@@ -16,7 +17,7 @@ DEFAULT_QUESTIONS = [
 
 async def get_general_frequent_ask_questions():
     try:
-        agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+        agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
         prompt = """
             Generate exactly 3 questions that customers would ask about a particular financial concept such as revenue, net income, cash flow, etc.
@@ -57,7 +58,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
     }
 
     try:
-        agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+        agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
         prompt = f"""
             The company name is {company.name}. Their ticker name is {ticker}.
