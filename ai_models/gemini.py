@@ -38,7 +38,7 @@ load_dotenv()
 class GeminiModel:
     def __init__(self, model_name: str | None = None):
         """Initialize the Gemini agent with API key configuration"""
-        self.MODEL_NAME = model_name or ModelName.GeminiFlash
+        self.MODEL_NAME = model_name or ModelName.Gemini25Flash
         self.client = genai.Client(
             api_key=os.getenv("GEMINI_API_KEY"),
         )

@@ -11,14 +11,9 @@ OPENROUTER_MODEL_MAP: Dict[str, str] = {
     # Map generic Gemini names to OpenRouter format
     "gemini-2.5-flash-lite": "google/gemini-2.5-flash-lite",
     "gemini-2.5-flash": "google/gemini-2.5-flash",
-    "gemini-2.5-pro": "google/gemini-2.5-pro",
-    "gemini-2.5-flash-exp-0827": "google/gemini-2.5-flash-exp-0827",
-    "gemini-2.0-flash-thinking-exp-01-21": "google/gemini-2.0-flash-thinking-exp-01-21",
-    "gemini-2.0-flash-001": "openrouter/google/gemini-2.0-flash-001",
     # OpenAI models pass through unchanged
     "gpt-4.1-mini": "gpt-4.1-mini",
     "text-embedding-3-small": "text-embedding-3-small",
-    "text-embedding-3-large": "text-embedding-3-large",
 }
 
 
