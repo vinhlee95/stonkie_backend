@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import AsyncGenerator, Generator, Optional
+from typing import Generator, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -164,33 +164,3 @@ class GeminiModel:
                         yield ContentPart(type=ContentType.Answer, text=part.text)
 
         return stream_generator()
-
-    async def generate_content_and_normalize_results(
-        self, prompt, model_name: str | None = None, **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """
-        Generate content and normalize the streaming results by processing complete lines
-        and cleaning up the output format.
-
-        Args:
-            prompt: The input prompt
-            **kwargs: Additional parameters for content generation
-
-        Yields:
-            str: Cleaned and normalized text chunks
-        """
-        buffer = ""
-        for part in self.generate_content(prompt, model_name, **kwargs):
-            buffer += part.text
-            # Process complete lines if we have a newline
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                clean_line = line.replace("*", "").strip()
-                if clean_line:
-                    yield clean_line
-
-        # Don't forget to process any remaining text in the buffer
-        if buffer:
-            clean_line = buffer.replace("*", "").strip()
-            if clean_line:
-                yield clean_line

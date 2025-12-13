@@ -1,4 +1,4 @@
-from typing import Any, AsyncGenerator, Iterable, Literal, Union
+from typing import Any, Iterable, Literal, Union
 
 from ai_models.gemini import ContentPart, GeminiModel
 from ai_models.openai import OpenAIModel
@@ -50,16 +50,6 @@ class Agent:
             use_url_context=use_url_context,
             **kwargs,
         )
-
-    async def generate_content_and_normalize_results(
-        self, prompt, model_name: str | None = None, **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """
-        Generate content using the configured AI model and normalize the results
-        """
-        content_generator = self.model.generate_content_and_normalize_results(prompt, model_name, **kwargs)
-        async for content in content_generator:
-            yield content
 
     def generate_embedding(self, input: str, model: str = "text-embedding-3-small"):
         return self.model.generate_embedding(input=input, model=model)

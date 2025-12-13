@@ -2,6 +2,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List
 
 from agent.agent import Agent
+from agent.multi_agent import MultiAgent
 from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
@@ -86,15 +87,23 @@ async def analyze_financial_report(
                 yield {"type": "answer", "body": part.text if part.text else "❌ No analysis generated from the model"}
 
         related_question_prompt = f"""
-            Based on the analysis: {answers} for {ticker.upper()}, 
-            suggest 3 short and insightful follow-up questions an investor might have about the company's financial health or future outlook.
-            Make sure that follow-up questions are short, less than 15 words each.
-            Return only the questions, do not return the number or order of the question.
+            Based on the analysis: {answers} for {ticker.upper()}, suggest exactly 3 short and insightful follow-up questions an investor might have about the company's financial health or future outlook.
+
+            Requirements:
+            - Keep follow-up questions short, less than 15 words each
+            - Put EACH question on its OWN LINE
+            - Do NOT number the questions or add any prefixes
         """
-        response = agent.generate_content_and_normalize_results(
-            related_question_prompt, model_name=ModelName.Gemini25FlashLite
-        )
-        async for question in response:
+
+        related_agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+        for question in related_agent.generate_content_by_lines(
+            prompt=related_question_prompt,
+            use_google_search=False,
+            max_lines=3,
+            min_line_length=10,
+            strip_numbering=True,
+            strip_markdown=True,
+        ):
             yield {"type": "related_question", "body": question}
     except Exception as e:
         logger.error(f"Error analyzing financial report for {ticker} ({period_end_at}): {str(e)}")
