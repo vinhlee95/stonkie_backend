@@ -1,6 +1,7 @@
 """Question handlers for different types of financial questions."""
 
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
@@ -9,7 +10,6 @@ from langfuse import get_client
 
 from agent.agent import Agent
 from agent.multi_agent import MultiAgent
-from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 from connectors.company import CompanyConnector
 
@@ -52,44 +52,73 @@ class BaseQuestionHandler:
 
     async def _generate_related_questions(self, original_question: str) -> AsyncGenerator[Dict[str, str], None]:
         """
-        Generate related follow-up questions.
+        Generate related follow-up questions using MultiAgent with streaming.
+
+        Buffers streaming chunks to yield complete questions one at a time.
 
         Args:
             original_question: The original question asked
 
         Yields:
-            Dictionary with type "related_question" and body containing the question
+            Dictionary with type "related_question" and body containing the complete question
         """
         try:
             prompt = f"""
                 Based on this original question: "{original_question}"
-                
-                Generate 3 high-quality follow-up questions that a curious investor might naturally ask next.
-                
+
+                Generate exactly 3 high-quality follow-up questions that a curious investor might naturally ask next.
+
                 Requirements:
                 - Each question should explore a DIFFERENT dimension:
-                  * Question 1: Go deeper into the same topic (more specific/detailed)
-                  * Question 2: Compare or contrast with a related concept, company, or time period
-                  * Question 3: Explore a related but adjacent topic (e.g., if original was about revenue, ask about profitability or cash flow)
+                * Question 1: Go deeper into the same topic (more specific/detailed)
+                * Question 2: Compare or contrast with a related concept, company, or time period
+                * Question 3: Explore a related but adjacent topic (e.g., if original was about revenue, ask about profitability or cash flow)
                 - Keep questions between 8-15 words
                 - Make them actionable and specific (avoid vague questions like "What else should I know?")
                 - Frame questions naturally, as a user would ask them
                 - Ensure questions are relevant to the original context (financial analysis, company performance, market trends)
                 - Do NOT number the questions or add any prefixes
-                
-                Examples of high-quality related questions:
-                - "How does Apple's gross margin compare to its competitors?"
-                - "What was the main driver behind Tesla's revenue growth in Q3 2024?"
-                - "Is Microsoft's current P/E ratio sustainable given industry trends?"
-                - "How has Amazon's operating cash flow changed over the past 3 years?"
+                - Put EACH question on its OWN LINE
+
+                Output format (one question per line):
+                How does Apple's gross margin compare to its competitors?
+                What was the main driver behind revenue growth last quarter?
+                Is the current valuation sustainable given industry trends?
             """
-            response = self.agent.generate_content_and_normalize_results(
-                [prompt], model_name=ModelName.Gemini25FlashLite
-            )
-            async for answer in response:
-                yield {"type": "related_question", "body": answer}
+
+            agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
+
+            buffer = ""
+            questions_yielded = 0
+            max_questions = 3
+
+            # Accumulate chunks and extract complete questions
+            for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
+                buffer += chunk
+
+                # Process complete lines
+                while "\n" in buffer and questions_yielded < max_questions:
+                    line, buffer = buffer.split("\n", 1)
+
+                    # Clean the line - remove numbers, asterisks, extra whitespace
+                    clean_line = re.sub(r"^\d+[\.\)]\s*", "", line)  # Remove numbering
+                    clean_line = clean_line.replace("*", "").strip()  # Remove markdown
+
+                    # Validate and yield complete questions
+                    if clean_line and len(clean_line) > 10:  # Minimum meaningful question length
+                        yield {"type": "related_question", "body": clean_line}
+                        questions_yielded += 1
+
+            # Process any remaining content in buffer
+            if buffer.strip() and questions_yielded < max_questions:
+                clean_line = re.sub(r"^\d+[\.\)]\s*", "", buffer)
+                clean_line = clean_line.replace("*", "").strip()
+
+                if clean_line and len(clean_line) > 10:
+                    yield {"type": "related_question", "body": clean_line}
+
         except Exception as e:
-            logger.error(f"Error generating related questions: {e}")
+            logger.error(f"Error generating related questions with MultiAgent: {e}")
             # Silently fail - related questions are non-critical
 
 
