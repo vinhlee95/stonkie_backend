@@ -63,9 +63,25 @@ class BaseQuestionHandler:
         try:
             prompt = f"""
                 Based on this original question: "{original_question}"
-                Generate 3 related but different follow-up questions that users might want to ask next.
-                Make sure related questions are short and concise. Ideally, less than 15 words each.
-                Return only the questions, do not return the number or order of the question.
+                
+                Generate 3 high-quality follow-up questions that a curious investor might naturally ask next.
+                
+                Requirements:
+                - Each question should explore a DIFFERENT dimension:
+                  * Question 1: Go deeper into the same topic (more specific/detailed)
+                  * Question 2: Compare or contrast with a related concept, company, or time period
+                  * Question 3: Explore a related but adjacent topic (e.g., if original was about revenue, ask about profitability or cash flow)
+                - Keep questions between 8-15 words
+                - Make them actionable and specific (avoid vague questions like "What else should I know?")
+                - Frame questions naturally, as a user would ask them
+                - Ensure questions are relevant to the original context (financial analysis, company performance, market trends)
+                - Do NOT number the questions or add any prefixes
+                
+                Examples of high-quality related questions:
+                - "How does Apple's gross margin compare to its competitors?"
+                - "What was the main driver behind Tesla's revenue growth in Q3 2024?"
+                - "Is Microsoft's current P/E ratio sustainable given industry trends?"
+                - "How has Amazon's operating cash flow changed over the past 3 years?"
             """
             response = self.agent.generate_content_and_normalize_results(
                 [prompt], model_name=ModelName.Gemini25FlashLite
