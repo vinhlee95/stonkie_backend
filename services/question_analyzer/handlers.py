@@ -1,7 +1,6 @@
 """Question handlers for different types of financial questions."""
 
 import logging
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
@@ -88,34 +87,16 @@ class BaseQuestionHandler:
 
             agent = MultiAgent(model_name="google/gemini-2.5-flash-lite")
 
-            buffer = ""
-            questions_yielded = 0
-            max_questions = 3
-
-            # Accumulate chunks and extract complete questions
-            for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
-                buffer += chunk
-
-                # Process complete lines
-                while "\n" in buffer and questions_yielded < max_questions:
-                    line, buffer = buffer.split("\n", 1)
-
-                    # Clean the line - remove numbers, asterisks, extra whitespace
-                    clean_line = re.sub(r"^\d+[\.\)]\s*", "", line)  # Remove numbering
-                    clean_line = clean_line.replace("*", "").strip()  # Remove markdown
-
-                    # Validate and yield complete questions
-                    if clean_line and len(clean_line) > 10:  # Minimum meaningful question length
-                        yield {"type": "related_question", "body": clean_line}
-                        questions_yielded += 1
-
-            # Process any remaining content in buffer
-            if buffer.strip() and questions_yielded < max_questions:
-                clean_line = re.sub(r"^\d+[\.\)]\s*", "", buffer)
-                clean_line = clean_line.replace("*", "").strip()
-
-                if clean_line and len(clean_line) > 10:
-                    yield {"type": "related_question", "body": clean_line}
+            # Stream complete questions one at a time
+            for question in agent.generate_content_by_lines(
+                prompt=prompt,
+                use_google_search=False,
+                max_lines=3,
+                min_line_length=10,
+                strip_numbering=True,
+                strip_markdown=True,
+            ):
+                yield {"type": "related_question", "body": question}
 
         except Exception as e:
             logger.error(f"Error generating related questions with MultiAgent: {e}")
