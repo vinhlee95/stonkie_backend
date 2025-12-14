@@ -127,7 +127,8 @@ class CompanyConnector:
                 # Refresh the data
                 updated_company_data = self._get_fresh_company_data(ticker)
                 if not updated_company_data:
-                    return None
+                    # Just return existing data if unable to refresh
+                    return CompanyFundamentalDto(**data.data)
 
                 if updated_company_data.name == "" or updated_company_data.market_cap == 0:
                     logger.error(f"Skip refreshing fundamental data for ticker {ticker} because it is empty")
