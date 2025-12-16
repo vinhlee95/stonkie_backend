@@ -41,7 +41,7 @@ class FinancialAnalyzer:
         self.company_financial_connector = company_financial_connector or CompanyFinancialConnector()
 
         # Initialize components
-        self.classifier = QuestionClassifier(self.agent)
+        self.classifier = QuestionClassifier()
         self.data_optimizer = FinancialDataOptimizer(self.company_financial_connector)
 
         # Initialize handlers

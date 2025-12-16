@@ -6,7 +6,7 @@ import re
 import time
 from typing import Optional
 
-from agent.agent import Agent
+from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 
 from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 class QuestionClassifier:
     """Classifies questions to determine handling strategy."""
 
-    def __init__(self, agent: Optional[Agent] = None):
+    def __init__(self, agent: Optional[MultiAgent] = None):
         """
         Initialize the classifier.
 
         Args:
             agent: AI agent for classification. Creates default if not provided.
         """
-        self.agent = agent or Agent(model_type="gemini")
+        self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
     async def classify_question_type(self, question: str) -> Optional[str]:
         """
@@ -60,11 +60,9 @@ class QuestionClassifier:
         Question to classify: {question}"""
 
         try:
-            response = self.agent.generate_content(
-                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
-            )
-
-            response_text = self._extract_text_from_response(response)
+            response_text = ""
+            for chunk in self.agent.generate_content(prompt=prompt):
+                response_text += chunk
 
             if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
                 return QuestionType.COMPANY_SPECIFIC_FINANCE.value
@@ -119,11 +117,11 @@ class QuestionClassifier:
         """
 
         try:
-            response = self.agent.generate_content(
-                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
-            )
+            response_text = ""
+            for chunk in self.agent.generate_content(prompt=prompt):
+                response_text += chunk
 
-            response_text = self._extract_text_from_response(response).lower().strip()
+            response_text = response_text.lower().strip()
 
             if "detailed" in response_text:
                 return FinancialDataRequirement.DETAILED
@@ -186,11 +184,10 @@ class QuestionClassifier:
         """
 
         try:
-            response = self.agent.generate_content(
-                prompt=[prompt], model_name=ModelName.Gemini25FlashLite, stream=False
-            )
+            response_text = ""
+            for chunk in self.agent.generate_content(prompt=prompt):
+                response_text += chunk
 
-            response_text = self._extract_text_from_response(response)
             parsed = self._parse_json_from_response(response_text)
 
             return FinancialPeriodRequirement(
@@ -206,24 +203,6 @@ class QuestionClassifier:
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_period_requirement: {t_end - t_start:.4f}s")
-
-    def _extract_text_from_response(self, response) -> str:
-        """Extract text from AI model response."""
-        response_text = ""
-        try:
-            response_text = getattr(response, "text", "")
-        except Exception:
-            pass
-
-        if not response_text:
-            try:
-                for part in response:
-                    if hasattr(part, "text"):
-                        response_text += part.text
-            except Exception:
-                pass
-
-        return response_text.strip()
 
     def _parse_json_from_response(self, response_text: str) -> dict:
         """Parse JSON from response, handling markdown code blocks."""

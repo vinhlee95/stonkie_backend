@@ -328,7 +328,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         """
         super().__init__(agent, company_connector)
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
-        self.classifier = classifier or QuestionClassifier(agent)
+        self.classifier = classifier or QuestionClassifier()
 
     async def handle(
         self, ticker: str, question: str, use_google_search: bool, use_url_context: bool
