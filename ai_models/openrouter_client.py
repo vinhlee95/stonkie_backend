@@ -7,17 +7,14 @@ from ai_models.model_name import ModelName
 
 # OpenRouter-specific model name mappings
 # OpenRouter requires 'google/' prefix for Gemini models
-OPENROUTER_MODEL_MAP: Dict[str, str] = {
+OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Map generic Gemini names to OpenRouter format
-    "gemini-2.5-flash-lite": "google/gemini-2.5-flash-lite",
-    "gemini-2.5-flash": "google/gemini-2.5-flash",
-    # OpenAI models pass through unchanged
-    "gpt-4.1-mini": "gpt-4.1-mini",
-    "text-embedding-3-small": "text-embedding-3-small",
+    ModelName.Gemini25FlashLite: "google/gemini-2.5-flash-lite",
+    ModelName.Gemini25Flash: "google/gemini-2.5-flash",
 }
 
 
-def get_openrouter_model_name(model_name: str) -> str:
+def get_openrouter_model_name(model_name: ModelName) -> str:
     """Convert generic model name to OpenRouter-specific format.
 
     Args:
@@ -31,7 +28,7 @@ def get_openrouter_model_name(model_name: str) -> str:
 
 
 class OpenRouterClient:
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, model_name: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, model_name: ModelName | None = None):
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY is required to use OpenRouterClient")
