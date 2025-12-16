@@ -6,6 +6,8 @@ import re
 import time
 from typing import Optional
 
+from langfuse import observe
+
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 
@@ -26,6 +28,7 @@ class QuestionClassifier:
         """
         self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
+    @observe(name="classify_question_type")
     async def classify_question_type(self, question: str) -> Optional[str]:
         """
         Classify question as general finance, company general, or company-specific finance.
@@ -80,6 +83,7 @@ class QuestionClassifier:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_question_type: {t_end - t_start:.4f}s")
 
+    @observe(name="classify_data_requirement")
     async def classify_data_requirement(self, ticker: str, question: str) -> FinancialDataRequirement:
         """
         Determine what level of financial data is needed.
@@ -137,6 +141,7 @@ class QuestionClassifier:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_data_requirement: {t_end - t_start:.4f}s")
 
+    @observe(name="classify_period_requirement")
     async def classify_period_requirement(self, ticker: str, question: str) -> FinancialPeriodRequirement:
         """
         Determine which specific financial periods are needed.

@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from langfuse import get_client
+from langfuse import get_client, observe
 
 from agent.agent import Agent
 from agent.multi_agent import MultiAgent
@@ -50,6 +50,7 @@ class BaseQuestionHandler:
         self.agent = agent or Agent(model_type="gemini")
         self.company_connector = company_connector or CompanyConnector()
 
+    @observe(name="generate_related_questions")
     async def _generate_related_questions(self, original_question: str) -> AsyncGenerator[Dict[str, str], None]:
         """
         Generate related follow-up questions using MultiAgent with streaming.
