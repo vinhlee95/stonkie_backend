@@ -1,9 +1,12 @@
 """Question handlers for different types of financial questions."""
 
+import asyncio
+import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langfuse import get_client, observe
 
@@ -331,6 +334,229 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
         self.classifier = classifier or QuestionClassifier()
 
+    async def _analyze_question_dimensions(self, question: str, ticker: str) -> Optional[List[Dict]]:
+        """
+        Analyze the question and generate relevant section titles with focus points.
+
+        Args:
+            question: The financial question being asked
+            ticker: Company ticker symbol
+
+        Returns:
+            List of section dictionaries with 'title' and 'focus_points', or None if failed
+        """
+        try:
+            prompt = f"""
+                You are an expert financial analyst. Analyze this question about {ticker.upper()} and determine the most relevant sections for a comprehensive answer.
+
+                Question: {question}
+
+                Identify the 2 most important aspects to cover. These will form the main body of the analysis (a summary section will be added automatically).
+
+                Return ONLY a JSON object (no markdown, no explanation) with this exact structure:
+                {{
+                    "sections": [
+                        {{
+                            "title": "Catchy Section Title (max 6 words)",
+                            "focus_points": [
+                                "Specific aspect to analyze",
+                                "Metrics or data points to examine",
+                                "Comparisons or context to provide"
+                            ]
+                        }}
+                    ]
+                }}
+
+                **Examples:**
+
+                Question: "How is Apple's revenue growing?"
+                {{
+                    "sections": [
+                        {{
+                            "title": "Revenue Growth Trajectory",
+                            "focus_points": [
+                                "Analyze revenue growth rates year-over-year",
+                                "Identify key product lines driving growth",
+                                "Compare against industry peers"
+                            ]
+                        }},
+                        {{
+                            "title": "Growth Sustainability & Outlook",
+                            "focus_points": [
+                                "Assess growth consistency and patterns",
+                                "Evaluate market opportunities and risks",
+                                "Project future growth potential"
+                            ]
+                        }}
+                    ]
+                }}
+
+                Question: "What is Tesla's profit margin?"
+                {{
+                    "sections": [
+                        {{
+                            "title": "Profitability Metrics",
+                            "focus_points": [
+                                "Calculate gross and net profit margins",
+                                "Analyze margin trends over recent periods"
+                            ]
+                        }},
+                        {{
+                            "title": "Competitive Comparison",
+                            "focus_points": [
+                                "Compare with automotive industry benchmarks",
+                                "Assess margin sustainability and risks"
+                            ]
+                        }}
+                    ]
+                }}
+
+                Question: "How is chip business competition going on?"
+                {{
+                    "sections": [
+                        {{
+                            "title": "Competitive Market Position",
+                            "focus_points": [
+                                "Identify major competitors and market share",
+                                "Analyze competitive advantages and weaknesses",
+                                "Assess pricing power and differentiation"
+                            ]
+                        }},
+                        {{
+                            "title": "Market Dynamics & Outlook",
+                            "focus_points": [
+                                "Evaluate demand trends and growth drivers",
+                                "Examine supply chain constraints and opportunities",
+                                "Project future competitive landscape"
+                            ]
+                        }}
+                    ]
+                }}
+
+                **Guidelines:**
+                - Generate EXACTLY 2 sections (the most relevant aspects)
+                - Section titles must be catchy, professional, and max 6 words
+                - Each section should have 2-4 focus points
+                - Focus points should be specific and actionable
+                - Return ONLY valid JSON, no markdown code blocks
+            """
+
+            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+
+            # Collect full response with timeout
+            response_chunks = []
+
+            async def collect_response():
+                for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
+                    response_chunks.append(chunk)
+
+            await asyncio.wait_for(collect_response(), timeout=3.0)
+            full_response = "".join(response_chunks)
+
+            # Parse and validate JSON
+            parsed_data = self._parse_dimension_json(full_response)
+            if not parsed_data:
+                return None
+
+            sections = parsed_data.get("sections", [])
+            if not self._validate_section_titles(sections):
+                return None
+
+            return sections
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout generating dimension sections for question: {question}")
+            return None
+        except Exception as e:
+            logger.error(f"Error generating dimension sections: {e}")
+            return None
+
+    def _parse_dimension_json(self, response: str) -> Optional[Dict]:
+        """
+        Parse JSON from AI response, handling markdown code blocks.
+
+        Args:
+            response: Raw response from AI model
+
+        Returns:
+            Parsed dictionary or None if parsing failed
+        """
+        try:
+            # Try direct JSON parsing first
+            return json.loads(response)
+        except json.JSONDecodeError:
+            # Try extracting from markdown code block
+            try:
+                match = re.search(r"```(?:json)?\s*({.*?})\s*```", response, re.DOTALL)
+                if match:
+                    return json.loads(match.group(1))
+
+                # Try finding any JSON object in the response
+                match = re.search(r"{.*}", response, re.DOTALL)
+                if match:
+                    return json.loads(match.group(0))
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse dimension JSON from response: {e}")
+
+        logger.error(f"Could not extract valid JSON from response: {response[:200]}...")
+        return None
+
+    def _validate_section_titles(self, sections: List[Dict]) -> bool:
+        """
+        Validate section structure and titles.
+
+        Args:
+            sections: List of section dictionaries
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if not sections or not isinstance(sections, list):
+            logger.error("Sections is not a valid list")
+            return False
+
+        if len(sections) != 2:
+            logger.error(f"Invalid number of sections: {len(sections)} (must be exactly 2)")
+            return False
+
+        for i, section in enumerate(sections):
+            # Check required keys
+            if "title" not in section or "focus_points" not in section:
+                logger.error(f"Section {i} missing required keys: {section}")
+                return False
+
+            title = section["title"]
+            focus_points = section["focus_points"]
+
+            # Validate title
+            if not isinstance(title, str) or not title.strip():
+                logger.error(f"Section {i} has invalid title: {title}")
+                return False
+
+            # Check word count (max 6 words)
+            word_count = len(title.split())
+            if word_count > 6:
+                logger.error(f"Section {i} title too long ({word_count} words): {title}")
+                return False
+
+            # Check for special characters (allow letters, numbers, spaces, &, -)
+            if re.search(r"[^a-zA-Z0-9\s&-]", title):
+                logger.error(f"Section {i} title contains special characters: {title}")
+                return False
+
+            # Validate focus points
+            if not isinstance(focus_points, list) or len(focus_points) == 0:
+                logger.error(f"Section {i} has invalid focus_points: {focus_points}")
+                return False
+
+            for j, point in enumerate(focus_points):
+                if not isinstance(point, str) or not point.strip():
+                    logger.error(f"Section {i} focus_point {j} is invalid: {point}")
+                    return False
+
+        return True
+
     async def handle(
         self, ticker: str, question: str, use_google_search: bool, use_url_context: bool
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -368,10 +594,44 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 "body": f"Retrieving {period_requirement.period_type} financial data for analysis...",
             }
 
-        # Fetch optimized data
-        company_fundamental, annual_statements, quarterly_statements = await self.data_optimizer.fetch_optimized_data(
-            ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
-        )
+        # Run dimension analysis in parallel with data fetching (for detailed analysis)
+        dimension_sections = None
+        if data_requirement == FinancialDataRequirement.DETAILED:
+            yield {"type": "thinking_status", "body": "Determining key analysis dimensions..."}
+
+            # Execute in parallel to minimize latency
+            results = await asyncio.gather(
+                self._analyze_question_dimensions(question, ticker),
+                self.data_optimizer.fetch_optimized_data(
+                    ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
+                ),
+                return_exceptions=True,
+            )
+
+            # Extract results and handle exceptions
+            dimension_result = results[0]
+            data_result = results[1]
+
+            if isinstance(dimension_result, Exception):
+                logger.error(f"Failed to generate dimension sections: {dimension_result}")
+                dimension_sections = None
+            else:
+                dimension_sections = dimension_result
+
+            if isinstance(data_result, Exception):
+                logger.error(f"Failed to fetch financial data: {data_result}")
+                raise data_result
+            else:
+                company_fundamental, annual_statements, quarterly_statements = data_result
+        else:
+            # For non-detailed queries, just fetch data
+            (
+                company_fundamental,
+                annual_statements,
+                quarterly_statements,
+            ) = await self.data_optimizer.fetch_optimized_data(
+                ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
+            )
 
         yield {"type": "thinking_status", "body": "Analyzing data and preparing insights..."}
 
@@ -384,11 +644,13 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 company_fundamental=company_fundamental,
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
+                dimension_sections=dimension_sections,
             )
 
             analysis_prompt = """
-                Based on this financial statement, include numbers and percentages for e.g. year over year growth rates
-                to answer to the question.
+                Focus on analytical reasoning and interpretation. Use select key numbers to support your analysis,
+                but prioritize explaining WHY trends exist and WHAT drives the financial performance.
+                Include a few specific figures where they strengthen your argument, but avoid listing exhaustive metrics.
             """
 
             source_prompt = """
@@ -479,6 +741,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         company_fundamental: Optional[Dict[str, Any]],
         annual_statements: list[Dict[str, Any]],
         quarterly_statements: list[Dict[str, Any]],
+        dimension_sections: Optional[List[Dict]] = None,
     ) -> str:
         """
         Build the appropriate financial context prompt based on data requirement level.
@@ -490,6 +753,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             company_fundamental: Fundamental company data
             annual_statements: Annual financial statements
             quarterly_statements: Quarterly financial statements
+            dimension_sections: AI-generated section structure with titles and focus points
 
         Returns:
             Formatted prompt string with financial context
@@ -500,6 +764,11 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             Question: {question}
             Company: {ticker.upper()}
         """
+
+        logger.info(
+            "Building financial context for analysis",
+            {"ticker": ticker, "data_requirement": data_requirement, "dimension_sections": dimension_sections},
+        )
 
         if data_requirement == FinancialDataRequirement.NONE:
             return f"""
@@ -525,6 +794,40 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             """
 
         else:  # DETAILED
+            # Use AI-generated sections or fallback to default structure
+            sections = dimension_sections
+            if not sections or not self._validate_section_titles(sections):
+                logger.info("Using fallback section structure")
+                sections = [
+                    {
+                        "title": "Financial Performance",
+                        "focus_points": [
+                            "Analyze key metrics from the statements (revenue, net income, profit margins)",
+                            "Explain year-over-year growth/decline trends and patterns",
+                        ],
+                    },
+                    {
+                        "title": "Strategic Positioning",
+                        "focus_points": [
+                            "Industry context and competitive position",
+                            "Future outlook, opportunities, and growth risks",
+                        ],
+                    },
+                ]
+
+            # Word allocation: 80 words for summary, 160 words each for 2 main sections (total: 400)
+            summary_words = 80
+            section_words = 160
+
+            # Build dynamic section instructions for the 2 main sections
+            sections_text = ""
+            for i, section in enumerate(sections, 1):
+                sections_text += f"\n**{section['title']}**\n\n"
+                sections_text += f"(~{section_words} words) Focus on:\n"
+                for point in section["focus_points"]:
+                    sections_text += f"- {point}\n"
+                sections_text += "\n"
+
             return f"""
                 {base_context}
                 
@@ -539,17 +842,29 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 
                 **Instructions for your analysis:**
 
-                1. **Summary (approx. 50 words):** Start with a concise summary of your key findings.
+                Structure your response with EXACTLY 3 sections in this order:
+                
+                (~{summary_words} words) Provide a concise overview that previews the key findings from the two sections below. Highlight the most important takeaway.
 
-                2. **Detailed Analysis (approx. 100-150 words):**
-                   - **Financial Performance:** Analyze key metrics from the statements (revenue, net income, profit margins)
-                   - **Insightful Observations:** Explain year-over-year growth/decline and what it signifies
-                   - **Industry Context & Trends:** Compare against industry peers and market trends
+                {sections_text}
 
-                **Rules:**
+                **Formatting Guidelines:**
+                - Start each section with its title in markdown bold: **Section Title**
+                - Add a blank line after the title before starting the paragraph
+                - Each section should be a cohesive paragraph (or 2-3 short paragraphs)
+                - Use numbers strategically - select 2-4 key figures per section that best support your analysis
+                - Keep total response under 300 words
+                
+                **Analysis Rules:**
+                - PRIORITIZE REASONING: Explain WHY trends occur, WHAT drives the changes, and WHAT it means for the business
+                - STRATEGIC USE OF NUMBERS: Include specific figures only when they strengthen your argument or illustrate a key point
+                - IDENTIFY DRIVERS: Explain the underlying business factors, market conditions, or strategic decisions behind the numbers
+                - CONNECT THE DOTS: Link financial performance to business strategy, competitive position, and market dynamics
                 - NO DUPLICATION: Each sentence should add new information
-                - BE INSIGHTFUL: Provide analysis, not just data summary
-                - USE SEARCH WISELY: Get up-to-date context for industry trends
-                - CONCISE: Keep entire response under 200 words
-                - INCLUDE SOURCES: Specify sources at the end
+                - USE SEARCH WISELY: Get up-to-date context for industry trends and competitive landscape
+                
+                **Sources:**
+                At the end, clearly specify your sources in this format:
+                - If from financial statements: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
+                - If from search: "Sources: [Source Name](Source Link), [Source Name](Source Link)"
             """
