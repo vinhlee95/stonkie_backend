@@ -853,6 +853,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 - Add a blank line after the title before starting the paragraph
                 - Each section should be a cohesive paragraph (or 2-3 short paragraphs)
                 - Use numbers strategically - select 2-4 key figures per section that best support your analysis
+                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million", "5.2%" not "520 basis points")
                 - Keep total response under 300 words
                 
                 **Analysis Rules:**
