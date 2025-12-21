@@ -9,11 +9,11 @@ from langfuse import observe
 from agent.agent import Agent
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
+from services.question_analyzer import CompanySpecificFinanceHandler
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.handlers import (
     CompanyGeneralHandler,
-    CompanySpecificFinanceHandler,
     GeneralFinanceHandler,
 )
 from services.question_analyzer.types import QuestionType
