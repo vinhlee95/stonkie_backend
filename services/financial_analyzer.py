@@ -90,7 +90,7 @@ class FinancialAnalyzer:
         yield {"type": "thinking_status", "body": "Just a moment..."}
 
         # Classify the question type
-        classification = await self.classifier.classify_question_type(question)
+        classification = await self.classifier.classify_question_type(question, ticker)
         logger.info(f"Question classified as: {classification}")
 
         if not classification:

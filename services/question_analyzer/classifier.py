@@ -29,7 +29,7 @@ class QuestionClassifier:
         self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashLite)
 
     @observe(name="classify_question_type")
-    async def classify_question_type(self, question: str) -> Optional[str]:
+    async def classify_question_type(self, question: str, ticker: str) -> Optional[str]:
         """
         Classify question as general finance, company general, or company-specific finance.
 
@@ -43,7 +43,7 @@ class QuestionClassifier:
 
         prompt = f"""Classify the following question into one of these three categories:
         1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, or questions about individuals that don't require specific company financial statements
-        2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements
+        2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements, metrics, or performance
         3. '{QuestionType.COMPANY_GENERAL.value}' - for general questions about a company that don't require financial analysis
 
         Examples:
@@ -52,15 +52,21 @@ class QuestionClassifier:
         - 'How does Bill Gates' charitable giving affect his net worth?' -> {QuestionType.GENERAL_FINANCE.value}
         - 'What is Apple's revenue for the last quarter?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - 'What was Microsoft's profit margin in 2023?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - 'How is the company profit margin trending in recent quarters?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - 'What are the company financial performance trends?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - 'How is revenue growing?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - 'What is Tesla's mission statement?' -> {QuestionType.COMPANY_GENERAL.value}
         - 'Who is the CEO of Amazon?' -> {QuestionType.COMPANY_GENERAL.value}
 
         Rules:
-        - If the question requires analyzing specific company financial statements or metrics, classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - If the question asks about ANY financial metrics, performance, trends, or requires analyzing financial data (revenue, profit, margins, earnings, cash flow, debt, assets, growth, quarterly/annual results, etc.), ALWAYS classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - Financial keywords include: revenue, profit, margin, earnings, cash flow, debt, assets, liabilities, growth, performance, quarterly, annual, financial, ROE, ROI, EBITDA, operating income, net income, expenses
+        - When ticker is provided ({ticker}), questions about "the company's" financial aspects should be classified as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - If the question is about general market trends, concepts, or individuals, classify as {QuestionType.GENERAL_FINANCE.value}
-        - If the question is about company information but doesn't need financial analysis, classify as {QuestionType.COMPANY_GENERAL.value}
+        - Only use {QuestionType.COMPANY_GENERAL.value} for non-financial company information like mission, CEO, products, history, location
 
-        Question to classify: {question}"""
+        Question to classify: {question}
+        Ticker context: {ticker}"""
 
         try:
             response_text = ""
