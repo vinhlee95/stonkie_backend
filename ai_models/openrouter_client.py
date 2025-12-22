@@ -11,6 +11,7 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Map generic Gemini names to OpenRouter format
     ModelName.Gemini25FlashLite: "google/gemini-2.5-flash-lite",
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
+    ModelName.Gemini30Flash: "google/gemini-3-flash-preview",
 }
 
 
@@ -35,7 +36,8 @@ class OpenRouterClient:
 
         self.base_url = base_url or os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         # Convert generic model name to OpenRouter-specific format
-        generic_name = model_name or ModelName.Gemini25Flash
+        DEFAULT_MODEL_NAME = ModelName.Gemini30Flash
+        generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 

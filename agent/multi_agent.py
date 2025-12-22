@@ -8,19 +8,17 @@ from ai_models.openrouter_client import OpenRouterClient
 class MultiAgent:
     """Wrapper class for OpenRouter client to provide consistent interface across codebase"""
 
-    def __init__(self, model_name: ModelName | str | None = None):
+    def __init__(self, model_name: ModelName | None = None):
         """
         Initialize the OpenRouter client wrapper
 
         Args:
-            model_name: The model to use (ModelName enum or string, defaults to ModelName.Gemini25Flash)
+            model_name: The model to use (ModelName enum or string)
                        Uses generic model names - OpenRouter-specific formatting is handled internally
             api_key: OpenRouter API key (defaults to env var OPENROUTER_API_KEY)
             base_url: OpenRouter base URL (defaults to env var or https://openrouter.ai/api/v1)
         """
-        # Convert enum to string if needed
-        model_str = model_name.value if isinstance(model_name, ModelName) else model_name
-        self.client = OpenRouterClient(model_name=model_str)
+        self.client = OpenRouterClient(model_name=model_name)
 
     @property
     def model_name(self) -> str:
