@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -20,7 +20,7 @@ from services.company import (
     get_swot_analysis_for_ticker,
     handle_company_report,
 )
-from services.company_filings import analyze_financial_report, get_company_filings
+from services.company_filings import analyze_financial_report, analyze_uploaded_file, get_company_filings
 from services.company_insight import InsightType, fetch_insights_for_ticker, get_insights_for_ticker
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from services.financial_analyzer import FinancialAnalyzer
@@ -185,6 +185,65 @@ async def analyze_financial_data(ticker: str, request: Request):
         return StreamingResponse(generate_analysis(), media_type="text/event-stream")
     except Exception as e:
         logger.error(f"Error during analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Something went wrong. Please try again later.")
+
+
+@app.post("/api/companies/{ticker}/files/analyze")
+async def analyze_financial_data_with_file(
+    ticker: str,
+    file: UploadFile = File(...),
+    question: str = Form(...),
+):
+    """
+    Analyze financial statements for a given ticker symbol based on a specific question,
+    with support for file upload (multipart/form-data).
+    Streams the results using Server-Sent Events.
+
+    Args:
+        ticker (str): Company ticker symbol
+        file (UploadFile): PDF file to be analyzed
+        question (str): The question to answer about the financial data
+
+    Returns:
+        StreamingResponse: Server-sent events stream of analysis results
+    """
+    try:
+        # Validate file type
+        if not file.filename or not file.filename.endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+        # Read file content and validate size
+        file_content = await file.read()
+        file_size_mb = len(file_content) / (1024 * 1024)
+        max_size_mb = 20
+
+        if file_size_mb > max_size_mb:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size ({file_size_mb:.2f}MB) exceeds maximum allowed size of {max_size_mb}MB",
+            )
+
+        # Log file upload
+        logger.info(
+            f"Received file upload: {file.filename} ({file_size_mb:.2f}MB) for ticker {ticker.upper()} with question: {question}"
+        )
+
+        # Stream analysis from service layer
+        async def generate_analysis():
+            async for chunk in analyze_uploaded_file(
+                ticker=ticker.upper(),
+                question=question,
+                file_content=file_content,
+                filename=str(file.filename),
+            ):
+                yield json.dumps(chunk) + "\n\n"
+
+        return StreamingResponse(generate_analysis(), media_type="text/event-stream")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during file-based analysis: {str(e)}")
         raise HTTPException(status_code=500, detail="Something went wrong. Please try again later.")
 
 

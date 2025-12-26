@@ -1,3 +1,4 @@
+import base64
 import os
 from typing import Dict, Iterable
 
@@ -60,6 +61,70 @@ class OpenRouterClient:
         response = self.client.chat.completions.create(
             model=chosen_model,
             messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+
+        for event in response:
+            delta = event.choices[0].delta.content
+            if delta:
+                yield delta
+
+    # Add this new method to the OpenRouterClient class
+    def stream_chat_with_pdf(
+        self, prompt: str, pdf_content: bytes, filename: str = "document.pdf", pdf_engine: str = "pdf-text"
+    ) -> Iterable[str]:
+        """
+        Stream chat completions with PDF file input as plain text chunks.
+
+        Args:
+            prompt: The user prompt/question about the PDF
+            pdf_content: Raw bytes of the PDF file
+            filename: Name of the PDF file (for context)
+            pdf_engine: PDF parsing engine - "pdf-text" (default, faster) or "mistral-ocr" (slower, more accurate)
+
+        Yields:
+            String chunks from the streaming response
+
+        Example:
+            >>> client = OpenRouterClient()
+            >>> with open("report.pdf", "rb") as f:
+            >>>     pdf_bytes = f.read()
+            >>> for chunk in client.stream_chat_with_pdf("Summarize this report", pdf_bytes):
+            >>>     print(chunk, end="")
+        """
+        # Encode PDF to base64
+        base64_pdf = base64.b64encode(pdf_content).decode("utf-8")
+        data_url = f"data:application/pdf;base64,{base64_pdf}"
+
+        # Prepare model name with optional online search
+        chosen_model = self.model_name
+
+        # Structure messages with both text and file
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "file", "file": {"filename": filename, "file_data": data_url}},
+                ],
+            }
+        ]
+
+        # Configure PDF processing engine
+        plugins = [
+            {
+                "id": "file-parser",
+                "pdf": {
+                    "engine": pdf_engine  # "pdf-text" or "mistral-ocr"
+                },
+            }
+        ]
+
+        # Stream the response
+        response = self.client.chat.completions.create(
+            model=chosen_model,
+            messages=messages,
+            extra_body={"plugins": plugins},  # OpenAI client passes extra params via extra_body
             stream=True,
         )
 

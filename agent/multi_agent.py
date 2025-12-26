@@ -43,6 +43,25 @@ class MultiAgent:
         """
         return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search)
 
+    def generate_content_with_pdf_context(
+        self, prompt: str, pdf_content: bytes, filename: str = "document.pdf", pdf_engine: str = "pdf-text"
+    ) -> Iterable[str]:
+        """
+        Generate content using OpenRouter with PDF file input as context.
+
+        Args:
+            prompt: The user prompt/question about the PDF
+            pdf_content: Raw bytes of the PDF file
+            filename: Name of the PDF file (for context)
+            pdf_engine: The PDF processing engine to use (default: "pdf-text")
+
+        Returns:
+            Iterable of string chunks when streaming
+        """
+        return self.client.stream_chat_with_pdf(
+            prompt=prompt, pdf_content=pdf_content, filename=filename, pdf_engine=pdf_engine
+        )
+
     def generate_content_by_lines(
         self,
         prompt: str,
