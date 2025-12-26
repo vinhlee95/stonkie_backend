@@ -146,8 +146,8 @@ async def get_revenue_insights_region(ticker: str):
     return StreamingResponse(generate_insights(), media_type="text/event-stream")
 
 
-@app.post("/api/company/analyze")
-async def analyze_financial_data(request: Request):
+@app.post("/api/companies/{ticker}/analyze")
+async def analyze_financial_data(ticker: str, request: Request):
     """
     Analyze financial statements for a given ticker symbol based on a specific question,
     streaming the results using Server-Sent Events
@@ -160,7 +160,6 @@ async def analyze_financial_data(request: Request):
     try:
         body = await request.json()
         question = body.get("question")
-        ticker = body.get("ticker")
         use_google_search = body.get("useGoogleSearch", False)
         use_url_context = body.get("useUrlContext", False)
 
