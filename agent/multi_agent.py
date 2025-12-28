@@ -62,6 +62,33 @@ class MultiAgent:
             prompt=prompt, pdf_content=pdf_content, filename=filename, pdf_engine=pdf_engine
         )
 
+    def generate_content_with_pdf_url(
+        self, prompt: str, pdf_url: str, filename: str = "document.pdf", pdf_engine: str = "pdf-text"
+    ) -> Iterable[str]:
+        """
+        Generate content using OpenRouter with PDF from URL as context.
+
+        Args:
+            prompt: The user prompt/question about the PDF
+            pdf_url: URL pointing to the PDF file
+            filename: Name of the PDF file (for context)
+            pdf_engine: The PDF processing engine to use (default: "pdf-text")
+
+        Returns:
+            Iterable of string chunks when streaming
+
+        Example:
+            >>> from ai_models.model_name import ModelName
+            >>> agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            >>> url = "https://bitcoin.org/bitcoin.pdf"
+            >>> prompt = "What are the main points in this document?"
+            >>> for chunk in agent.generate_content_with_pdf_url(prompt, url):
+            ...     print(chunk, end="")
+        """
+        return self.client.stream_chat_with_pdf_url(
+            prompt=prompt, pdf_url=pdf_url, filename=filename, pdf_engine=pdf_engine
+        )
+
     def generate_content_by_lines(
         self,
         prompt: str,

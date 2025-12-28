@@ -7,6 +7,8 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from langfuse import observe
 
 from agent.agent import Agent
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
 from services.question_analyzer import CompanySpecificFinanceHandler
@@ -17,6 +19,7 @@ from services.question_analyzer.handlers import (
     GeneralFinanceHandler,
 )
 from services.question_analyzer.types import QuestionType
+from utils.url_helper import extract_first_url, strip_url_from_text, validate_pdf_url
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,22 @@ class FinancialAnalyzer:
 
         yield {"type": "thinking_status", "body": "Just a moment..."}
 
+        # Check for PDF URL in question
+        extracted_url = extract_first_url(question)
+        if extracted_url:
+            # Validate if URL points to a PDF
+            is_valid, error_message = validate_pdf_url(extracted_url)
+
+            if not is_valid:
+                yield {"type": "answer", "body": f"❌ {error_message}"}
+                return
+
+            # Handle question with PDF URL
+            yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
+            async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url):
+                yield chunk
+            return
+
         # Classify the question type
         classification = await self.classifier.classify_question_type(question, ticker)
         logger.info(f"Question classified as: {classification}")
@@ -127,6 +146,67 @@ class FinancialAnalyzer:
 
         t_end = time.perf_counter()
         logger.info(f"Profiling analyze_question total: {t_end - t_start:.4f}s")
+
+    async def _handle_pdf_url_question(
+        self, ticker: str, question: str, pdf_url: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Handle questions that include a PDF URL.
+
+        Args:
+            ticker: Stock ticker symbol
+            question: The original question containing the URL
+            pdf_url: The extracted PDF URL
+
+        Yields:
+            Dictionary chunks with analysis results
+        """
+        try:
+            # Strip URL from question to get clean question text
+            clean_question = strip_url_from_text(question, pdf_url)
+
+            # Get company name for context
+            company_data = self.company_connector.get_fundamental_data(ticker)
+            company_name = company_data.name if company_data else ticker.upper()
+
+            # Build prompt with company context
+            prompt = f"""
+                You are a financial analyst assistant analyzing a document for {company_name} ({ticker.upper()}).
+
+                User Question: {clean_question}
+
+                Please analyze the provided PDF document and answer the question comprehensively. Focus on:
+                1. Directly answering the user's specific question
+                2. Providing relevant financial data and metrics from the document
+                3. Offering insights and analysis based on the document content
+                4. Being clear and concise in your response
+
+                Answer in a professional, informative tone suitable for financial analysis.
+            """.strip()
+
+            # Initialize MultiAgent for OpenRouter PDF processing
+            multi_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+
+            # Stream response from AI model
+            try:
+                for chunk in multi_agent.generate_content_with_pdf_url(
+                    prompt=prompt,
+                    pdf_url=pdf_url,
+                    filename=f"{ticker.lower()}_document.pdf",
+                    pdf_engine="pdf-text",
+                ):
+                    yield {"type": "answer", "body": chunk}
+            except Exception as e:
+                logger.error(f"Error generating content with PDF URL: {e}")
+                yield {
+                    "type": "answer",
+                    "body": "❌ Error processing PDF document. The file may be inaccessible or too large.",
+                }
+                return
+
+        except Exception as e:
+            logger.error(f"Error handling PDF URL question: {e}")
+            yield {"type": "answer", "body": "❌ Error analyzing document. Please try again later."}
 
 
 # Factory function for backwards compatibility

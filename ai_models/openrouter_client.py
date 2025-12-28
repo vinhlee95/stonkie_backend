@@ -123,7 +123,65 @@ class OpenRouterClient:
         # Stream the response
         response = self.client.chat.completions.create(
             model=chosen_model,
-            messages=messages,
+            messages=messages,  # type: ignore
+            extra_body={"plugins": plugins},  # OpenAI client passes extra params via extra_body
+            stream=True,
+        )
+
+        for event in response:
+            delta = event.choices[0].delta.content
+            if delta:
+                yield delta
+
+    def stream_chat_with_pdf_url(
+        self, prompt: str, pdf_url: str, filename: str = "document.pdf", pdf_engine: str = "pdf-text"
+    ) -> Iterable[str]:
+        """
+        Stream chat completions with PDF from URL as plain text chunks.
+
+        Args:
+            prompt: The user prompt/question about the PDF
+            pdf_url: URL pointing to the PDF file
+            filename: Name of the PDF file (for context)
+            pdf_engine: PDF parsing engine - "pdf-text" (default, faster) or "mistral-ocr" (slower, more accurate)
+
+        Yields:
+            String chunks from the streaming response
+
+        Example:
+            >>> client = OpenRouterClient()
+            >>> url = "https://example.com/report.pdf"
+            >>> for chunk in client.stream_chat_with_pdf_url("Summarize this report", url):
+            >>>     print(chunk, end="")
+        """
+        # Prepare model name
+        chosen_model = self.model_name
+
+        # Structure messages with text and file URL
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "file", "file": {"filename": filename, "file_data": pdf_url}},
+                ],
+            }
+        ]
+
+        # Configure PDF processing engine
+        plugins = [
+            {
+                "id": "file-parser",
+                "pdf": {
+                    "engine": pdf_engine  # "pdf-text" or "mistral-ocr"
+                },
+            }
+        ]
+
+        # Stream the response
+        response = self.client.chat.completions.create(
+            model=chosen_model,
+            messages=messages,  # type: ignore
             extra_body={"plugins": plugins},  # OpenAI client passes extra params via extra_body
             stream=True,
         )
