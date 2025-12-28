@@ -102,6 +102,11 @@ class FinancialAnalyzer:
                 yield {"type": "answer", "body": f"❌ {error_message}"}
                 return
 
+            yield {
+                "type": "attachment_url",
+                "body": extracted_url,
+            }
+
             # Handle question with PDF URL
             yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
             async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url):
