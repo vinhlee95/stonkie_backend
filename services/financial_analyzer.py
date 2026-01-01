@@ -222,11 +222,11 @@ class FinancialAnalyzer:
             """.strip()
 
             # Initialize MultiAgent for OpenRouter PDF processing
-            multi_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+            agent = MultiAgent(model_name=ModelName.Gemini30Flash)
 
             # Stream response from AI model
             try:
-                for chunk in multi_agent.generate_content_with_pdf_url(
+                for chunk in agent.generate_content_with_pdf_url(
                     prompt=prompt,
                     pdf_url=pdf_url,
                     filename=f"{ticker.lower()}_document.pdf",
@@ -240,6 +240,8 @@ class FinancialAnalyzer:
                     "body": "❌ Error processing PDF document. The file may be inaccessible or too large.",
                 }
                 return
+
+            yield {"type": "model_used", "body": agent.model_name}
 
         except Exception as e:
             logger.error(f"Error handling PDF URL question: {e}")
