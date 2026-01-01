@@ -180,13 +180,45 @@ class FinancialAnalyzer:
 
                 User Question: {clean_question}
 
-                Please analyze the provided PDF document and answer the question comprehensively. Focus on:
-                1. Directly answering the user's specific question
-                2. Providing relevant financial data and metrics from the document
-                3. Offering insights and analysis based on the document content
-                4. Being clear and concise in your response
+                **Instructions for your analysis:**
 
-                Answer in a professional, informative tone suitable for financial analysis.
+                Analyze the document and organize your findings into multiple focused sections. You decide how many sections are needed to thoroughly cover the key aspects of the document that answer the user's question.
+
+                **Structure:**
+                - Start with a brief introductory paragraph (under 80 words) that directly answers the user's question
+                - Follow with multiple focused sections, each covering a distinct key aspect or finding
+                - Each section should have a bold, descriptive heading: **Section Heading**
+                - Keep each section content under 50 words - be concise and to the point
+                - Typical number of sections: 4-8 depending on document complexity and question scope
+
+                **Section Guidelines:**
+                - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
+                - Each section content should focus on ONE key finding or aspect
+                - Include specific numbers and metrics where relevant
+                - Highlight significant changes, trends, or anomalies
+                - Bold important figures and percentages
+                - Prioritize the most relevant information that directly answers the user's question
+                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
+                - Make every word count - avoid filler phrases
+
+                **Example Structure:**
+
+                [Brief intro answering the question - under 50 words]
+
+                **Section Heading 1**
+
+                [Concise finding with key metrics - under 50 words]
+
+                **Section Heading 2**
+
+                [Another focused insight - under 50 words]
+
+                [Continue with additional sections as needed...]
+
+                **Sources:**
+                At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
+
+                Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
             """.strip()
 
             # Initialize MultiAgent for OpenRouter PDF processing
