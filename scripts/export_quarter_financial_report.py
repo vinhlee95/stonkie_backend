@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from agent.agent import Agent
 from connectors.database import engine
+from connectors.finnhub_client import FinnhubFilingsClient
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 from services.company import CompanyConnector
 
@@ -486,6 +487,120 @@ def get_financial_urls(ticker):
     return (f"{base_url}/financials/", f"{base_url}/balance-sheet/", f"{base_url}/cash-flow/")
 
 
+def fetch_and_save_filing_urls(ticker):
+    """
+    Fetch 10-Q filing URLs from Finnhub and save them to the database
+    Returns True if successful, False otherwise
+    """
+    try:
+        print(f"📄 Fetching 10-Q filings for {ticker}...")
+
+        # Initialize Finnhub client
+        finnhub_client = FinnhubFilingsClient()
+
+        # Calculate date range for past 4 quarters (~12 months)
+        to_date = datetime.now().strftime("%Y-%m-%d")
+        from_date = (datetime.now() - relativedelta(months=15)).strftime("%Y-%m-%d")
+
+        # Fetch 10-Q filings
+        filings = finnhub_client.fetch_10q_filings(symbol=ticker.upper(), from_date=from_date, to_date=to_date)
+
+        if not filings:
+            print(f"⚠️  No 10-Q filings found for {ticker}")
+            return False
+
+        print(f"✅ Found {len(filings)} 10-Q filing(s) for {ticker}")
+
+        # Create a new session for thread safety
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+
+        try:
+            updated_count = 0
+            skipped_count = 0
+
+            for filing in filings[:4]:  # Limit to most recent 4 filings
+                filed_date = filing.get("filedDate", "")
+                report_url = filing.get("reportUrl", "")
+
+                if not filed_date or not report_url:
+                    continue
+
+                # Parse filed date to match period format (e.g., "3/31/2025")
+                try:
+                    # Handle both date-only and datetime formats from Finnhub
+                    if " " in filed_date:
+                        filing_date = datetime.strptime(filed_date.split()[0], "%Y-%m-%d")
+                    else:
+                        filing_date = datetime.strptime(filed_date, "%Y-%m-%d")
+                except Exception as e:
+                    print(f"⚠️  Could not parse filing date {filed_date}: {e}")
+                    continue
+
+                # Try to find matching record in database
+                # We need to be flexible with date matching since filing date may not exactly match period end
+                existing_records = (
+                    db.query(CompanyQuarterlyFinancialStatement)
+                    .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                    .all()
+                )
+
+                # Find best matching record based on date proximity
+                best_match = None
+                min_date_diff = float("inf")
+
+                for record in existing_records:
+                    try:
+                        # Parse the period_end_quarter date
+                        record_date = datetime.strptime(record.period_end_quarter, "%m/%d/%Y")
+                        date_diff = abs((filing_date - record_date).days)
+
+                        # Consider it a match if within 45 days (reasonable for quarterly filings)
+                        if date_diff < min_date_diff and date_diff <= 45:
+                            min_date_diff = date_diff
+                            best_match = record
+                    except Exception:
+                        continue
+
+                if best_match:
+                    # Check if filing_10q_url already exists
+                    if best_match.filing_10q_url:
+                        print(f"⏭️  Skipping {ticker} {best_match.period_end_quarter} - filing URL already exists")
+                        skipped_count += 1
+                        continue
+
+                    # Update the record with the filing URL
+                    best_match.filing_10q_url = report_url
+                    db.commit()
+                    print(
+                        f"✅ Updated {ticker} {best_match.period_end_quarter} with filing URL that filed on {filed_date}"
+                    )
+                    updated_count += 1
+                else:
+                    print(f"⚠️  No matching quarterly record found for {ticker} filing dated {filed_date}")
+
+            print(f"📄 Filing URL update summary for {ticker}: {updated_count} updated, {skipped_count} skipped")
+            return updated_count > 0 or skipped_count > 0
+
+        except Exception as e:
+            print(f"❌ Database error while saving filing URLs for {ticker}: {e}")
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"❌ Error fetching filing URLs for {ticker}: {e}")
+        return False
+
+
+def fetch_filing_urls_worker(ticker):
+    """
+    Worker function for parallel execution of filing URL fetching
+    """
+    return fetch_and_save_filing_urls(ticker)
+
+
 def main():
     # Get all ticker symbols from database
     company_fundamental_connector = CompanyConnector()
@@ -497,7 +612,7 @@ def main():
 
     print(f"🚀 Starting parallel export for {len(tickers)} tickers: {tickers}")
 
-    # Prepare tasks for all tickers - each ticker has 3 statement types
+    # Phase 1: Prepare tasks for all tickers - each ticker has 3 statement types
     all_tasks = []
     for ticker in tickers:
         financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
@@ -508,11 +623,10 @@ def main():
         ]
         all_tasks.extend(ticker_tasks)
 
-    print(f"� Total tasks to execute: {len(all_tasks)}")
+    print(f"📊 Total financial statement tasks to execute: {len(all_tasks)}")
 
-    # Execute all tasks in parallel with increased worker pool
-    # Use more workers but limit to reasonable number to avoid overwhelming the server
-    max_workers = min(10, len(all_tasks))  # Max 10 concurrent requests
+    # Execute all financial statement tasks in parallel
+    max_workers = min(10, len(all_tasks))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
@@ -545,27 +659,28 @@ def main():
                 results.append((ticker_name, statement_type, False))
                 ticker_results[ticker_name]["failed"] += 1
 
-    # Overall summary
+    # Phase 1 Summary
     total_tasks = len(results)
     total_successful = sum(1 for _, _, success in results if success)
     total_failed = total_tasks - total_successful
 
-    print("\n📊 Overall Export Summary:")
+    print("\n" + "=" * 80)
+    print("📊 Phase 1: Financial Statement Export Summary")
+    print("=" * 80)
     print(f"   Total tickers processed: {len(tickers)}")
     print(f"   Total tasks: {total_tasks}")
     print(f"   Total successful: {total_successful}")
     print(f"   Total failed: {total_failed}")
     print(f"   Success rate: {(total_successful/total_tasks*100):.1f}%")
 
-    # Per-ticker summary
-    print("\n📋 Per-Ticker Results:")
+    # Per-ticker summary for Phase 1
+    print("\n📋 Per-Ticker Results (Financial Statements):")
     fully_successful_tickers = 0
     partially_successful_tickers = 0
     completely_failed_tickers = 0
 
     for ticker, results_info in ticker_results.items():
         success_count = results_info["success"]
-        results_info["failed"]
         total_count = results_info["total"]
 
         if success_count == total_count:
@@ -580,19 +695,64 @@ def main():
 
         print(f"   {ticker}: {status} ({success_count}/{total_count} successful)")
 
-    print("\n🎯 Final Summary:")
+    # Phase 2: Fetch and save 10-Q filing URLs
+    print("\n" + "=" * 80)
+    print("📄 Phase 2: Starting 10-Q Filing URL Fetch")
+    print("=" * 80)
+
+    filing_results = []
+    max_filing_workers = min(5, len(tickers))  # Use fewer workers for API calls
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_filing_workers) as executor:
+        # Submit filing URL fetch tasks
+        future_to_ticker = {executor.submit(fetch_filing_urls_worker, ticker): ticker for ticker in tickers}
+
+        # Process filing URL results
+        for future in concurrent.futures.as_completed(future_to_ticker):
+            ticker = future_to_ticker[future]
+            try:
+                result = future.result()
+                filing_results.append((ticker, result))
+                if result:
+                    print(f"✅ Successfully fetched filing URLs for {ticker}")
+                else:
+                    print(f"⚠️  No updates for {ticker} filing URLs")
+            except Exception as e:
+                print(f"❌ Exception occurred during {ticker} filing URL fetch: {e}")
+                filing_results.append((ticker, False))
+
+    # Phase 2 Summary
+    filing_successful = sum(1 for _, success in filing_results if success)
+    filing_failed = len(filing_results) - filing_successful
+
+    print("\n📊 Phase 2: Filing URL Fetch Summary")
+    print(f"   Total tickers: {len(tickers)}")
+    print(f"   Successfully fetched/updated: {filing_successful}")
+    print(f"   Failed/No updates: {filing_failed}")
+    print(f"   Success rate: {(filing_successful/len(tickers)*100):.1f}%")
+
+    # Final Summary
+    print("\n" + "=" * 80)
+    print("🎯 Final Summary - All Phases")
+    print("=" * 80)
+    print("📊 Financial Statements:")
     print(f"   Fully successful tickers: {fully_successful_tickers}")
     print(f"   Partially successful tickers: {partially_successful_tickers}")
     print(f"   Completely failed tickers: {completely_failed_tickers}")
+    print("\n📄 Filing URLs:")
+    print(f"   Successfully processed: {filing_successful}")
+    print(f"   Failed/No updates: {filing_failed}")
 
-    if fully_successful_tickers == len(tickers):
-        print(f"🎉🎉🎉 All {len(tickers)} tickers have been successfully exported!")
+    if fully_successful_tickers == len(tickers) and filing_successful == len(tickers):
+        print(
+            f"\n🎉🎉🎉 All {len(tickers)} tickers have been successfully processed for both financial statements and filing URLs!"
+        )
     elif fully_successful_tickers + partially_successful_tickers > 0:
         print(
-            f"⚠️  Mixed results: {fully_successful_tickers + partially_successful_tickers}/{len(tickers)} tickers had some success"
+            f"\n⚠️  Mixed results: {fully_successful_tickers + partially_successful_tickers}/{len(tickers)} tickers had some success"
         )
     else:
-        print(f"💥💥💥 All exports failed for all {len(tickers)} tickers")
+        print("\n💥💥💥 Processing completed with errors")
 
 
 if __name__ == "__main__":
