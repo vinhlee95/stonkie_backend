@@ -35,8 +35,8 @@ class FinancialDataOptimizer:
 
         Args:
             ticker: Company ticker symbol
-            data_requirement: Level of data required (NONE, BASIC, DETAILED)
-            period_requirement: Which specific periods to fetch (only used if DETAILED)
+            data_requirement: Level of data required (NONE, BASIC, DETAILED, QUARTERLY_SUMMARY)
+            period_requirement: Which specific periods to fetch (only used if DETAILED or QUARTERLY_SUMMARY)
 
         Returns:
             Tuple of (company_fundamental, annual_statements, quarterly_statements)
@@ -46,11 +46,19 @@ class FinancialDataOptimizer:
         quarterly_statements: List[Dict[str, Any]] = []
 
         # Fetch basic company data if needed
-        if data_requirement in [FinancialDataRequirement.BASIC, FinancialDataRequirement.DETAILED]:
+        if data_requirement in [FinancialDataRequirement.BASIC]:
             t_start = time.perf_counter()
             company_fundamental = get_company_fundamental(ticker)
             t_end = time.perf_counter()
             logger.info(f"Profiling get_company_fundamental: {t_end - t_start:.4f}s")
+
+        # Fetch quarterly summary data (minimal: just 1 quarter with filing URL)
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY:
+            t_start = time.perf_counter()
+            quarterly_statements = await self._fetch_quarterly_summary(ticker, period_requirement)
+            t_end = time.perf_counter()
+            logger.info(f"Profiling fetch_quarterly_summary: {t_end - t_start:.4f}s")
+            logger.info(f"Fetched {len(quarterly_statements)} quarterly statement(s) for summary")
 
         # Fetch detailed financial statements only if required
         if data_requirement == FinancialDataRequirement.DETAILED and period_requirement:
@@ -134,4 +142,46 @@ class FinancialDataOptimizer:
             )
             logger.info(f"Fetched {len(statements_raw)} quarterly statements (default: 4 most recent)")
 
+        return [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
+
+    async def _fetch_quarterly_summary(
+        self, ticker: str, period_requirement: Optional[FinancialPeriodRequirement] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch quarterly statement for summary questions (only the latest or a specific quarter).
+        Returns minimal data with filing URL included.
+
+        Args:
+            ticker: Company ticker symbol
+            period_requirement: Period specification (optional, defaults to latest)
+
+        Returns:
+            List with single quarterly statement dictionary including filing_10q_url
+        """
+        # Check if a specific quarter is requested (but not "latest" placeholder)
+        if (
+            period_requirement
+            and period_requirement.specific_quarters
+            and period_requirement.specific_quarters != ["latest"]
+        ):
+            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_by_quarters(
+                ticker, period_requirement.specific_quarters
+            )
+            logger.info(
+                f"Fetched {len(statements_raw)} quarterly statement(s) for: {period_requirement.specific_quarters}"
+            )
+        elif period_requirement and period_requirement.num_periods:
+            # Use num_periods if specified (typically 1 for summary questions)
+            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
+                ticker, period_requirement.num_periods
+            )
+            logger.info(f"Fetched {period_requirement.num_periods} most recent quarterly statement(s) for summary")
+        else:
+            # Default: fetch only the most recent quarter
+            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
+                ticker, 1
+            )
+            logger.info("Fetched latest quarterly statement for summary")
+
+        # Convert to dict - filing_10q_url is already included in the model
         return [CompanyFinancialConnector.to_dict(item) for item in statements_raw]

@@ -296,7 +296,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
         # Determine which specific periods are needed (if detailed data required)
         period_requirement = None
-        if data_requirement == FinancialDataRequirement.DETAILED:
+        if data_requirement in [FinancialDataRequirement.DETAILED, FinancialDataRequirement.QUARTERLY_SUMMARY]:
             yield {"type": "thinking_status", "body": "Identifying relevant financial periods..."}
 
             period_requirement = await self.classifier.classify_period_requirement(ticker, question)
@@ -325,19 +325,20 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             dimension_result = results[0]
             data_result = results[1]
 
-            if isinstance(dimension_result, Exception):
+            if isinstance(dimension_result, BaseException):
                 logger.error(f"Failed to generate dimension sections: {dimension_result}")
                 dimension_sections = None
             else:
                 dimension_sections = dimension_result
 
-            if isinstance(data_result, Exception):
+            if isinstance(data_result, BaseException):
                 logger.error(f"Failed to fetch financial data: {data_result}")
                 raise data_result
             else:
                 company_fundamental, annual_statements, quarterly_statements = data_result
-        else:
-            # For non-detailed queries, just fetch data
+
+        # For non-detailed queries (QUARTERLY_SUMMARY, BASIC, NONE), fetch data
+        if data_requirement != FinancialDataRequirement.DETAILED:
             (
                 company_fundamental,
                 annual_statements,
@@ -345,6 +346,14 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             ) = await self.data_optimizer.fetch_optimized_data(
                 ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
             )
+
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
+            filing_url = quarterly_statements[0].get("filing_10q_url")
+            yield {
+                "type": "attachment_url",
+                "title": f"Quarterly 10Q report for the quarter ending on {quarterly_statements[0].get('period_end_quarter')}",
+                "body": filing_url,
+            }
 
         yield {"type": "thinking_status", "body": "Analyzing data and preparing insights..."}
 
@@ -370,9 +379,13 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
                 Sources: [Source Name](Source Link), [Source Name](Source Link)
 
+                If the source is official 10K or 10Q filings, mention SEC in the source, e.g. SEC Filing for 2025 Q1 and provide the link.
+
                 If the source is from the financial statements provided in the context, no need to link, but mention clearly which statement it is from and which year or quarter it pertains to.
                 MAKE SURE TO FOLLOW THIS FORMAT: 
                 Sources: Annual Report 2023, Quarterly Statement Q1 2024
+
+                Only include sources that were actually used to generate the analysis.
             """
 
             t_model = time.perf_counter()
@@ -382,6 +395,9 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             # Combine prompts for OpenRouter (which expects a single string)
             combined_prompt = f"{financial_context}\n\n{analysis_prompt}\n\n{source_prompt}"
 
+            # Enable Google Search for quarterly summary questions to read filing URLs
+            search_enabled = use_google_search or (data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY)
+
             with langfuse.start_as_current_observation(
                 as_type="generation", name="company-specific-finance-llm-call", model=model_used
             ) as gen:
@@ -390,7 +406,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                         "financial_context": financial_context,
                         "analysis_prompt": analysis_prompt,
                         "ticker": ticker,
-                        "use_google_search": use_google_search,
+                        "use_google_search": search_enabled,
                         "model": model_used,
                     }
                 )
@@ -400,7 +416,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 output_tokens = 0
                 full_output = []
 
-                for text_chunk in agent.generate_content(prompt=combined_prompt, use_google_search=use_google_search):
+                for text_chunk in agent.generate_content(prompt=combined_prompt, use_google_search=search_enabled):
                     if not first_chunk_received:
                         completion_start_time = datetime.now(timezone.utc)
                         t_first_chunk = time.perf_counter()
@@ -423,7 +439,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                     metadata={
                         "ticker": ticker,
                         "data_requirement": data_requirement,
-                        "use_google_search": use_google_search,
+                        "use_google_search": search_enabled,
                         "use_url_context": use_url_context,
                         "model": model_used,
                     },
@@ -504,6 +520,63 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 Focus on key metrics like market cap, P/E ratio, basic profitability, and market performance.
                 Keep the response concise (under 150 words) but insightful.
                 Use Google Search for additional context if needed.
+            """
+
+        elif data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY:
+            # Extract filing URL from quarterly statement
+            filing_url = None
+            if quarterly_statements and len(quarterly_statements) > 0:
+                filing_url = quarterly_statements[0].get("filing_10q_url")
+
+            filing_context = f"Quarterly Report URL: {filing_url}" if filing_url else "No filing URL available"
+
+            return f"""
+                {base_context}
+                
+                {filing_context}
+
+                **Instructions for your analysis:**
+
+                Analyze the quarterly report available at the URL provided above and organize your findings into multiple focused sections. 
+                If the URL is accessible, use it as your ONLY source of information. Do not search for additional data sources. This is critical.
+
+                You decide how many sections are needed to thoroughly cover the key aspects of the document that answer the user's question.
+
+                **Structure:**
+                - Start with a brief introductory paragraph (under 80 words) that directly answers the user's question
+                - Follow with multiple focused sections, each covering a distinct key aspect or finding
+                - Each section should have a bold, descriptive heading: **Section Heading**
+                - Keep each section content under 50 words - be concise and to the point
+                - Typical number of sections: 4-8 depending on document complexity and question scope
+
+                **Section Guidelines:**
+                - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
+                - Each section content should focus on ONE key finding or aspect
+                - Include specific numbers and metrics where relevant
+                - Highlight significant changes, trends, or anomalies
+                - Bold important figures and percentages
+                - Prioritize the most relevant information that directly answers the user's question
+                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
+                - Make every word count - avoid filler phrases
+
+                **Example Structure:**
+
+                [Brief intro answering the question - under 50 words]
+
+                **Section Heading 1**
+
+                [Concise finding with key metrics - under 50 words]
+
+                **Section Heading 2**
+
+                [Another focused insight - under 50 words]
+
+                [Continue with additional sections as needed...]
+
+                **Sources:**
+                At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
+
+                Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
             """
 
         else:  # DETAILED

@@ -19,6 +19,8 @@ class FinancialDataRequirement(StrEnum):
     NONE = "none"  # Can be answered without financial data
     BASIC = "basic"  # Needs only fundamental data (market cap, P/E, etc.)
     DETAILED = "detailed"  # Requires full financial statements
+    QUARTERLY_SUMMARY = "quarterly_summary"  # Requires summary of recent quarterly report
+    ANNUAL_SUMMARY = "annual_summary"  # Requires summary of recent annual report
 
 
 @dataclass(frozen=True)

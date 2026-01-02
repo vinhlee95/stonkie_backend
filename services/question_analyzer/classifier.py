@@ -114,6 +114,10 @@ class QuestionClassifier:
 
             3. 'detailed' - Question requires specific financial statement data like revenue, expenses, cash flow details (e.g., "What was {ticker.upper()}'s revenue last quarter?", "How much debt does {ticker.upper()} have?", "What's the operating margin trend?")
 
+            4. 'quarterly_summary' - Question requires a summary of recent quarterly financial results (e.g., "Summarize the {ticker.upper()}'s latest quarterly earnings report", "What were the key financial highlights for {ticker.upper()} last quarter?")
+
+            # TODO: support annual_summary in future
+
             Examples:
             - "What does Apple do?" -> none
             - "Who is Tesla's CEO?" -> none  
@@ -137,6 +141,10 @@ class QuestionClassifier:
                 return FinancialDataRequirement.DETAILED
             elif "basic" in response_text:
                 return FinancialDataRequirement.BASIC
+            elif "quarterly_summary" in response_text:
+                return FinancialDataRequirement.QUARTERLY_SUMMARY
+            elif "annual_summary" in response_text:
+                return FinancialDataRequirement.ANNUAL_SUMMARY
             else:
                 return FinancialDataRequirement.NONE
 
@@ -171,19 +179,20 @@ class QuestionClassifier:
             Examples:
             - "What was Apple's revenue in 2023?" -> annual, years: [2023]
             - "What was Apple revenue in the most recent year?" -> annual, num_periods: 1
-            - "How did Tesla perform in Q3 2024?" -> quarterly, quarters: ["2024-Q3"]
+            - "How did Tesla perform in Q3 2024?" -> quarterly, specific_quarters: ["2024-Q3"]
             - "Show me Microsoft's revenue trend over the last 3 years" -> annual, num_periods: 3
-            - "Compare Amazon's Q1 and Q2 2024 results" -> quarterly, quarters: ["2024-Q1", "2024-Q2"]
+            - "Compare Amazon's Q1 and Q2 2024 results" -> quarterly, specific_quarters: ["2024-Q1", "2024-Q2"]
             - "What's Google's 5-year revenue growth?" -> annual, num_periods: 5
             - "Analyze Meta's quarterly performance in 2024" -> quarterly, quarters: ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"]
             - "What was Netflix's annual revenue last year?" -> annual, num_periods: 1
             - "Show both annual and quarterly trends" -> both, num_periods: 3
+            - "What were the latest quarterly results?", or "Summarise the latest quarterly report" -> quarterly, specific_quarters: ["latest"], num_periods: 1
 
             Return your answer in this EXACT JSON format (no other text):
             {{
                 "period_type": "annual" | "quarterly" | "both",
                 "specific_years": [2023, 2024] or null,
-                "specific_quarters": ["2024-Q1", "2024-Q2"] or null,
+                "specific_quarters": ["2024-Q1", "2024-Q2"] or ["latest"] or null,
                 "num_periods": 3 or null
             }}
 
