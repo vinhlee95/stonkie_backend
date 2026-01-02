@@ -543,11 +543,11 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 You decide how many sections are needed to thoroughly cover the key aspects of the document that answer the user's question.
 
                 **Structure:**
-                - Start with a brief introductory paragraph (under 80 words) that directly answers the user's question
+                - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
                 - Follow with multiple focused sections, each covering a distinct key aspect or finding
                 - Each section should have a bold, descriptive heading: **Section Heading**
-                - Keep each section content under 50 words - be concise and to the point
-                - Typical number of sections: 4-8 depending on document complexity and question scope
+                - Keep each section content under 30 words - be concise and to the point
+                - Typical number of sections: 2-5 depending on document complexity and question scope
 
                 **Section Guidelines:**
                 - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
