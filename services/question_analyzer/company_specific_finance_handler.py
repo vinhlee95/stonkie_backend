@@ -552,6 +552,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 **Section Guidelines:**
                 - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
                 - Each section content should focus on ONE key finding or aspect
+                - At the end of each section, provide the source information in this format: "([Section name from document] on page X)"
                 - Include specific numbers and metrics where relevant
                 - Highlight significant changes, trends, or anomalies
                 - Bold important figures and percentages
