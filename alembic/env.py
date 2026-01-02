@@ -22,6 +22,8 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from connectors.database import Base
 
+# Import all models for autogenerate to detect them
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
