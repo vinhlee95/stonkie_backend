@@ -271,7 +271,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         return True
 
     async def handle(
-        self, ticker: str, question: str, use_google_search: bool, use_url_context: bool
+        self, ticker: str, question: str, use_google_search: bool, use_url_context: bool, deep_analysis: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company-specific financial questions.
@@ -281,6 +281,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             question: The question to answer
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
+            deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
 
         Yields:
             Dictionary chunks with analysis results
@@ -367,6 +368,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
                 dimension_sections=dimension_sections,
+                deep_analysis=deep_analysis,
             )
 
             analysis_prompt = """
@@ -471,6 +473,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         annual_statements: list[Dict[str, Any]],
         quarterly_statements: list[Dict[str, Any]],
         dimension_sections: Optional[List[Dict]] = None,
+        deep_analysis: bool = False,
     ) -> str:
         """
         Build the appropriate financial context prompt based on data requirement level.
@@ -483,6 +486,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             annual_statements: Annual financial statements
             quarterly_statements: Quarterly financial statements
             dimension_sections: AI-generated section structure with titles and focus points
+            deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
 
         Returns:
             Formatted prompt string with financial context
@@ -551,8 +555,9 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
                 **Section Guidelines:**
                 - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
+                - Add a new line after each section heading.
                 - Each section content should focus on ONE key finding or aspect
-                - At the end of each section, provide the source information in this format: "([Section name from document] on page X)"
+                - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
                 - Include specific numbers and metrics where relevant
                 - Highlight significant changes, trends, or anomalies
                 - Bold important figures and percentages
@@ -581,6 +586,64 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             """
 
         else:  # DETAILED
+            # Short analysis (default) - scannable, quick-read format
+            if not deep_analysis:
+                return f"""
+                {base_context}
+                
+                Company Fundamental Data:
+                {company_fundamental}
+
+                Annual Financial Statements:
+                {annual_statements}
+                
+                Quarterly Financial Statements:
+                {quarterly_statements}
+
+                **Instructions for your analysis:**
+
+                Analyze the financial data and organize your findings into multiple focused sections.
+                You decide how many sections are needed to thoroughly cover the key aspects that answer the user's question.
+
+                **Structure:**
+                - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
+                - Follow with multiple focused sections, each covering a distinct key aspect or finding
+                - Each section should have a bold, descriptive heading: **Section Heading**
+                - Keep each section content under 30 words - be concise and to the point
+                - Typical number of sections: 2-5 depending on question complexity
+
+                **Section Guidelines:**
+                - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
+                - Add a new line after each section heading.
+                - Each section content should focus on ONE key finding or aspect
+                - Include specific numbers and metrics where relevant
+                - Highlight significant changes, trends, or anomalies
+                - Bold important figures and percentages
+                - Prioritize the most relevant information that directly answers the user's question
+                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
+                - Make every word count - avoid filler phrases
+
+                **Example Structure:**
+
+                [Brief intro answering the question - under 50 words]
+
+                **Section Heading 1**
+
+                [Concise finding with key metrics - under 30 words]
+
+                **Section Heading 2**
+
+                [Another focused insight - under 30 words]
+
+                [Continue with additional sections as needed...]
+
+                **Sources:**
+                At the end, cite your sources: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
+
+                Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
+            """
+
+            # Deep analysis - comprehensive, detailed format
             # Use AI-generated sections or fallback to default structure
             sections = dimension_sections
             if not sections or not self._validate_section_titles(sections):

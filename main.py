@@ -162,6 +162,7 @@ async def analyze_financial_data(ticker: str, request: Request):
         question = body.get("question")
         use_google_search = body.get("useGoogleSearch", False)
         use_url_context = body.get("useUrlContext", False)
+        deep_analysis = body.get("deepAnalysis", False)
 
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
@@ -169,7 +170,7 @@ async def analyze_financial_data(ticker: str, request: Request):
         async def generate_analysis():
             try:
                 async for chunk in financial_analyzer.analyze_question(
-                    ticker, question, use_google_search, use_url_context
+                    ticker, question, use_google_search, use_url_context, deep_analysis
                 ):
                     # Check if the client has disconnected
                     if await request.is_disconnected():

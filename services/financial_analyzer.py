@@ -72,6 +72,7 @@ class FinancialAnalyzer:
         question: str,
         use_google_search: bool = False,
         use_url_context: bool = False,
+        deep_analysis: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Analyze a financial question and generate insights.
@@ -81,6 +82,7 @@ class FinancialAnalyzer:
             question: The question to answer
             use_google_search: Whether to use Google Search for additional context
             use_url_context: Whether to use URL context
+            deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
 
         Yields:
             Dictionary chunks with analysis results containing:
@@ -143,7 +145,7 @@ class FinancialAnalyzer:
             async for chunk in handler.handle(ticker, question, use_google_search, use_url_context):
                 yield chunk
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
-            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context):
+            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context, deep_analysis):
                 yield chunk
 
         t_handler_end = time.perf_counter()
