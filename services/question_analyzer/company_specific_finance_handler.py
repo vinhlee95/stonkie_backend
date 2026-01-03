@@ -16,6 +16,7 @@ from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 
 from .classifier import QuestionClassifier
+from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
 from .data_optimizer import FinancialDataOptimizer
 from .handlers import BaseQuestionHandler
 from .types import FinancialDataRequirement
@@ -172,7 +173,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 return None
 
             sections = parsed_data.get("sections", [])
-            if not self._validate_section_titles(sections):
+            if not validate_section_titles(sections):
                 return None
 
             return sections
@@ -214,61 +215,6 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
         logger.error(f"Could not extract valid JSON from response: {response[:200]}...")
         return None
-
-    def _validate_section_titles(self, sections: List[Dict]) -> bool:
-        """
-        Validate section structure and titles.
-
-        Args:
-            sections: List of section dictionaries
-
-        Returns:
-            True if valid, False otherwise
-        """
-        if not sections or not isinstance(sections, list):
-            logger.error("Sections is not a valid list")
-            return False
-
-        if len(sections) != 2:
-            logger.error(f"Invalid number of sections: {len(sections)} (must be exactly 2)")
-            return False
-
-        for i, section in enumerate(sections):
-            # Check required keys
-            if "title" not in section or "focus_points" not in section:
-                logger.error(f"Section {i} missing required keys: {section}")
-                return False
-
-            title = section["title"]
-            focus_points = section["focus_points"]
-
-            # Validate title
-            if not isinstance(title, str) or not title.strip():
-                logger.error(f"Section {i} has invalid title: {title}")
-                return False
-
-            # Check word count (max 6 words)
-            word_count = len(title.split())
-            if word_count > 6:
-                logger.error(f"Section {i} title too long ({word_count} words): {title}")
-                return False
-
-            # Check for special characters (allow letters, numbers, spaces, &, -)
-            if re.search(r"[^a-zA-Z0-9\s&-]", title):
-                logger.error(f"Section {i} title contains special characters: {title}")
-                return False
-
-            # Validate focus points
-            if not isinstance(focus_points, list) or len(focus_points) == 0:
-                logger.error(f"Section {i} has invalid focus_points: {focus_points}")
-                return False
-
-            for j, point in enumerate(focus_points):
-                if not isinstance(point, str) or not point.strip():
-                    logger.error(f"Section {i} focus_point {j} is invalid: {point}")
-                    return False
-
-        return True
 
     async def handle(
         self, ticker: str, question: str, use_google_search: bool, use_url_context: bool, deep_analysis: bool = False
@@ -491,230 +437,20 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         Returns:
             Formatted prompt string with financial context
         """
-        base_context = f"""
-            You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question.
-
-            Question: {question}
-            Company: {ticker.upper()}
-        """
-
         logger.info(
             "Building financial context for analysis",
             {"ticker": ticker, "data_requirement": data_requirement, "dimension_sections": dimension_sections},
         )
 
-        if data_requirement == FinancialDataRequirement.NONE:
-            return f"""
-                {base_context}
-                
-                This is a general question about {ticker.upper()} that doesn't require financial data analysis.
-                Provide a clear, informative answer using your general knowledge about the company.
-                Keep the response under 150 words and make it engaging.
-                Use Google Search to get the most up-to-date information if needed.
-            """
-
-        elif data_requirement == FinancialDataRequirement.BASIC:
-            return f"""
-                {base_context}
-                
-                Company Fundamental Data:
-                {company_fundamental}
-                
-                This question requires basic financial metrics. Use the fundamental data provided to answer the question.
-                Focus on key metrics like market cap, P/E ratio, basic profitability, and market performance.
-                Keep the response concise (under 150 words) but insightful.
-                Use Google Search for additional context if needed.
-            """
-
-        elif data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY:
-            # Extract filing URL from quarterly statement
-            filing_url = None
-            if quarterly_statements and len(quarterly_statements) > 0:
-                filing_url = quarterly_statements[0].get("filing_10q_url")
-
-            filing_context = f"Quarterly Report URL: {filing_url}" if filing_url else "No filing URL available"
-
-            return f"""
-                {base_context}
-                
-                {filing_context}
-
-                **Instructions for your analysis:**
-
-                Analyze the quarterly report available at the URL provided above and organize your findings into multiple focused sections. 
-                If the URL is accessible, use it as your ONLY source of information. Do not search for additional data sources. This is critical.
-
-                You decide how many sections are needed to thoroughly cover the key aspects of the document that answer the user's question.
-
-                **Structure:**
-                - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
-                - Follow with multiple focused sections, each covering a distinct key aspect or finding
-                - Each section should have a bold, descriptive heading: **Section Heading**
-                - Keep each section content under 30 words - be concise and to the point
-                - Typical number of sections: 2-5 depending on document complexity and question scope
-
-                **Section Guidelines:**
-                - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
-                - Add a new line after each section heading.
-                - Each section content should focus on ONE key finding or aspect
-                - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
-                - Include specific numbers and metrics where relevant
-                - Highlight significant changes, trends, or anomalies
-                - Bold important figures and percentages
-                - Prioritize the most relevant information that directly answers the user's question
-                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
-                - Make every word count - avoid filler phrases
-
-                **Example Structure:**
-
-                [Brief intro answering the question - under 50 words]
-
-                **Section Heading 1**
-
-                [Concise finding with key metrics - under 50 words]
-
-                **Section Heading 2**
-
-                [Another focused insight - under 50 words]
-
-                [Continue with additional sections as needed...]
-
-                **Sources:**
-                At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
-
-                Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
-            """
-
-        else:  # DETAILED
-            # Short analysis (default) - scannable, quick-read format
-            if not deep_analysis:
-                return f"""
-                {base_context}
-                
-                Company Fundamental Data:
-                {company_fundamental}
-
-                Annual Financial Statements:
-                {annual_statements}
-                
-                Quarterly Financial Statements:
-                {quarterly_statements}
-
-                **Instructions for your analysis:**
-
-                Analyze the financial data and organize your findings into multiple focused sections.
-                You decide how many sections are needed to thoroughly cover the key aspects that answer the user's question. Try to keep the number of sections as small as possible.
-
-                **Structure:**
-                - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
-                - Follow with multiple focused sections, each covering a distinct key aspect or finding
-                - Each section should have a bold, descriptive heading: **Section Heading**
-                - Keep each section content under 30 words - be concise and to the point
-
-                **Section Guidelines:**
-                - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
-                - Add a new line after each section heading.
-                - Each section content should focus on ONE key finding or aspect
-                - Include specific numbers and metrics where relevant
-                - Highlight significant changes, trends, or anomalies
-                - Bold important figures and percentages
-                - Prioritize the most relevant information that directly answers the user's question
-                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
-                - Make every word count - avoid filler phrases
-
-                **Example Structure:**
-
-                [Brief intro answering the question - under 50 words]
-
-                **Section Heading 1**
-
-                [Concise finding with key metrics - under 30 words]
-
-                **Section Heading 2**
-
-                [Another focused insight - under 30 words]
-
-                [Continue with additional sections as needed...]
-
-                **Sources:**
-                At the end, cite your sources: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
-
-                Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
-            """
-
-            # Deep analysis - comprehensive, detailed format
-            # Use AI-generated sections or fallback to default structure
-            sections = dimension_sections
-            if not sections or not self._validate_section_titles(sections):
-                logger.info("Using fallback section structure")
-                sections = [
-                    {
-                        "title": "Financial Performance",
-                        "focus_points": [
-                            "Analyze key metrics from the statements (revenue, net income, profit margins)",
-                            "Explain year-over-year growth/decline trends and patterns",
-                        ],
-                    },
-                    {
-                        "title": "Strategic Positioning",
-                        "focus_points": [
-                            "Industry context and competitive position",
-                            "Future outlook, opportunities, and growth risks",
-                        ],
-                    },
-                ]
-
-            # Word allocation: 80 words for summary, 160 words each for 2 main sections (total: 400)
-            summary_words = 80
-            section_words = 160
-
-            # Build dynamic section instructions for the 2 main sections
-            sections_text = ""
-            for i, section in enumerate(sections, 1):
-                sections_text += f"\n**{section['title']}**\n\n"
-                sections_text += f"(~{section_words} words) Focus on:\n"
-                for point in section["focus_points"]:
-                    sections_text += f"- {point}\n"
-                sections_text += "\n"
-
-            return f"""
-                {base_context}
-                
-                Company Fundamental Data:
-                {company_fundamental}
-
-                Annual Financial Statements:
-                {annual_statements}
-                
-                Quarterly Financial Statements:
-                {quarterly_statements}
-                
-                **Instructions for your analysis:**
-
-                Structure your response with EXACTLY 3 sections in this order:
-                
-                (~{summary_words} words) Provide a concise overview that previews the key findings from the two sections below. Highlight the most important takeaway.
-
-                {sections_text}
-
-                **Formatting Guidelines:**
-                - Start each section with its title in markdown bold: **Section Title**
-                - Add a blank line after the title before starting the paragraph
-                - Each section should be a cohesive paragraph (or 2-3 short paragraphs)
-                - Use numbers strategically - select 2-4 key figures per section that best support your analysis
-                - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million", "5.2%" not "520 basis points")
-                - Keep total response under 300 words
-                
-                **Analysis Rules:**
-                - PRIORITIZE REASONING: Explain WHY trends occur, WHAT drives the changes, and WHAT it means for the business
-                - STRATEGIC USE OF NUMBERS: Include specific figures only when they strengthen your argument or illustrate a key point
-                - IDENTIFY DRIVERS: Explain the underlying business factors, market conditions, or strategic decisions behind the numbers
-                - CONNECT THE DOTS: Link financial performance to business strategy, competitive position, and market dynamics
-                - NO DUPLICATION: Each sentence should add new information
-                - USE SEARCH WISELY: Get up-to-date context for industry trends and competitive landscape
-                
-                **Sources:**
-                At the end, clearly specify your sources in this format:
-                - If from financial statements: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
-                - If from search: "Sources: [Source Name](Source Link), [Source Name](Source Link)"
-            """
+        builder = get_context_builder(data_requirement)
+        return builder.build(
+            ContextBuilderInput(
+                ticker=ticker,
+                question=question,
+                company_fundamental=company_fundamental,
+                annual_statements=annual_statements,
+                quarterly_statements=quarterly_statements,
+                dimension_sections=dimension_sections,
+                deep_analysis=deep_analysis,
+            )
+        )
