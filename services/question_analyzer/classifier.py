@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 class QuestionClassifier:
     """Classifies questions to determine handling strategy."""
 
+    # Keywords that strongly indicate quarterly report questions
+    QUARTERLY_REPORT_KEYWORDS = [
+        "quarterly report",
+        "quarterly earnings",
+        "quarterly filing",
+        "earnings report",
+        "10-q",
+        "10q",
+    ]
+
     def __init__(self, agent: Optional[MultiAgent] = None):
         """
         Initialize the classifier.
@@ -27,6 +37,19 @@ class QuestionClassifier:
             agent: AI agent for classification. Creates default if not provided.
         """
         self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashLite)
+
+    def _detect_quarterly_report_keywords(self, question: str) -> bool:
+        """
+        Fast keyword detection for quarterly report questions.
+
+        Args:
+            question: The question to check
+
+        Returns:
+            True if quarterly report keywords are detected
+        """
+        question_lower = question.lower()
+        return any(keyword in question_lower for keyword in self.QUARTERLY_REPORT_KEYWORDS)
 
     @observe(name="classify_question_type")
     async def classify_question_type(self, question: str, ticker: str) -> Optional[str]:
@@ -103,6 +126,11 @@ class QuestionClassifier:
         """
         t_start = time.perf_counter()
 
+        # Fast path: check for quarterly report keywords before calling LLM
+        if self._detect_quarterly_report_keywords(question):
+            logger.info(f"Keyword pre-filter detected quarterly report question: {question[:50]}...")
+            return FinancialDataRequirement.QUARTERLY_SUMMARY
+
         prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed:
             Question: "{question}"
 
@@ -126,8 +154,12 @@ class QuestionClassifier:
             - "What was Apple's revenue in Q3 2024?" -> detailed
             - "How much cash does Tesla have?" -> detailed
             - "What's Google's debt-to-equity ratio?" -> detailed
+            - "Summarize Apple's latest quarterly earnings report" -> quarterly_summary
+            - "What are the key revenue drivers mentioned in the latest quarterly report?" -> quarterly_summary
+            - "What did management discuss about growth in the 10-Q?" -> quarterly_summary
+            - "What were the highlights from the quarterly filing?" -> quarterly_summary
 
-            Return only the classification: none, basic, or detailed
+            Return only the classification: none, basic, detailed, or quarterly_summary
         """
 
         try:
