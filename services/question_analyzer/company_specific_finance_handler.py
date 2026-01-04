@@ -17,6 +17,7 @@ from connectors.company import CompanyConnector
 
 from .classifier import QuestionClassifier
 from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
+from .context_builders.components import PromptComponents
 from .data_optimizer import FinancialDataOptimizer
 from .handlers import BaseQuestionHandler
 from .types import FinancialDataRequirement
@@ -317,24 +318,8 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 deep_analysis=deep_analysis,
             )
 
-            analysis_prompt = """
-                Focus on analytical reasoning and interpretation. Use select key numbers to support your analysis,
-                but prioritize explaining WHY trends exist and WHAT drives the financial performance.
-                Include a few specific figures where they strengthen your argument, but avoid listing exhaustive metrics.
-            """
-
-            source_prompt = """
-                Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
-                Sources: [Source Name](Source Link), [Source Name](Source Link)
-
-                If the source is official 10K or 10Q filings, mention SEC in the source, e.g. SEC Filing for 2025 Q1 and provide the link.
-
-                If the source is from the financial statements provided in the context, no need to link, but mention clearly which statement it is from and which year or quarter it pertains to.
-                MAKE SURE TO FOLLOW THIS FORMAT: 
-                Sources: Annual Report 2023, Quarterly Statement Q1 2024
-
-                Only include sources that were actually used to generate the analysis.
-            """
+            analysis_prompt = PromptComponents.analysis_focus()
+            source_prompt = PromptComponents.source_instructions()
 
             t_model = time.perf_counter()
             agent = MultiAgent()

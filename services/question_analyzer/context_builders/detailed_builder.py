@@ -44,8 +44,7 @@ class DetailedContextBuilder(ContextBuilder):
 
             {example_structure}
 
-            **Sources:**
-            At the end, cite your sources: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
+            {PromptComponents.source_instructions()}
 
             Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
         """
@@ -124,8 +123,5 @@ class DetailedContextBuilder(ContextBuilder):
             - NO DUPLICATION: Each sentence should add new information
             - USE SEARCH WISELY: Get up-to-date context for industry trends and competitive landscape
             
-            **Sources:**
-            At the end, clearly specify your sources in this format:
-            - If from financial statements: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
-            - If from search: "Sources: [Source Name](Source Link), [Source Name](Source Link)"
+            {PromptComponents.source_instructions()}
         """

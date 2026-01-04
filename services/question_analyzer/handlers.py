@@ -13,6 +13,8 @@ from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 from connectors.company import CompanyConnector
 
+from .context_builders.components import PromptComponents
+
 logger = logging.getLogger(__name__)
 langfuse = get_client()
 _openrouter_client: Optional[OpenRouterClient] = None
@@ -228,6 +230,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
         }
 
         try:
+            source_instructions = PromptComponents.source_instructions()
             prompt = f"""
                 You are an expert about a business. Answer the following question about {company_name} (ticker: {ticker}):
                 {question}.
@@ -235,8 +238,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.
                 
-                Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
-                Sources: [Source Name](Source Link), [Source Name](Source Link)
+                {source_instructions}
             """
 
             t_model = time.perf_counter()

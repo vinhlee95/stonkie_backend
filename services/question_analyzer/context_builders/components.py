@@ -78,12 +78,27 @@ class PromptComponents:
 
     @staticmethod
     def source_instructions() -> str:
-        """Build source citation instructions."""
+        """Build detailed source citation instructions."""
         return """
-            **Sources:**
-            At the end, cite your sources:
-            - If from financial statements: "Sources: Annual Report 2023, Quarterly Statement Q1 2024"
-            - If from search: "Sources: [Source Name](Source Link), [Source Name](Source Link)"
+            Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
+            Sources: [Source Name](Source Link), [Source Name](Source Link)
+
+            If the source is official 10K or 10Q filings, mention SEC in the source, e.g. SEC Filing for 2025 Q1 and provide the link.
+
+            If the source is from the financial statements provided in the context, no need to link, but mention clearly which statement it is from and which year or quarter it pertains to.
+            MAKE SURE TO FOLLOW THIS FORMAT: 
+            Sources: Annual Report 2023, Quarterly Statement Q1 2024
+
+            Only include sources that were actually used to generate the analysis.
+        """
+
+    @staticmethod
+    def analysis_focus() -> str:
+        """Build analytical reasoning focus prompt."""
+        return """
+            Focus on analytical reasoning and interpretation. Use select key numbers to support your analysis,
+            but prioritize explaining WHY trends exist and WHAT drives the financial performance.
+            Include a few specific figures where they strengthen your argument, but avoid listing exhaustive metrics.
         """
 
     @staticmethod
