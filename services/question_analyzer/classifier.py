@@ -225,7 +225,7 @@ class QuestionClassifier:
                 "period_type": "annual" | "quarterly" | "both",
                 "specific_years": [2023, 2024] or null,
                 "specific_quarters": ["2024-Q1", "2024-Q2"] or ["latest"] or null,
-                "num_periods": 3 or null
+                "num_periods": 1
             }}
 
             Rules:
@@ -233,6 +233,8 @@ class QuestionClassifier:
             - Quarters should be in format "YYYY-Q#" (e.g., "2024-Q1")
             - Only fill specific_years OR specific_quarters OR num_periods, not multiple
             - Default to annual unless quarterly is explicitly mentioned
+            - Never leave num_periods as null when specific_quarters is provided. 
+                - If specific_quarters is ["latest"], then num_periods should be 1.
         """
 
         try:

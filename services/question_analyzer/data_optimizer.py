@@ -184,4 +184,16 @@ class FinancialDataOptimizer:
             logger.info("Fetched latest quarterly statement for summary")
 
         # Convert to dict - filing_10q_url is already included in the model
-        return [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
+        statements_dict = [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
+
+        # Filter out statements that don't have a filing_10q_url
+        filtered_statements = [
+            stmt
+            for stmt in statements_dict
+            if stmt.get("filing_10q_url") is not None and stmt.get("filing_10q_url").strip()
+        ]
+
+        logger.info(
+            f"Filtered to {len(filtered_statements)} quarterly statement(s) with valid filing URLs out of {len(statements_dict)} total"
+        )
+        return filtered_statements
