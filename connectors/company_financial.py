@@ -181,8 +181,41 @@ class CompanyFinancialConnector:
 
                 return [{"url": result.filing_10k_url, "period_end_year": result.period_end_year} for result in results]
             elif period == "quarterly":
-                # For now, return empty list as quarterly filings are not supported yet
-                return []
+                # Get quarterly filings from CompanyQuarterlyFinancialStatement
+                results = (
+                    db.query(
+                        CompanyQuarterlyFinancialStatement.filing_10q_url,
+                        CompanyQuarterlyFinancialStatement.period_end_quarter,
+                    )
+                    .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                    .filter(CompanyQuarterlyFinancialStatement.filing_10q_url.isnot(None))
+                    .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())
+                    .all()
+                )
+
+                filings = []
+                for result in results:
+                    # Extract year from period_end_quarter (format: "MM/DD/YYYY")
+                    period_end_year = None
+                    try:
+                        if result.period_end_quarter:
+                            # Parse date string to extract year
+                            date_parts = result.period_end_quarter.split("/")
+                            if len(date_parts) == 3:
+                                period_end_year = int(date_parts[2])
+                    except (ValueError, IndexError):
+                        # If parsing fails, period_end_year will remain None
+                        pass
+
+                    filings.append(
+                        {
+                            "url": result.filing_10q_url,
+                            "period_end_quarter": result.period_end_quarter,
+                            "period_end_year": period_end_year,
+                        }
+                    )
+
+                return filings
             else:
                 return []
 

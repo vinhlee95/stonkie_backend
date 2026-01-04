@@ -320,10 +320,6 @@ async def get_filings(ticker: str, period: str):
     if period not in ["annual", "quarterly"]:
         raise HTTPException(status_code=400, detail="Invalid period. Must be 'annual' or 'quarterly'")
 
-    # For now, only handle annual case as quarterly is not supported yet
-    if period == "quarterly":
-        raise HTTPException(status_code=400, detail="Quarterly filings are not yet supported")
-
     try:
         filings = get_company_filings(ticker, period)
         return filings
