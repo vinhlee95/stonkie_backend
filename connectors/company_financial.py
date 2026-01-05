@@ -235,7 +235,7 @@ class CompanyFinancialConnector:
                 result = (
                     db.query(CompanyQuarterlyFinancialStatement.filing_10q_url)
                     .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
-                    .filter(CompanyQuarterlyFinancialStatement.period_end_date == period_end_at)
+                    .filter(CompanyQuarterlyFinancialStatement.period_end_quarter == period_end_at)
                     .first()
                 )
 
