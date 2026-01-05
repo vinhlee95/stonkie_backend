@@ -21,6 +21,7 @@ class FinancialDataRequirement(StrEnum):
     DETAILED = "detailed"  # Requires full financial statements
     QUARTERLY_SUMMARY = "quarterly_summary"  # Requires summary of recent quarterly report
     ANNUAL_SUMMARY = "annual_summary"  # Requires summary of recent annual report
+    URL_CONTEXT = "url_context"  # Requires analysis from a URL source (filings, reports, etc.)
 
 
 @dataclass(frozen=True)

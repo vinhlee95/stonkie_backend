@@ -420,6 +420,7 @@ async def generate_report_for_insight_dynamic(ticker: str, slug: str):
 @app.post("/api/companies/{ticker}/reports/analyze")
 async def analyze_company_report(
     ticker: str,
+    request: Request,
     period_end_at: str = Query(..., description="Year or quarter ending of the report"),
     period_type: PeriodType = Query(PeriodType.ANNUALLY, description="Period type - annual or quarterly"),
 ) -> StreamingResponse:
@@ -428,6 +429,7 @@ async def analyze_company_report(
 
     Args:
         ticker (str): Company ticker symbol
+        request (Request): FastAPI request object to read optional JSON body with deepAnalysis flag
         period_end_at (str): Year or quarter ending of the report. Could be "2024" for annual or "6/30/2025" for quarterly
         period_type (PeriodType): Period type - annual or quarterly
 
@@ -435,6 +437,14 @@ async def analyze_company_report(
         Streaming analysis results
     """
     try:
+        # Parse optional JSON body for deepAnalysis flag
+        deep_analysis = False
+        try:
+            body = await request.json()
+            deep_analysis = body.get("deepAnalysis", False)
+        except Exception:
+            # If body is missing or invalid, default to short analysis (deep_analysis=False)
+            pass
         # Validate ticker format
         ticker = ticker.upper().strip()
         if not ticker or len(ticker) > 10:
@@ -474,7 +484,9 @@ async def analyze_company_report(
 
         async def generate_analysis():
             # Stream the AI analysis from the service layer
-            async for analysis_chunk in analyze_financial_report(ticker, period_end_at, period_type.value):
+            async for analysis_chunk in analyze_financial_report(
+                ticker, period_end_at, period_type.value, deep_analysis
+            ):
                 yield f"data: {json.dumps(analysis_chunk)}\n\n"
 
         return StreamingResponse(generate_analysis(), media_type="text/event-stream")

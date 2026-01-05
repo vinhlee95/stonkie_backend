@@ -1,15 +1,14 @@
 import logging
 from typing import Any, AsyncGenerator, Dict, List
 
-from agent.agent import Agent
 from agent.multi_agent import MultiAgent
-from ai_models.gemini import ContentType
 from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
+from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
+from services.question_analyzer.types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
 company_financial_connector = CompanyFinancialConnector()
-agent = Agent(model_type="gemini")
 
 
 def get_company_filings(ticker: str, period: str) -> List[Dict[str, Any]]:
@@ -27,7 +26,7 @@ def get_company_filings(ticker: str, period: str) -> List[Dict[str, Any]]:
 
 
 async def analyze_financial_report(
-    ticker: str, period_end_at: str, period_type: str
+    ticker: str, period_end_at: str, period_type: str, deep_analysis: bool = False
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Service method to analyze a company's financial report using AI
@@ -36,6 +35,7 @@ async def analyze_financial_report(
         ticker: Company ticker symbol
         period_end_at: End date of the period (e.g., '2023' for annual, '6/30/2023' for quarterly)
         period_type: Type of the period ('annually' or 'quarterly')
+        deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
 
     Yields:
         Analysis results as streaming dictionary chunks
@@ -53,38 +53,35 @@ async def analyze_financial_report(
 
         yield {"type": "thinking_status", "body": f"Found filing for {ticker}. Starting AI analysis..."}
 
-        # Create analysis prompt
-        prompt = f"""
-            Analyze the financial report for {ticker.upper()} available at this URL: {company_filing_url}.
+        # Build question for the report analysis
+        period_label = f"{period_type} report ending {period_end_at}"
+        question = f"Analyze the {period_label} for {ticker.upper()}. Provide insights on key financial highlights, business operations, and risk factors."
 
-            Please provide a comprehensive analysis covering:
-            - Key Financial Highlights - Revenue, profit margins, growth rates and trends over the years mentioned in the report. Indicate if performance is strong, weak, or mixed.
-            - Business Operations - Key business developments and operational metrics in the report. Assess if operations are improving, declining, or stable.
-            - Risk Factors - notable risks, challenges, competitive landscape mentioned in the report. Evaluate if these are manageable or concerning.
+        # Use UrlContextBuilder for URL-based analysis
+        builder = get_context_builder(FinancialDataRequirement.URL_CONTEXT)
+        context_builder_input = ContextBuilderInput(
+            ticker=ticker,
+            question=question,
+            company_fundamental=None,  # No fundamental data needed - analyzing the specific report URL
+            annual_statements=[],  # No historical statements needed - analyzing the specific report URL
+            quarterly_statements=[],  # No historical statements needed - analyzing the specific report URL
+            source_url=company_filing_url,  # Pass the URL to the builder
+            deep_analysis=deep_analysis,
+        )
 
-            Structure the analysis in clear sections and bullet points where appropriate for better readability.
-            The first paragraph should be a concise summary, in under 50 words, of the overall financial health and performance of the company based on the report.
-            Include specific numbers and percentages where available.
-            Only reference information from the report.
-            Keep the analysis comprehensive but concise. Keep the whole analysis UNDER 120 words. Do not mention any word count or length in the analysis.
-        """
+        # Build the prompt using the context builder
+        prompt = builder.build(context_builder_input)
 
         yield {"type": "thinking_status", "body": "Generating AI analysis of the financial report..."}
 
+        # Use MultiAgent with Gemini 3.0 and :online suffix for URL context
+        analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
         answers = ""
 
-        for part in agent.generate_content(
-            prompt=prompt,
-            model_name=ModelName.Gemini25FlashLite,
-            stream=True,
-            thought=True,
-            use_url_context=True,
-        ):
-            if part.type == ContentType.Thought:
-                yield {"type": "thinking_status", "body": part.text}
-            elif part.type == ContentType.Answer:
-                answers += part.text if part.text else ""
-                yield {"type": "answer", "body": part.text if part.text else "❌ No analysis generated from the model"}
+        for chunk in analysis_agent.generate_content(prompt=prompt, use_google_search=True):
+            if chunk:
+                answers += chunk
+                yield {"type": "answer", "body": chunk}
 
         related_question_prompt = f"""
             Based on the analysis: {answers} for {ticker.upper()}, suggest exactly 3 short and insightful follow-up questions an investor might have about the company's financial health or future outlook.
@@ -95,7 +92,7 @@ async def analyze_financial_report(
             - Do NOT number the questions or add any prefixes
         """
 
-        related_agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+        related_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
         for question in related_agent.generate_content_by_lines(
             prompt=related_question_prompt,
             use_google_search=False,
@@ -171,7 +168,7 @@ async def analyze_uploaded_file(
         yield {"type": "thinking_status", "body": "Analyzing document with AI..."}
 
         # Use MultiAgent with native PDF support - no manual text extraction needed
-        analysis_agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+        analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
         full_answer = ""
 
         for text_chunk in analysis_agent.generate_content_with_pdf_context(
@@ -197,7 +194,7 @@ async def analyze_uploaded_file(
             - Do NOT number the questions or add any prefixes
         """
 
-        related_agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+        related_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
         for question_text in related_agent.generate_content_by_lines(
             prompt=related_question_prompt,
             use_google_search=False,

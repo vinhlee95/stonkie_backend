@@ -9,12 +9,14 @@ from .components import validate_section_titles
 from .detailed_builder import DetailedContextBuilder
 from .none_builder import NoneContextBuilder
 from .quarterly_builder import QuarterlyContextBuilder
+from .url_builder import UrlContextBuilder
 
 CONTEXT_BUILDERS: Dict[FinancialDataRequirement, Type[ContextBuilder]] = {
     FinancialDataRequirement.NONE: NoneContextBuilder,
     FinancialDataRequirement.BASIC: BasicContextBuilder,
     FinancialDataRequirement.QUARTERLY_SUMMARY: QuarterlyContextBuilder,
     FinancialDataRequirement.DETAILED: DetailedContextBuilder,
+    FinancialDataRequirement.URL_CONTEXT: UrlContextBuilder,
 }
 
 
@@ -36,4 +38,5 @@ __all__ = [
     "BasicContextBuilder",
     "QuarterlyContextBuilder",
     "DetailedContextBuilder",
+    "UrlContextBuilder",
 ]
