@@ -89,6 +89,12 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
             "type": "question",
             "text": f"What are the key highlights from {company.name}'s latest quarterly report?",
         }
+
+        # Hard-coded questions about latest highlights from annual report
+        yield {
+            "type": "question",
+            "text": f"What are the key highlights from {company.name}'s latest annual report?",
+        }
     except Exception as e:
         logger.error(f"Error generating frequent ask questions for {ticker}: {e}")
         # After error, yield default questions

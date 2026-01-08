@@ -3,6 +3,7 @@
 from typing import Dict, Type
 
 from ..types import FinancialDataRequirement
+from .annual_builder import AnnualContextBuilder
 from .base import ContextBuilder, ContextBuilderInput
 from .basic_builder import BasicContextBuilder
 from .components import validate_section_titles
@@ -15,6 +16,7 @@ CONTEXT_BUILDERS: Dict[FinancialDataRequirement, Type[ContextBuilder]] = {
     FinancialDataRequirement.NONE: NoneContextBuilder,
     FinancialDataRequirement.BASIC: BasicContextBuilder,
     FinancialDataRequirement.QUARTERLY_SUMMARY: QuarterlyContextBuilder,
+    FinancialDataRequirement.ANNUAL_SUMMARY: AnnualContextBuilder,
     FinancialDataRequirement.DETAILED: DetailedContextBuilder,
     FinancialDataRequirement.URL_CONTEXT: UrlContextBuilder,
 }
@@ -37,6 +39,7 @@ __all__ = [
     "NoneContextBuilder",
     "BasicContextBuilder",
     "QuarterlyContextBuilder",
+    "AnnualContextBuilder",
     "DetailedContextBuilder",
     "UrlContextBuilder",
 ]

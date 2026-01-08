@@ -60,6 +60,14 @@ class FinancialDataOptimizer:
             logger.info(f"Profiling fetch_quarterly_summary: {t_end - t_start:.4f}s")
             logger.info(f"Fetched {len(quarterly_statements)} quarterly statement(s) for summary")
 
+        # Fetch annual summary data (minimal: just 1 year with filing URL)
+        if data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY:
+            t_start = time.perf_counter()
+            annual_statements = await self._fetch_annual_summary(ticker, period_requirement)
+            t_end = time.perf_counter()
+            logger.info(f"Profiling fetch_annual_summary: {t_end - t_start:.4f}s")
+            logger.info(f"Fetched {len(annual_statements)} annual statement(s) for summary")
+
         # Fetch detailed financial statements only if required
         if data_requirement == FinancialDataRequirement.DETAILED and period_requirement:
             t_start = time.perf_counter()
@@ -195,5 +203,53 @@ class FinancialDataOptimizer:
 
         logger.info(
             f"Filtered to {len(filtered_statements)} quarterly statement(s) with valid filing URLs out of {len(statements_dict)} total"
+        )
+        return filtered_statements
+
+    async def _fetch_annual_summary(
+        self, ticker: str, period_requirement: Optional[FinancialPeriodRequirement] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch annual statement for summary questions (only the latest or a specific year).
+        Returns minimal data with filing URL included.
+
+        Args:
+            ticker: Company ticker symbol
+            period_requirement: Period specification (optional, defaults to latest)
+
+        Returns:
+            List with single annual statement dictionary including filing_10k_url
+        """
+        # Check if specific years are requested
+        if period_requirement and period_requirement.specific_years:
+            statements_raw = self.company_financial_connector.get_company_financial_statements_by_years(
+                ticker, period_requirement.specific_years
+            )
+            logger.info(
+                f"Fetched {len(statements_raw)} annual statement(s) for years: {period_requirement.specific_years}"
+            )
+        elif period_requirement and period_requirement.num_periods:
+            # Use num_periods if specified (typically 1 for summary questions)
+            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(
+                ticker, period_requirement.num_periods
+            )
+            logger.info(f"Fetched {period_requirement.num_periods} most recent annual statement(s) for summary")
+        else:
+            # Default: fetch only the most recent year
+            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(ticker, 1)
+            logger.info("Fetched latest annual statement for summary")
+
+        # Convert to dict - filing_10k_url is already included in the model
+        statements_dict = [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
+
+        # Filter out statements that don't have a filing_10k_url
+        filtered_statements = [
+            stmt
+            for stmt in statements_dict
+            if stmt.get("filing_10k_url") is not None and stmt.get("filing_10k_url").strip()
+        ]
+
+        logger.info(
+            f"Filtered to {len(filtered_statements)} annual statement(s) with valid filing URLs out of {len(statements_dict)} total"
         )
         return filtered_statements

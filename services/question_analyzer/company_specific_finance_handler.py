@@ -244,7 +244,11 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
         # Determine which specific periods are needed (if detailed data required)
         period_requirement = None
-        if data_requirement in [FinancialDataRequirement.DETAILED, FinancialDataRequirement.QUARTERLY_SUMMARY]:
+        if data_requirement in [
+            FinancialDataRequirement.DETAILED,
+            FinancialDataRequirement.QUARTERLY_SUMMARY,
+            FinancialDataRequirement.ANNUAL_SUMMARY,
+        ]:
             yield {"type": "thinking_status", "body": "Identifying relevant financial periods..."}
 
             period_requirement = await self.classifier.classify_period_requirement(ticker, question)
@@ -303,6 +307,14 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 "body": filing_url,
             }
 
+        if data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY and len(annual_statements) == 1:
+            filing_url = annual_statements[0].get("filing_10k_url")
+            yield {
+                "type": "attachment_url",
+                "title": f"Annual 10K report for the year ending {annual_statements[0].get('period_end_year')}",
+                "body": filing_url,
+            }
+
         yield {"type": "thinking_status", "body": "Analyzing data and preparing insights..."}
 
         try:
@@ -328,8 +340,11 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             # Combine prompts for OpenRouter (which expects a single string)
             combined_prompt = f"{financial_context}\n\n{analysis_prompt}\n\n{source_prompt}"
 
-            # Enable Google Search for quarterly summary questions to read filing URLs
-            search_enabled = use_google_search or (data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY)
+            # Enable Google Search for quarterly and annual summary questions to read filing URLs
+            search_enabled = use_google_search or (
+                data_requirement
+                in [FinancialDataRequirement.QUARTERLY_SUMMARY, FinancialDataRequirement.ANNUAL_SUMMARY]
+            )
 
             with langfuse.start_as_current_observation(
                 as_type="generation", name="company-specific-finance-llm-call", model=model_used

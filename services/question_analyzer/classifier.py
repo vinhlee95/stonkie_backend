@@ -29,6 +29,16 @@ class QuestionClassifier:
         "10q",
     ]
 
+    # Keywords that strongly indicate annual report questions
+    ANNUAL_REPORT_KEYWORDS = [
+        "annual report",
+        "annual filing",
+        "10-k",
+        "10k",
+        "yearly report",
+        "annual earnings",
+    ]
+
     def __init__(self, agent: Optional[MultiAgent] = None):
         """
         Initialize the classifier.
@@ -50,6 +60,19 @@ class QuestionClassifier:
         """
         question_lower = question.lower()
         return any(keyword in question_lower for keyword in self.QUARTERLY_REPORT_KEYWORDS)
+
+    def _detect_annual_report_keywords(self, question: str) -> bool:
+        """
+        Fast keyword detection for annual report questions.
+
+        Args:
+            question: The question to check
+
+        Returns:
+            True if annual report keywords are detected
+        """
+        question_lower = question.lower()
+        return any(keyword in question_lower for keyword in self.ANNUAL_REPORT_KEYWORDS)
 
     @observe(name="classify_question_type")
     async def classify_question_type(self, question: str, ticker: str) -> Optional[str]:
@@ -131,6 +154,11 @@ class QuestionClassifier:
             logger.info(f"Keyword pre-filter detected quarterly report question: {question[:50]}...")
             return FinancialDataRequirement.QUARTERLY_SUMMARY
 
+        # Fast path: check for annual report keywords before calling LLM
+        if self._detect_annual_report_keywords(question):
+            logger.info(f"Keyword pre-filter detected annual report question: {question[:50]}...")
+            return FinancialDataRequirement.ANNUAL_SUMMARY
+
         prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed:
             Question: "{question}"
 
@@ -144,7 +172,7 @@ class QuestionClassifier:
 
             4. 'quarterly_summary' - Question requires a summary of recent quarterly financial results (e.g., "Summarize the {ticker.upper()}'s latest quarterly earnings report", "What were the key financial highlights for {ticker.upper()} last quarter?")
 
-            # TODO: support annual_summary in future
+            5. 'annual_summary' - Question requires a summary of recent annual financial results (e.g., "Summarize the {ticker.upper()}'s latest annual report", "What were the key highlights from {ticker.upper()}'s 10-K filing?", "What did management discuss in the annual report?")
 
             Examples:
             - "What does Apple do?" -> none
@@ -158,8 +186,12 @@ class QuestionClassifier:
             - "What are the key revenue drivers mentioned in the latest quarterly report?" -> quarterly_summary
             - "What did management discuss about growth in the 10-Q?" -> quarterly_summary
             - "What were the highlights from the quarterly filing?" -> quarterly_summary
+            - "Summarize Apple's latest annual report" -> annual_summary
+            - "What are the key highlights from Apple's 10-K filing?" -> annual_summary
+            - "What did management discuss in the annual filing?" -> annual_summary
+            - "What were the highlights from the annual report?" -> annual_summary
 
-            Return only the classification: none, basic, detailed, or quarterly_summary
+            Return only the classification: none, basic, detailed, quarterly_summary, or annual_summary
         """
 
         try:
