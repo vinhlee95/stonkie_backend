@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from ai_models.model_mapper import map_frontend_model_to_enum
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
     PeriodType,
@@ -163,6 +164,10 @@ async def analyze_financial_data(ticker: str, request: Request):
         use_google_search = body.get("useGoogleSearch", False)
         use_url_context = body.get("useUrlContext", False)
         deep_analysis = body.get("deepAnalysis", False)
+        preferred_model_str = body.get("preferredModel", "fastest")
+
+        # Map and validate the model name early
+        preferred_model = map_frontend_model_to_enum(preferred_model_str)
 
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
@@ -170,7 +175,7 @@ async def analyze_financial_data(ticker: str, request: Request):
         async def generate_analysis():
             try:
                 async for chunk in financial_analyzer.analyze_question(
-                    ticker, question, use_google_search, use_url_context, deep_analysis
+                    ticker, question, use_google_search, use_url_context, deep_analysis, preferred_model
                 ):
                     # Check if the client has disconnected
                     if await request.is_disconnected():

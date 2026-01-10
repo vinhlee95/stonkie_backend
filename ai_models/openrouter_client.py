@@ -13,6 +13,12 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     ModelName.Gemini25FlashLite: "google/gemini-2.5-flash-lite",
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
     ModelName.Gemini30Flash: "google/gemini-3-flash-preview",
+    # OpenRouter Auto Router for automatic model selection
+    ModelName.Auto: "openrouter/auto",
+    # Fastest model with :nitro variant for high-speed inference
+    # Uses Gemini 2.5 Flash Lite (fastest model) with nitro variant
+    # See: https://openrouter.ai/docs/guides/routing/model-variants/nitro
+    ModelName.Fastest: "google/gemini-2.5-flash-lite:nitro",
 }
 
 

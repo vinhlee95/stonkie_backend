@@ -156,7 +156,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 - Return ONLY valid JSON, no markdown code blocks
             """
 
-            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            agent = MultiAgent(model_name=ModelName.Gemini30Flash)
 
             # Collect full response with timeout
             response_chunks = []
@@ -218,7 +218,13 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         return None
 
     async def handle(
-        self, ticker: str, question: str, use_google_search: bool, use_url_context: bool, deep_analysis: bool = False
+        self,
+        ticker: str,
+        question: str,
+        use_google_search: bool,
+        use_url_context: bool,
+        deep_analysis: bool = False,
+        preferred_model: ModelName = ModelName.Auto,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company-specific financial questions.
@@ -229,6 +235,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
             deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
+            preferred_model: Preferred model to use for answer generation
 
         Yields:
             Dictionary chunks with analysis results
@@ -239,6 +246,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         # Determine what financial data we need
         yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
 
+        # Use default classifier model (Gemini3.0 Flash) for classification
         data_requirement = await self.classifier.classify_data_requirement(ticker, question)
         logger.info(f"Financial data requirement: {data_requirement}")
 
@@ -334,7 +342,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             source_prompt = PromptComponents.source_instructions()
 
             t_model = time.perf_counter()
-            agent = MultiAgent()
+            agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
             # Combine prompts for OpenRouter (which expects a single string)
@@ -400,7 +408,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
-            async for related_q in self._generate_related_questions(question):
+            async for related_q in self._generate_related_questions(question, preferred_model):
                 yield related_q
             t_related_end = time.perf_counter()
             logger.info(f"Profiling CompanySpecificFinanceHandler related_questions: {t_related_end - t_related:.4f}s")

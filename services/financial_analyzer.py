@@ -73,6 +73,7 @@ class FinancialAnalyzer:
         use_google_search: bool = False,
         use_url_context: bool = False,
         deep_analysis: bool = False,
+        preferred_model: ModelName = ModelName.Auto,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Analyze a financial question and generate insights.
@@ -83,6 +84,7 @@ class FinancialAnalyzer:
             use_google_search: Whether to use Google Search for additional context
             use_url_context: Whether to use URL context
             deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
+            preferred_model: Preferred model to use (defaults to Auto for OpenRouter Auto Router)
 
         Yields:
             Dictionary chunks with analysis results containing:
@@ -111,11 +113,11 @@ class FinancialAnalyzer:
 
             # Handle question with PDF URL
             yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
-            async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url):
+            async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
                 yield chunk
             return
 
-        # Classify the question type
+        # Classify the question type using default classifier model
         classification = await self.classifier.classify_question_type(question, ticker)
         logger.info(f"Question classified as: {classification}")
 
@@ -139,13 +141,15 @@ class FinancialAnalyzer:
         t_handler = time.perf_counter()
 
         if classification == QuestionType.GENERAL_FINANCE.value:
-            async for chunk in handler.handle(question, use_google_search, use_url_context):
+            async for chunk in handler.handle(question, use_google_search, use_url_context, preferred_model):
                 yield chunk
         elif classification == QuestionType.COMPANY_GENERAL.value:
-            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context):
+            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context, preferred_model):
                 yield chunk
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
-            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context, deep_analysis):
+            async for chunk in handler.handle(
+                ticker, question, use_google_search, use_url_context, deep_analysis, preferred_model
+            ):
                 yield chunk
 
         t_handler_end = time.perf_counter()
@@ -155,7 +159,7 @@ class FinancialAnalyzer:
         logger.info(f"Profiling analyze_question total: {t_end - t_start:.4f}s")
 
     async def _handle_pdf_url_question(
-        self, ticker: str, question: str, pdf_url: str
+        self, ticker: str, question: str, pdf_url: str, preferred_model: ModelName = ModelName.Auto
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle questions that include a PDF URL.
@@ -164,6 +168,7 @@ class FinancialAnalyzer:
             ticker: Stock ticker symbol
             question: The original question containing the URL
             pdf_url: The extracted PDF URL
+            preferred_model: Preferred model to use for PDF processing
 
         Yields:
             Dictionary chunks with analysis results
@@ -223,8 +228,8 @@ class FinancialAnalyzer:
                 Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
             """.strip()
 
-            # Initialize MultiAgent for OpenRouter PDF processing
-            agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+            # Initialize MultiAgent for OpenRouter PDF processing with preferred model
+            agent = MultiAgent(model_name=preferred_model)
 
             # Stream response from AI model
             try:

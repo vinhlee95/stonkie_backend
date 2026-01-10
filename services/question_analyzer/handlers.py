@@ -49,7 +49,9 @@ class BaseQuestionHandler:
         self.company_connector = company_connector or CompanyConnector()
 
     @observe(name="generate_related_questions")
-    async def _generate_related_questions(self, original_question: str) -> AsyncGenerator[Dict[str, str], None]:
+    async def _generate_related_questions(
+        self, original_question: str, preferred_model: ModelName = ModelName.Auto
+    ) -> AsyncGenerator[Dict[str, str], None]:
         """
         Generate related follow-up questions using MultiAgent with streaming.
 
@@ -57,6 +59,7 @@ class BaseQuestionHandler:
 
         Args:
             original_question: The original question asked
+            preferred_model: Preferred model to use for question generation
 
         Yields:
             Dictionary with type "related_question" and body containing the complete question
@@ -85,7 +88,7 @@ class BaseQuestionHandler:
                 Is the current valuation sustainable given industry trends?
             """
 
-            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            agent = MultiAgent(model_name=preferred_model)
 
             # Stream complete questions one at a time
             for question in agent.generate_content_by_lines(
@@ -107,7 +110,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
     """Handles general financial concept questions."""
 
     async def handle(
-        self, question: str, use_google_search: bool, use_url_context: bool
+        self, question: str, use_google_search: bool, use_url_context: bool, preferred_model: ModelName = ModelName.Auto
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle general finance questions.
@@ -116,6 +119,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             question: The question to answer
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
+            preferred_model: Preferred model to use for answer generation
 
         Yields:
             Dictionary chunks with analysis results
@@ -130,13 +134,13 @@ class GeneralFinanceHandler(BaseQuestionHandler):
 
                 {question}.
 
-                Give a short answer in less than 150 words. 
-                Break the answer into different paragraphs for better readability. 
+                Give a short answer in less than 150 words.
+                Break the answer into different paragraphs for better readability.
                 In the last paragraph, give an example of how this concept is used in a real-world situation
             """
 
             t_model = time.perf_counter()
-            agent = MultiAgent()
+            agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
             with langfuse.start_as_current_observation(
@@ -186,7 +190,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
-            async for related_q in self._generate_related_questions(question):
+            async for related_q in self._generate_related_questions(question, preferred_model):
                 yield related_q
             t_related_end = time.perf_counter()
             logger.info(f"Profiling GeneralFinanceHandler related_questions: {t_related_end - t_related:.4f}s")
@@ -206,6 +210,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
         question: str,
         use_google_search: bool,
         use_url_context: bool,
+        preferred_model: ModelName = ModelName.Auto,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company general questions.
@@ -215,6 +220,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             question: The question to answer
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
+            preferred_model: Preferred model to use for answer generation
 
         Yields:
             Dictionary chunks with analysis results
@@ -242,7 +248,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             """
 
             t_model = time.perf_counter()
-            agent = MultiAgent()
+            agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
             with langfuse.start_as_current_observation(
@@ -295,7 +301,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             yield {"type": "model_used", "body": model_used}
 
             t_related = time.perf_counter()
-            async for related_q in self._generate_related_questions(question):
+            async for related_q in self._generate_related_questions(question, preferred_model):
                 yield related_q
             t_related_end = time.perf_counter()
             logger.info(f"Profiling CompanyGeneralHandler related_questions: {t_related_end - t_related:.4f}s")

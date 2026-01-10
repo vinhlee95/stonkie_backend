@@ -46,7 +46,7 @@ class QuestionClassifier:
         Args:
             agent: AI agent for classification. Creates default if not provided.
         """
-        self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashLite)
+        self.agent = agent or MultiAgent(model_name=ModelName.Gemini30Flash)
 
     def _detect_quarterly_report_keywords(self, question: str) -> bool:
         """

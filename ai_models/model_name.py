@@ -15,6 +15,11 @@ class ModelName(StrEnum):
     Gemini25Flash = "gemini-2.5-flash"
     Gemini30Flash = "gemini-3-flash-preview"
 
+    # OpenRouter Auto Router (for "best" mode)
+    # https://openrouter.ai/docs/guides/routing/auto-model-selection
+    Auto = "auto"
+    Fastest = "fastest"
+
     # OpenAI Models (Native OpenAI format)
     Gpt4Mini = "gpt-4.1-mini"
     TextEmbeddingSmall = "text-embedding-3-small"
