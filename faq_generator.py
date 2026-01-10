@@ -63,10 +63,9 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         prompt = f"""
             The company name is {company.name}. Their ticker name is {ticker}.
 
-            Generate exactly 3 questions that users would ask about this company:
+            Generate exactly 2 questions that users would ask about this company:
             - 1 question about the company's general information such as who founded the company, when it was founded, etc.
             - 1 question about the company's products, services, business model, competitive advantage, etc.
-            - 1 question about the company's financial statements such as balance sheet, income statement, cash flow statement, etc in the LATEST financial year.
 
             Requirements:
             - Put EACH question on its OWN LINE
@@ -77,7 +76,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         for question in agent.generate_content_by_lines(
             prompt=prompt,
             use_google_search=False,
-            max_lines=3,
+            max_lines=2,
             min_line_length=10,
             strip_numbering=True,
             strip_markdown=True,
