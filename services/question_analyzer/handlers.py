@@ -3,7 +3,7 @@
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langfuse import get_client, observe
 
@@ -12,6 +12,7 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 from connectors.company import CompanyConnector
+from utils.conversation_format import format_conversation_context
 
 from .context_builders.components import PromptComponents
 
@@ -110,7 +111,12 @@ class GeneralFinanceHandler(BaseQuestionHandler):
     """Handles general financial concept questions."""
 
     async def handle(
-        self, question: str, use_google_search: bool, use_url_context: bool, preferred_model: ModelName = ModelName.Auto
+        self,
+        question: str,
+        use_google_search: bool,
+        use_url_context: bool,
+        preferred_model: ModelName = ModelName.Auto,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle general finance questions.
@@ -120,6 +126,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
             preferred_model: Preferred model to use for answer generation
+            conversation_messages: Optional list of previous conversation messages for context (not typically used for general finance)
 
         Yields:
             Dictionary chunks with analysis results
@@ -211,6 +218,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
         use_google_search: bool,
         use_url_context: bool,
         preferred_model: ModelName = ModelName.Auto,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company general questions.
@@ -221,6 +229,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
             preferred_model: Preferred model to use for answer generation
+            conversation_messages: Optional list of previous conversation messages for context
 
         Yields:
             Dictionary chunks with analysis results
@@ -237,10 +246,24 @@ class CompanyGeneralHandler(BaseQuestionHandler):
 
         try:
             source_instructions = PromptComponents.source_instructions()
+
+            # Format conversation context if available
+            conversation_context = ""
+            if conversation_messages:
+                num_pairs = len(conversation_messages) // 2
+                conversation_context = format_conversation_context(conversation_messages, ticker, company_name)
+                conversation_context = f"\n\n{conversation_context}\n"
+                logger.info(
+                    f"💬 Injected {num_pairs} Q/A pair(s) of conversation context into CompanyGeneralHandler prompt "
+                    f"(ticker: {ticker.upper()}, company: {company_name})"
+                )
+            else:
+                logger.debug(f"💬 No conversation context to inject (CompanyGeneralHandler, ticker: {ticker.upper()})")
+
             prompt = f"""
                 You are an expert about a business. Answer the following question about {company_name} (ticker: {ticker}):
                 {question}.
-
+{conversation_context}
                 Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.
                 

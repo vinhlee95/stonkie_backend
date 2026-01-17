@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langfuse import observe
 
@@ -74,6 +74,7 @@ class FinancialAnalyzer:
         use_url_context: bool = False,
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Analyze a financial question and generate insights.
@@ -85,6 +86,7 @@ class FinancialAnalyzer:
             use_url_context: Whether to use URL context
             deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
             preferred_model: Preferred model to use (defaults to Auto for OpenRouter Auto Router)
+            conversation_messages: Optional list of previous conversation messages for context
 
         Yields:
             Dictionary chunks with analysis results containing:
@@ -117,6 +119,16 @@ class FinancialAnalyzer:
                 yield chunk
             return
 
+        # Log conversation context usage
+        if conversation_messages:
+            num_pairs = len(conversation_messages) // 2
+            logger.info(
+                f"🔄 Passing {num_pairs} Q/A pair(s) of conversation context to handler "
+                f"(ticker: {ticker.upper()}, question: {question[:50]}...)"
+            )
+        else:
+            logger.debug(f"🔄 No conversation context provided (ticker: {ticker.upper()})")
+
         # Classify the question type using default classifier model
         classification = await self.classifier.classify_question_type(question, ticker)
         logger.info(f"Question classified as: {classification}")
@@ -141,14 +153,33 @@ class FinancialAnalyzer:
         t_handler = time.perf_counter()
 
         if classification == QuestionType.GENERAL_FINANCE.value:
-            async for chunk in handler.handle(question, use_google_search, use_url_context, preferred_model):
+            async for chunk in handler.handle(
+                question,
+                use_google_search,
+                use_url_context,
+                preferred_model,
+                conversation_messages=conversation_messages,
+            ):
                 yield chunk
         elif classification == QuestionType.COMPANY_GENERAL.value:
-            async for chunk in handler.handle(ticker, question, use_google_search, use_url_context, preferred_model):
+            async for chunk in handler.handle(
+                ticker,
+                question,
+                use_google_search,
+                use_url_context,
+                preferred_model,
+                conversation_messages=conversation_messages,
+            ):
                 yield chunk
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
             async for chunk in handler.handle(
-                ticker, question, use_google_search, use_url_context, deep_analysis, preferred_model
+                ticker,
+                question,
+                use_google_search,
+                use_url_context,
+                deep_analysis,
+                preferred_model,
+                conversation_messages=conversation_messages,
             ):
                 yield chunk
 

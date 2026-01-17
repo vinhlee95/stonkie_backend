@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -12,6 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
+from connectors.conversation_store import (
+    append_assistant_message,
+    append_user_message,
+    generate_conversation_id,
+    get_conversation_history_for_prompt,
+)
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
     PeriodType,
@@ -165,6 +172,7 @@ async def analyze_financial_data(ticker: str, request: Request):
         use_url_context = body.get("useUrlContext", False)
         deep_analysis = body.get("deepAnalysis", False)
         preferred_model_str = body.get("preferredModel", "fastest")
+        conversation_id = body.get("conversationId")
 
         # Map and validate the model name early
         preferred_model = map_frontend_model_to_enum(preferred_model_str)
@@ -172,23 +180,98 @@ async def analyze_financial_data(ticker: str, request: Request):
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
 
+        # Get or create anonymous user ID from cookie
+        anon_user_id = request.cookies.get("anon_user_id")
+        if not anon_user_id:
+            anon_user_id = str(uuid.uuid4())
+            logger.info(f"🔐 Generated new anonymous user ID: {anon_user_id[:8]}...")
+        else:
+            logger.debug(f"🔐 Using existing anonymous user ID: {anon_user_id[:8]}...")
+
+        # Generate conversation ID if not provided
+        if not conversation_id:
+            conversation_id = generate_conversation_id()
+            logger.info(f"💬 Generated new conversation ID: {conversation_id} (ticker: {ticker.upper()})")
+        else:
+            logger.info(f"💬 Using existing conversation ID: {conversation_id} (ticker: {ticker.upper()})")
+
+        # Load conversation history
+        conversation_messages = get_conversation_history_for_prompt(anon_user_id, ticker, conversation_id)
+        if conversation_messages:
+            num_pairs = len(conversation_messages) // 2
+            logger.info(
+                f"📚 Retrieved {num_pairs} Q/A pair(s) from conversation history "
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, conv: {conversation_id[:8]}...)"
+            )
+        else:
+            logger.info(
+                f"📚 No conversation history found (new conversation) "
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, conv: {conversation_id[:8]}...)"
+            )
+
+        # Append user message to conversation before generation
+        append_user_message(anon_user_id, ticker, conversation_id, question)
+        logger.debug(f"💾 Stored user message in conversation {conversation_id[:8]}...")
+
         async def generate_analysis():
             try:
+                # Emit conversation ID early in the stream
+                yield json.dumps({"type": "conversation", "body": {"conversationId": conversation_id}}) + "\n\n"
+
+                # Buffer assistant output for persistence
+                assistant_output_buffer = []
+
                 async for chunk in financial_analyzer.analyze_question(
-                    ticker, question, use_google_search, use_url_context, deep_analysis, preferred_model
+                    ticker,
+                    question,
+                    use_google_search,
+                    use_url_context,
+                    deep_analysis,
+                    preferred_model,
+                    conversation_messages=conversation_messages,
                 ):
                     # Check if the client has disconnected
                     if await request.is_disconnected():
                         return
+
+                    # Buffer answer chunks for persistence
+                    if chunk.get("type") == "answer":
+                        assistant_output_buffer.append(chunk.get("body", ""))
+
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
+
+                # After streaming completes, append assistant message to conversation
+                if assistant_output_buffer:
+                    assistant_full_text = "".join(assistant_output_buffer)
+                    append_assistant_message(anon_user_id, ticker, conversation_id, assistant_full_text)
+                    logger.debug(
+                        f"💾 Stored assistant response in conversation {conversation_id[:8]}... "
+                        f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
+                    )
 
             except asyncio.CancelledError:
                 # Handle cancellation
                 logger.info("Client cancelled request to analyze financial data", {"ticker": ticker})
                 return
 
-        return StreamingResponse(generate_analysis(), media_type="text/event-stream")
+        # Create response with cookie setting
+        response = StreamingResponse(generate_analysis(), media_type="text/event-stream")
+
+        # Set cookie if it wasn't present (for first-time users)
+        if not request.cookies.get("anon_user_id"):
+            # Determine cookie attributes based on environment
+            is_production = environment.lower() == "production"
+            response.set_cookie(
+                key="anon_user_id",
+                value=anon_user_id,
+                max_age=86400 * 365,  # 1 year
+                httponly=True,
+                samesite="None" if is_production else "Lax",
+                secure=is_production,  # Secure flag only in production
+            )
+
+        return response
     except Exception as e:
         logger.error(f"Error during analysis: {str(e)}")
         raise HTTPException(status_code=500, detail="Something went wrong. Please try again later.")

@@ -14,6 +14,7 @@ from agent.agent import Agent
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
+from utils.conversation_format import format_conversation_context
 
 from .classifier import QuestionClassifier
 from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
@@ -225,6 +226,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         use_url_context: bool,
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company-specific financial questions.
@@ -236,6 +238,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             use_url_context: Whether to use URL context
             deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
             preferred_model: Preferred model to use for answer generation
+            conversation_messages: Optional list of previous conversation messages for context
 
         Yields:
             Dictionary chunks with analysis results
@@ -341,12 +344,30 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             analysis_prompt = PromptComponents.analysis_focus()
             source_prompt = PromptComponents.source_instructions()
 
+            # Format conversation context if available
+            conversation_context = ""
+            if conversation_messages:
+                company_name = ""
+                if company_fundamental:
+                    company_name = company_fundamental.get("name", "")
+                num_pairs = len(conversation_messages) // 2
+                conversation_context = format_conversation_context(conversation_messages, ticker, company_name)
+                conversation_context = f"\n\n{conversation_context}\n"
+                logger.info(
+                    f"💬 Injected {num_pairs} Q/A pair(s) of conversation context into CompanySpecificFinanceHandler prompt "
+                    f"(ticker: {ticker.upper()}, company: {company_name or ticker.upper()})"
+                )
+            else:
+                logger.debug(
+                    f"💬 No conversation context to inject (CompanySpecificFinanceHandler, ticker: {ticker.upper()})"
+                )
+
             t_model = time.perf_counter()
             agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
             # Combine prompts for OpenRouter (which expects a single string)
-            combined_prompt = f"{financial_context}\n\n{analysis_prompt}\n\n{source_prompt}"
+            combined_prompt = f"{financial_context}{conversation_context}\n\n{analysis_prompt}\n\n{source_prompt}"
 
             # Enable Google Search for quarterly and annual summary questions to read filing URLs
             search_enabled = use_google_search or (
