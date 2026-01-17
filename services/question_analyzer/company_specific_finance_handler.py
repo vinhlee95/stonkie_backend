@@ -246,6 +246,44 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         t_start = time.perf_counter()
         ticker = ticker.lower().strip()
 
+        # Fallback: If ticker is missing/undefined and we have conversation context, answer generally
+        if (not ticker or ticker in ["undefined", "null", "none", ""]) and conversation_messages:
+            logger.info(
+                "⚠️  Fallback: Ticker is missing/undefined but conversation context exists. "
+                "Answering question generally based on conversation context."
+            )
+            yield {"type": "thinking_status", "body": "Answering based on our previous discussion..."}
+
+            # Use conversation context to answer generally
+            company_name = ""
+            conversation_context = format_conversation_context(
+                conversation_messages, ticker or "the company", company_name
+            )
+            prompt = f"""Based on our previous conversation, answer this follow-up question:
+
+{conversation_context}
+
+Current question: {question}
+
+Provide a helpful, general answer that builds on what we discussed before. If this is about financial strategy or concepts, explain it in general terms without requiring specific company financial data."""
+
+            agent = MultiAgent(model_name=preferred_model)
+            model_used = agent.model_name
+
+            for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
+                yield {"type": "answer", "body": text_chunk}
+
+            yield {"type": "model_used", "body": model_used}
+
+            # Generate related questions
+            async for related_q in self._generate_related_questions(question, preferred_model):
+                yield related_q
+
+            logger.info(
+                f"Profiling CompanySpecificFinanceHandler total (fallback): {time.perf_counter() - t_start:.4f}s"
+            )
+            return
+
         # Determine what financial data we need
         yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
 
@@ -325,6 +363,49 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 "title": f"Annual 10K report for the year ending {annual_statements[0].get('period_end_year')}",
                 "body": filing_url,
             }
+
+        # Fallback: If no data available and we have conversation context, answer generally
+        has_no_data = (
+            (not company_fundamental or not company_fundamental.get("name"))
+            and len(annual_statements) == 0
+            and len(quarterly_statements) == 0
+        )
+        if has_no_data and conversation_messages:
+            logger.info(
+                "⚠️  Fallback: No financial data available but conversation context exists. "
+                "Answering question generally based on conversation context."
+            )
+            yield {"type": "thinking_status", "body": "Answering based on our previous discussion..."}
+
+            # Use conversation context to answer generally
+            company_name = company_fundamental.get("name", "") if company_fundamental else ""
+            conversation_context = format_conversation_context(
+                conversation_messages, ticker or "the company", company_name
+            )
+            prompt = f"""Based on our previous conversation, answer this follow-up question:
+
+{conversation_context}
+
+Current question: {question}
+
+Provide a helpful, general answer that builds on what we discussed before. If this is about financial strategy or concepts, explain it in general terms without requiring specific company financial data."""
+
+            agent = MultiAgent(model_name=preferred_model)
+            model_used = agent.model_name
+
+            for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
+                yield {"type": "answer", "body": text_chunk}
+
+            yield {"type": "model_used", "body": model_used}
+
+            # Generate related questions
+            async for related_q in self._generate_related_questions(question, preferred_model):
+                yield related_q
+
+            logger.info(
+                f"Profiling CompanySpecificFinanceHandler total (fallback): {time.perf_counter() - t_start:.4f}s"
+            )
+            return
 
         yield {"type": "thinking_status", "body": "Analyzing data and preparing insights..."}
 

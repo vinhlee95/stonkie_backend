@@ -178,6 +178,62 @@ def get_conversation_history_for_prompt(
     return trimmed
 
 
+def get_conversation_meta_key(user_id: str, ticker: str, conversation_id: str) -> str:
+    """
+    Generate Redis key for conversation metadata storage.
+
+    Args:
+        user_id: Anonymous user ID from cookie
+        ticker: Company ticker symbol
+        conversation_id: Unique conversation identifier
+
+    Returns:
+        Redis key string
+    """
+    return f"conversation_meta:{user_id}:{ticker.upper()}:{conversation_id}"
+
+
+def get_conversation_meta(user_id: str, ticker: str, conversation_id: str) -> dict:
+    """
+    Get conversation metadata from Redis (e.g., last question type).
+
+    Args:
+        user_id: Anonymous user ID from cookie
+        ticker: Company ticker symbol
+        conversation_id: Unique conversation identifier
+
+    Returns:
+        Dictionary with metadata (e.g., {"last_question_type": "general-finance"})
+    """
+    key = get_conversation_meta_key(user_id, ticker, conversation_id)
+    meta_json = redis_client.get(key)
+
+    if meta_json:
+        try:
+            meta = json.loads(meta_json)
+            return meta if isinstance(meta, dict) else {}
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse conversation metadata from Redis key: {key}")
+            return {}
+
+    return {}
+
+
+def set_conversation_meta(user_id: str, ticker: str, conversation_id: str, meta: dict) -> None:
+    """
+    Store conversation metadata in Redis.
+
+    Args:
+        user_id: Anonymous user ID from cookie
+        ticker: Company ticker symbol
+        conversation_id: Unique conversation identifier
+        meta: Dictionary with metadata to store
+    """
+    key = get_conversation_meta_key(user_id, ticker, conversation_id)
+    redis_client.setex(key, CONVERSATION_TTL, json.dumps(meta))
+    logger.debug(f"Stored conversation metadata for {conversation_id[:8]}...")
+
+
 def generate_conversation_id() -> str:
     """
     Generate a new conversation ID.

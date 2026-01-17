@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from typing import Optional
+from typing import Dict, List, Optional
 
 from langfuse import observe
 
@@ -75,27 +75,57 @@ class QuestionClassifier:
         return any(keyword in question_lower for keyword in self.ANNUAL_REPORT_KEYWORDS)
 
     @observe(name="classify_question_type")
-    async def classify_question_type(self, question: str, ticker: str) -> Optional[str]:
+    async def classify_question_type(
+        self, question: str, ticker: str, conversation_messages: Optional[List[Dict[str, str]]] = None
+    ) -> Optional[str]:
         """
         Classify question as general finance, company general, or company-specific finance.
 
         Args:
             question: The question to classify
+            ticker: Company ticker symbol (may be empty/undefined for general questions)
+            conversation_messages: Optional list of previous conversation messages for context
 
         Returns:
             QuestionType value or None if classification fails
         """
         t_start = time.perf_counter()
 
+        # Normalize ticker: treat empty/undefined as no ticker
+        has_ticker = ticker and ticker.strip() and ticker.upper() not in ["UNDEFINED", "NULL", "NONE"]
+
+        # Build conversation context if available
+        conversation_context = ""
+        if conversation_messages and len(conversation_messages) > 0:
+            # Include last 1-2 Q/A pairs for context
+            recent_messages = conversation_messages[-4:] if len(conversation_messages) >= 4 else conversation_messages
+            conversation_lines = []
+            for msg in recent_messages:
+                role = msg.get("role", "").upper()
+                content = msg.get("content", "").strip()
+                if content:
+                    # Truncate long content for context
+                    truncated = content[:200] + "..." if len(content) > 200 else content
+                    conversation_lines.append(f"{role}: {truncated}")
+
+            if conversation_lines:
+                conversation_context = "\n\nPrevious conversation context:\n" + "\n".join(conversation_lines)
+                conversation_context += "\n\nIMPORTANT: If the current question is vague or ambiguous (e.g., 'Which are potential areas to reinvest?', 'What about that?', 'Tell me more'), treat it as a FOLLOW-UP to the previous conversation topic. Classify it based on the context of what was discussed before."
+
+        ticker_context_note = ""
+        if not has_ticker:
+            ticker_context_note = "\n\nNOTE: No valid ticker provided (ticker is empty/undefined). Do NOT force company-specific-finance classification. If the question is about general financial concepts or strategy, classify as general-finance even if it mentions 'reinvest' or similar terms."
+
         prompt = f"""Classify the following question into one of these three categories:
-        1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, or questions about individuals that don't require specific company financial statements
-        2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements, metrics, or performance
+        1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, strategy questions, or questions about individuals that don't require specific company financial statements
+        2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements, metrics, or performance (ONLY if a valid ticker is provided)
         3. '{QuestionType.COMPANY_GENERAL.value}' - for general questions about a company that don't require financial analysis
 
         Examples:
         - 'What is the average P/E ratio for the tech industry?' -> {QuestionType.GENERAL_FINANCE.value}
         - 'How does inflation affect stock markets?' -> {QuestionType.GENERAL_FINANCE.value}
         - 'How does Bill Gates' charitable giving affect his net worth?' -> {QuestionType.GENERAL_FINANCE.value}
+        - 'Which are potential areas to reinvest?' (follow-up to cash flow discussion) -> {QuestionType.GENERAL_FINANCE.value}
         - 'What is Apple's revenue for the last quarter?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - 'What was Microsoft's profit margin in 2023?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - 'How is the company profit margin trending in recent quarters?' -> {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
@@ -105,14 +135,15 @@ class QuestionClassifier:
         - 'Who is the CEO of Amazon?' -> {QuestionType.COMPANY_GENERAL.value}
 
         Rules:
-        - If the question asks about ANY financial metrics, performance, trends, or requires analyzing financial data (revenue, profit, margins, earnings, cash flow, debt, assets, growth, quarterly/annual results, etc.), ALWAYS classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
+        - If the question asks about ANY financial metrics, performance, trends, or requires analyzing financial data (revenue, profit, margins, earnings, cash flow, debt, assets, growth, quarterly/annual results, etc.), AND a valid ticker is provided, classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
         - Financial keywords include: revenue, profit, margin, earnings, cash flow, debt, assets, liabilities, growth, performance, quarterly, annual, financial, ROE, ROI, EBITDA, operating income, net income, expenses
-        - When ticker is provided ({ticker}), questions about "the company's" financial aspects should be classified as {QuestionType.COMPANY_SPECIFIC_FINANCE.value}
-        - If the question is about general market trends, concepts, or individuals, classify as {QuestionType.GENERAL_FINANCE.value}
+        - If NO valid ticker is provided (empty/undefined), do NOT classify as {QuestionType.COMPANY_SPECIFIC_FINANCE.value} even if the question mentions financial terms
+        - If the question is vague/ambiguous and there's conversation context, classify based on the previous conversation topic
+        - If the question is about general market trends, concepts, strategy, or individuals, classify as {QuestionType.GENERAL_FINANCE.value}
         - Only use {QuestionType.COMPANY_GENERAL.value} for non-financial company information like mission, CEO, products, history, location
 
         Question to classify: {question}
-        Ticker context: {ticker}"""
+        Ticker context: {ticker if has_ticker else "none (empty/undefined)"}{ticker_context_note}{conversation_context}"""
 
         try:
             response_text = ""

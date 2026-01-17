@@ -136,6 +136,27 @@ class GeneralFinanceHandler(BaseQuestionHandler):
         try:
             yield {"type": "thinking_status", "body": "Structuring the answer..."}
 
+            # Conversation context (important for follow-ups like "then?", "so?", "based on that?")
+            conversation_context = ""
+            if conversation_messages:
+                # Use last 1–2 Q/A pairs to keep prompt small and focused
+                recent_messages = (
+                    conversation_messages[-4:] if len(conversation_messages) >= 4 else conversation_messages
+                )
+                conversation_lines: list[str] = []
+                for msg in recent_messages:
+                    role = (msg.get("role") or "").upper()
+                    content = (msg.get("content") or "").strip()
+                    if content:
+                        conversation_lines.append(f"{role}: {content}")
+
+                if conversation_lines:
+                    conversation_context = "\n\nPrevious conversation:\n" + "\n".join(conversation_lines) + "\n"
+                    num_pairs = len(conversation_messages) // 2
+                    logger.info(
+                        f"💬 Injected {num_pairs} Q/A pair(s) of conversation context into GeneralFinanceHandler prompt"
+                    )
+
             prompt = f"""
                 Please explain this financial concept or answer this question:
 
@@ -144,6 +165,13 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 Give a short answer in less than 150 words.
                 Break the answer into different paragraphs for better readability.
                 In the last paragraph, give an example of how this concept is used in a real-world situation
+
+                IMPORTANT:
+                - If the question is a follow-up (e.g., contains words like "then", "so", "based on that"), use the numbers/facts from the previous conversation to answer.
+                - If the previous conversation includes a worked example with specific numbers, reuse those numbers and show the calculation briefly.
+                - If the previous conversation does not contain enough information to compute something, ask ONE clarifying question.
+
+                {conversation_context}
             """
 
             t_model = time.perf_counter()

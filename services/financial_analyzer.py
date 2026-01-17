@@ -11,6 +11,7 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
+from connectors.conversation_store import get_conversation_meta, set_conversation_meta
 from services.question_analyzer import CompanySpecificFinanceHandler
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
@@ -75,6 +76,8 @@ class FinancialAnalyzer:
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
+        conversation_id: Optional[str] = None,
+        anon_user_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Analyze a financial question and generate insights.
@@ -119,19 +122,63 @@ class FinancialAnalyzer:
                 yield chunk
             return
 
+        # Normalize ticker for storage/retrieval
+        normalized_ticker = ticker.strip().upper() if ticker else ""
+        if normalized_ticker in ["UNDEFINED", "NULL", ""]:
+            normalized_ticker = "none"
+
         # Log conversation context usage
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
                 f"🔄 Passing {num_pairs} Q/A pair(s) of conversation context to handler "
-                f"(ticker: {ticker.upper()}, question: {question[:50]}...)"
+                f"(ticker: {normalized_ticker}, question: {question[:50]}...)"
             )
         else:
-            logger.debug(f"🔄 No conversation context provided (ticker: {ticker.upper()})")
+            logger.debug(f"🔄 No conversation context provided (ticker: {normalized_ticker})")
 
-        # Classify the question type using default classifier model
-        classification = await self.classifier.classify_question_type(question, ticker)
-        logger.info(f"Question classified as: {classification}")
+        # Sticky routing: Check if this is an ambiguous follow-up and reuse last classification
+        classification = None
+        if conversation_messages and conversation_id and anon_user_id:
+            # Check if question is ambiguous (short, no explicit metrics, no company name)
+            is_ambiguous = len(question.split()) < 10 and not any(
+                keyword in question.lower()
+                for keyword in [
+                    "revenue",
+                    "profit",
+                    "margin",
+                    "earnings",
+                    "cash flow",
+                    "debt",
+                    "assets",
+                    "quarterly",
+                    "annual",
+                    "financial",
+                ]
+            )
+
+            if is_ambiguous:
+                meta = get_conversation_meta(anon_user_id, normalized_ticker, conversation_id)
+                last_question_type = meta.get("last_question_type")
+                if last_question_type:
+                    classification = last_question_type
+                    logger.info(
+                        f"📌 Sticky routing: Reusing last classification '{classification}' "
+                        f"for ambiguous follow-up question"
+                    )
+
+        # If not using sticky routing, classify normally
+        if not classification:
+            classification = await self.classifier.classify_question_type(
+                question, ticker, conversation_messages=conversation_messages
+            )
+            logger.info(f"Question classified as: {classification}")
+
+            # Store classification in meta for future sticky routing
+            if classification and conversation_id and anon_user_id:
+                set_conversation_meta(
+                    anon_user_id, normalized_ticker, conversation_id, {"last_question_type": classification}
+                )
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}

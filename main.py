@@ -180,6 +180,12 @@ async def analyze_financial_data(ticker: str, request: Request):
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
 
+        # Normalize ticker: treat "undefined", "null", empty string as no ticker
+        normalized_ticker = ticker.strip().upper() if ticker else ""
+        if normalized_ticker in ["UNDEFINED", "NULL", ""]:
+            normalized_ticker = ""
+            logger.debug(f"🔧 Normalized ticker '{ticker}' to empty (no ticker context)")
+
         # Get or create anonymous user ID from cookie
         anon_user_id = request.cookies.get("anon_user_id")
         if not anon_user_id:
@@ -191,12 +197,14 @@ async def analyze_financial_data(ticker: str, request: Request):
         # Generate conversation ID if not provided
         if not conversation_id:
             conversation_id = generate_conversation_id()
-            logger.info(f"💬 Generated new conversation ID: {conversation_id} (ticker: {ticker.upper()})")
+            logger.info(f"💬 Generated new conversation ID: {conversation_id} (ticker: {normalized_ticker or 'none'})")
         else:
-            logger.info(f"💬 Using existing conversation ID: {conversation_id} (ticker: {ticker.upper()})")
+            logger.info(f"💬 Using existing conversation ID: {conversation_id} (ticker: {normalized_ticker or 'none'})")
 
-        # Load conversation history
-        conversation_messages = get_conversation_history_for_prompt(anon_user_id, ticker, conversation_id)
+        # Load conversation history (use normalized ticker for storage key)
+        conversation_messages = get_conversation_history_for_prompt(
+            anon_user_id, normalized_ticker or "none", conversation_id
+        )
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
@@ -209,8 +217,8 @@ async def analyze_financial_data(ticker: str, request: Request):
                 f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, conv: {conversation_id[:8]}...)"
             )
 
-        # Append user message to conversation before generation
-        append_user_message(anon_user_id, ticker, conversation_id, question)
+        # Append user message to conversation before generation (use normalized ticker)
+        append_user_message(anon_user_id, normalized_ticker or "none", conversation_id, question)
         logger.debug(f"💾 Stored user message in conversation {conversation_id[:8]}...")
 
         async def generate_analysis():
@@ -222,13 +230,15 @@ async def analyze_financial_data(ticker: str, request: Request):
                 assistant_output_buffer = []
 
                 async for chunk in financial_analyzer.analyze_question(
-                    ticker,
+                    normalized_ticker or ticker,  # Use normalized ticker, fallback to original for display
                     question,
                     use_google_search,
                     use_url_context,
                     deep_analysis,
                     preferred_model,
                     conversation_messages=conversation_messages,
+                    conversation_id=conversation_id,
+                    anon_user_id=anon_user_id,
                 ):
                     # Check if the client has disconnected
                     if await request.is_disconnected():
@@ -241,10 +251,12 @@ async def analyze_financial_data(ticker: str, request: Request):
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
 
-                # After streaming completes, append assistant message to conversation
+                # After streaming completes, append assistant message to conversation (use normalized ticker)
                 if assistant_output_buffer:
                     assistant_full_text = "".join(assistant_output_buffer)
-                    append_assistant_message(anon_user_id, ticker, conversation_id, assistant_full_text)
+                    append_assistant_message(
+                        anon_user_id, normalized_ticker or "none", conversation_id, assistant_full_text
+                    )
                     logger.debug(
                         f"💾 Stored assistant response in conversation {conversation_id[:8]}... "
                         f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
