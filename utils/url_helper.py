@@ -24,6 +24,24 @@ def extract_first_url(text: str) -> Optional[str]:
     return matches[0] if matches else None
 
 
+def is_sec_filing_url(url: str) -> bool:
+    """
+    Check if a URL is from SEC.gov (Securities and Exchange Commission).
+
+    SEC filing URLs often return 403 errors for automated requests
+    but can be accessed via Google Search.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if URL is from sec.gov domain, False otherwise
+    """
+    if not url:
+        return False
+    return "sec.gov" in url.lower()
+
+
 def validate_pdf_url(url: str) -> tuple[bool, str]:
     """
     Validate that a URL is accessible and points to a PDF document.

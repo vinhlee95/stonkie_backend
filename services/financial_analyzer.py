@@ -20,7 +20,7 @@ from services.question_analyzer.handlers import (
     GeneralFinanceHandler,
 )
 from services.question_analyzer.types import QuestionType
-from utils.url_helper import extract_first_url, strip_url_from_text, validate_pdf_url
+from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
 logger = logging.getLogger(__name__)
 
@@ -104,23 +104,36 @@ class FinancialAnalyzer:
         # Check for PDF URL in question
         extracted_url = extract_first_url(question)
         if extracted_url:
-            # Validate if URL points to a PDF
-            is_valid, error_message = validate_pdf_url(extracted_url)
+            # Special handling for SEC filing URLs
+            # SEC.gov often returns 403 for automated requests, but content is accessible via Google Search
+            if is_sec_filing_url(extracted_url):
+                logger.info(f"SEC filing URL detected: {extracted_url}. Using Google Search to access content.")
+                yield {
+                    "type": "attachment_url",
+                    "body": extracted_url,
+                }
+                yield {"type": "thinking_status", "body": "Using Google Search to access SEC filing..."}
+                # Enable Google Search automatically for SEC URLs
+                use_google_search = True
+                # Continue with normal question processing instead of PDF URL handling
+            else:
+                # Validate if URL points to a PDF
+                is_valid, error_message = validate_pdf_url(extracted_url)
 
-            if not is_valid:
-                yield {"type": "answer", "body": f"❌ {error_message}"}
+                if not is_valid:
+                    yield {"type": "answer", "body": f"❌ {error_message}"}
+                    return
+
+                yield {
+                    "type": "attachment_url",
+                    "body": extracted_url,
+                }
+
+                # Handle question with PDF URL
+                yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
+                async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
+                    yield chunk
                 return
-
-            yield {
-                "type": "attachment_url",
-                "body": extracted_url,
-            }
-
-            # Handle question with PDF URL
-            yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
-            async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
-                yield chunk
-            return
 
         # Normalize ticker for storage/retrieval
         normalized_ticker = ticker.strip().upper() if ticker else ""
