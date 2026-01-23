@@ -83,6 +83,11 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.get("/api/healthcheck")
+async def healthcheck():
+    return {"success": True}
+
+
 class ReportType(Enum):
     INCOME_STATEMENT = "income_statement"
     BALANCE_SHEET = "balance_sheet"
