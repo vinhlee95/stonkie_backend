@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 # Initialize financial analyzer
 financial_analyzer = FinancialAnalyzer()
 
+# FastAPI application instance
 app = FastAPI()
 
 
