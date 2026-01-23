@@ -86,7 +86,27 @@ python scripts/openrouter_latency_check.py
 
 **IMPORTANT: Always verify changes before committing.** Follow this workflow for any code changes:
 
-### 1. Syntax Verification
+### 1. Run Integration Tests
+
+**ALWAYS run the healthcheck test before committing any changes** to ensure the API is working:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run healthcheck integration test
+python -m pytest tests/test_healthcheck.py -v
+
+# Or run all tests
+python -m pytest tests/ -v
+```
+
+This ensures:
+- FastAPI app imports and initializes correctly
+- No breaking changes to core dependencies
+- API endpoints remain accessible
+
+### 2. Syntax Verification
 
 ```bash
 # Verify Python syntax
@@ -96,7 +116,7 @@ python -m py_compile <file_path>
 ruff check <file_path>
 ```
 
-### 2. Local Testing (when possible)
+### 3. Local Testing (when possible)
 
 **For API endpoint changes:**
 
@@ -119,15 +139,16 @@ http GET localhost:8080/api/<endpoint>
 - Verify migration: `alembic upgrade head`
 - Test rollback: `alembic downgrade -1 && alembic upgrade head`
 
-### 3. Dependencies Check
+### 4. Dependencies Check
 
 If the worktree lacks dependencies, you can:
 - Install in worktree: `pip install -r requirements.txt`
 - Or verify syntax and logic, then test in main directory
 
-### 4. Commit Only After Verification
+### 5. Commit Only After Verification
 
 Only commit changes after:
+- **Integration tests pass** (especially `tests/test_healthcheck.py`)
 - Syntax verification passes
 - Local testing succeeds (or is verified as infeasible)
 - Code follows project conventions
