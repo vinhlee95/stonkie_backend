@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+In all interactions and commit messages, be extremely concise. Sacrifice grammar for the sake of concision.
+
+## Plans
+At the end of each plan, give me a list of unresolved questions to answer, if any.
+Make the questions extremely concise. Sacrifice grammar for the sake of concision.
+
 ## Project Overview
 
 Stonkie is an AI-driven financial analysis platform that provides automated company insights, financial statement analysis, and intelligent reporting. The backend is built with FastAPI, PostgreSQL, and integrates multiple AI models (OpenAI, Google Gemini, OpenRouter) for natural language processing and financial analysis.
