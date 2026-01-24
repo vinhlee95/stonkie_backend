@@ -19,7 +19,7 @@ class Company(BaseModel):
     name: str
     ticker: str
     logo_url: str = ""
-    industry: str = ""
+    sector: str = ""
 
 
 @dataclass(frozen=True)
@@ -112,9 +112,9 @@ class CompanyConnector:
                 name = item_data.get("name", "") or ""
                 ticker = str(getattr(item, "company_symbol", ""))
                 logo_url = item_data.get("logo_url") or self.get_company_logo_url(ticker)
-                industry = item_data.get("industry", "") or ""
+                sector = item_data.get("sector", "") or ""
 
-                companies.append(Company(name=name, ticker=ticker, logo_url=logo_url, industry=industry))
+                companies.append(Company(name=name, ticker=ticker, logo_url=logo_url, sector=sector))
             return companies
 
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
@@ -214,6 +214,6 @@ class CompanyConnector:
             name = item_data.get("name", "") or ""
             company_ticker = str(getattr(data, "company_symbol", ""))
             logo_url = item_data.get("logo_url") or ""
-            industry = item_data.get("industry", "") or ""
+            sector = item_data.get("sector", "") or ""
 
-            return Company(name=name, ticker=company_ticker, logo_url=logo_url, industry=industry)
+            return Company(name=name, ticker=company_ticker, logo_url=logo_url, sector=sector)
