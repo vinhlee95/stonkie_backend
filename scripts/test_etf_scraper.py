@@ -422,6 +422,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test ETF scraper with justetf.com")
     parser.add_argument("url", help="justetf.com ETF profile URL")
     parser.add_argument("--debug", action="store_true", help="Save HTML to file for debugging")
+    parser.add_argument("--save-to-db", action="store_true", help="Save extracted data to database")
     args = parser.parse_args()
 
     logger.info("=" * 80)
@@ -466,6 +467,21 @@ def main():
     logger.info("=" * 80)
     print(json.dumps(etf_data, indent=2))
 
+    # Save to database if requested
+    if args.save_to_db:
+        logger.info("\n" + "=" * 80)
+        logger.info("SAVING TO DATABASE")
+        logger.info("=" * 80)
+        try:
+            from connectors.etf_fundamental import ETFFundamentalConnector
+
+            connector = ETFFundamentalConnector()
+            result = connector.upsert(etf_data)
+            logger.info(f"✓ Saved to database: {result.isin} - {result.name}")
+        except Exception as e:
+            logger.error(f"Failed to save to database: {e}")
+            sys.exit(1)
+
     # Summary
     logger.info("\n" + "=" * 80)
     logger.info("SUMMARY")
@@ -476,6 +492,8 @@ def main():
     logger.info(f"✓ Sectors: {len(etf_data.get('sector_allocation', []))} items")
     logger.info(f"✓ Countries: {len(etf_data.get('country_allocation', []))} items")
     logger.info(f"✓ TER: {etf_data.get('ter_percent')}%")
+    if args.save_to_db:
+        logger.info("✓ Data saved to database")
     logger.info("\n🎉 Phase 0 validation SUCCESSFUL!")
 
 

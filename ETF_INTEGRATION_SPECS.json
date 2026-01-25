@@ -380,17 +380,26 @@
     {
       "id": "phase_1",
       "name": "Database Layer",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
+      "completed_date": "2026-01-25",
       "blocked_by": ["phase_0_5"],
-      "description": "Create ETFFundamental model and Alembic migration",
+      "description": "Create ETFFundamental model, connector, DTOs, and Alembic migration",
       "files": {
         "new": [
           "models/etf_fundamental.py",
-          "alembic/versions/<timestamp>_add_etf_fundamental_table.py"
+          "connectors/etf_fundamental.py",
+          "scripts/test_etf_connector.py",
+          "alembic/versions/f76057e3b7e5_add_etf_fundamental_table.py"
+        ],
+        "modified": [
+          "alembic/env.py (added model imports for autogenerate)",
+          "scripts/test_etf_scraper.py (added --save-to-db flag)"
         ],
         "reference": [
           "models/company_fundamental.py (pattern)",
+          "models/company_financial_statement.py (JSON columns pattern)",
+          "connectors/company_financial.py (_to_dict helper)",
           "alembic/versions/b02c543f4bf9_add_company_fundamental_table.py (migration pattern)"
         ]
       },
@@ -409,14 +418,19 @@
           "id": "Integer, primary_key=True, index=True",
           "isin": "String, index=True, unique via constraint",
           "ticker": "String, index=True, nullable=True",
-          "data": "JSON - flexible storage for all ETF data",
+          "fund_provider": "String, index=True (extracted from core_metadata for fast filtering)",
+          "core_metadata": "JSON - {name, fund_size_millions, ter_percent, replication_method, distribution_policy, fund_currency, domicile, launch_date, index_tracked}",
+          "holdings": "JSON - [{name, weight_percent}, ...]",
+          "sector_allocation": "JSON - [{sector, weight_percent}, ...]",
+          "country_allocation": "JSON - [{country, weight_percent}, ...]",
           "source_url": "String, nullable=True",
-          "updated_at": "DateTime(timezone=True), server_default=func.now()",
+          "updated_at": "DateTime(timezone=True), server_default=func.now(), onupdate=func.now()",
           "created_at": "DateTime(timezone=True), server_default=func.now()"
         },
         "constraints": [
           "UniqueConstraint('isin', name='uq_etf_fundamental_isin')"
-        ]
+        ],
+        "note": "Changed from single 'data' JSON column to Approach 4 (multiple JSON columns) for better query performance and structure. fund_provider indexed for fast filtering."
       },
       "success_criteria": [
         "Model file created: models/etf_fundamental.py",
@@ -438,14 +452,112 @@
           "Check record exists and timestamps populated"
         ]
       },
-      "rollback_plan": "alembic downgrade -1"
+      "rollback_plan": "alembic downgrade -1",
+      "completion_results": {
+        "validation_status": "PASSED",
+        "files_created": [
+          "models/etf_fundamental.py (ETFFundamental SQLAlchemy model)",
+          "connectors/etf_fundamental.py (ETFFundamentalConnector + DTOs)",
+          "scripts/test_etf_connector.py (comprehensive CRUD test suite)",
+          "alembic/versions/f76057e3b7e5_add_etf_fundamental_table.py (migration)"
+        ],
+        "schema_implementation": {
+          "approach": "Approach 4 - Multiple JSON Columns with indexed fund_provider",
+          "rationale": "Balance simplicity (1 table) with query performance (indexed provider) and data structure clarity (separate JSON columns for arrays)",
+          "columns": {
+            "core_metadata": "Single JSON for scalar fields (name, ter_percent, etc.)",
+            "holdings": "Separate JSON array for holdings data",
+            "sector_allocation": "Separate JSON array for sector data",
+            "country_allocation": "Separate JSON array for country data",
+            "fund_provider": "Indexed string column extracted from metadata for fast filtering"
+          },
+          "indexes": [
+            "id (primary key)",
+            "isin (unique constraint + index)",
+            "ticker (index)",
+            "fund_provider (index)"
+          ]
+        },
+        "connector_implementation": {
+          "class": "ETFFundamentalConnector",
+          "dtos": [
+            "ETFFundamentalDto (main DTO with all fields)",
+            "ETFHoldingDto (name, weight_percent)",
+            "ETFSectorAllocationDto (sector, weight_percent)",
+            "ETFCountryAllocationDto (country, weight_percent)"
+          ],
+          "methods": {
+            "get_by_isin": "Retrieve by ISIN (primary lookup)",
+            "get_by_ticker": "Retrieve by ticker symbol",
+            "get_by_provider": "Filter by fund provider (e.g., 'iShares')",
+            "get_all": "List all ETFs",
+            "upsert": "Create or update with concurrency safety (with_for_update)",
+            "delete_by_isin": "Delete by ISIN",
+            "_to_dict": "Convert SQLAlchemy model to dict with datetime serialization",
+            "_model_to_dto": "Convert model to typed DTO with nested DTOs"
+          }
+        },
+        "migration_verification": {
+          "migration_id": "f76057e3b7e5",
+          "upgrade_status": "SUCCESS",
+          "downgrade_status": "SUCCESS (tested rollback)",
+          "table_created": "etf_fundamental",
+          "indexes_created": 4,
+          "constraints_created": 1
+        },
+        "test_results": {
+          "connector_crud_tests": "ALL PASSED (10/10)",
+          "integration_tests": "PASSED (test_healthcheck.py - no breaking changes)",
+          "test_script": "scripts/test_etf_connector.py executed successfully",
+          "test_coverage": [
+            "Create via upsert",
+            "Update via upsert (same ISIN)",
+            "Retrieve by ISIN",
+            "Retrieve by ticker",
+            "Filter by provider",
+            "Get all ETFs",
+            "DTO conversions (holdings, sectors, countries)",
+            "Delete by ISIN",
+            "Verify deletion"
+          ]
+        },
+        "learnings": [
+          "SQLAlchemy reserves 'metadata' attribute - renamed to 'core_metadata'",
+          "Alembic env.py must import all models for autogenerate to work correctly",
+          "with_for_update(nowait=False) prevents race conditions in upsert",
+          "Multiple JSON columns (Approach 4) provide better structure than single JSON blob",
+          "Indexed fund_provider column enables fast filtering without PostgreSQL JSONB queries",
+          "Datetime fields require isoformat() serialization in DTOs",
+          "IntegrityError handling critical for concurrent upsert operations",
+          "Phase 2 (Connector + DTOs) integrated into Phase 1 - tightly coupled with model",
+          "Test script pattern from Phase 0 (test_etf_scraper.py) works well for validation"
+        ],
+        "integration_enhancements": {
+          "test_etf_scraper": "Added --save-to-db flag to persist scraped data directly to database",
+          "usage": "python scripts/test_etf_scraper.py <url> --save-to-db",
+          "workflow": "Phase 0 scraper -> Phase 1 connector -> Database persistence"
+        },
+        "database_state": {
+          "table_exists": true,
+          "ready_for_phase_3": true,
+          "test_data_cleaned": true
+        },
+        "next_phase_readiness": {
+          "phase_2": "SKIPPED (integrated into Phase 1)",
+          "phase_3": "READY (Celery task can use ETFFundamentalConnector.upsert)",
+          "phase_4": "READY (can start in parallel)",
+          "phase_5": "BLOCKED (needs Phase 3)"
+        }
+      }
     },
     {
       "id": "phase_2",
       "name": "Connector + DTOs",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
+      "completed_date": "2026-01-25",
       "blocked_by": ["phase_1"],
+      "note": "MERGED INTO PHASE 1 - Connector and DTOs implemented together with model due to tight coupling",
       "description": "Create ETFFundamentalConnector with CRUD operations and DTOs",
       "files": {
         "new": ["connectors/etf_fundamental.py"],
@@ -534,6 +646,20 @@
           "all_etfs = connector.get_all()",
           "assert len(all_etfs) >= 1"
         ]
+      },
+      "completion_results": {
+        "status": "MERGED_INTO_PHASE_1",
+        "validation_status": "PASSED",
+        "reason": "Connector and DTOs are tightly coupled with the model. Implementing them together in Phase 1 was more efficient and avoided unnecessary handoffs.",
+        "implementation_location": "connectors/etf_fundamental.py",
+        "deliverables": [
+          "ETFFundamentalDto with all fields from Phase 0 schema",
+          "ETFHoldingDto, ETFSectorAllocationDto, ETFCountryAllocationDto (nested DTOs)",
+          "ETFFundamentalConnector with all CRUD methods",
+          "Comprehensive type hints throughout",
+          "Integration test script: scripts/test_etf_connector.py"
+        ],
+        "test_results": "ALL TESTS PASSED - see Phase 1 completion_results for details"
       }
     },
     {
