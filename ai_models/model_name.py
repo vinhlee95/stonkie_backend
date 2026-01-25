@@ -14,6 +14,7 @@ class ModelName(StrEnum):
     Gemini25FlashLite = "gemini-2.5-flash-lite"
     Gemini25Flash = "gemini-2.5-flash"
     Gemini30Flash = "gemini-3-flash-preview"
+    Gemini30Pro = "gemini-3-pro-preview"
 
     # OpenRouter Auto Router (for "best" mode)
     # https://openrouter.ai/docs/guides/routing/auto-model-selection

@@ -1,0 +1,596 @@
+{
+  "project": "ETF Integration - justetf.com Scraping",
+  "overview": "Integrate ETF data scraping from justetf.com using Playwright + Celery infrastructure. AI extracts structured JSON from HTML pages.",
+  "phases": [
+    {
+      "id": "phase_0",
+      "name": "Bare-Minimum Validation Script",
+      "status": "completed",
+      "priority": "critical",
+      "completed_date": "2026-01-25",
+      "description": "Validate scraping + AI parsing works before building infrastructure",
+      "files": {
+        "new": ["scripts/test_etf_scraper.py"],
+        "reference": [
+          "tasks/financial_crawler.py (Playwright patterns)",
+          "agent/agent.py (AI usage)",
+          "scripts/test_gemini_thinking.py (Gemini example)"
+        ]
+      },
+      "requirements": [
+        "Accept justetf.com URL as CLI argument",
+        "Extract ISIN from URL query params",
+        "Use Playwright to fetch page HTML (headless Chrome)",
+        "Handle cookie consent modal (multiple selector strategies)",
+        "Wait for dynamic content to load",
+        "Send HTML to OpenAI for extraction",
+        "Parse AI response as JSON",
+        "Print extracted JSON to console",
+        "No database, no Celery, no Redis"
+      ],
+      "success_criteria": [
+        "Script runs without errors: python scripts/test_etf_scraper.py <url>",
+        "Cookie consent handled (or confirmed not present)",
+        "Full page HTML extracted (>100k chars typical)",
+        "AI returns valid JSON with expected fields",
+        "Holdings array populated (>0 items)",
+        "Sector allocation array populated (>0 items)",
+        "Country allocation array populated (>0 items)",
+        "Core fields extracted: name, isin, ter_percent, fund_size_millions"
+      ],
+      "technical_details": {
+        "playwright_config": {
+          "browser": "chromium",
+          "headless": true,
+          "viewport": {"width": 1920, "height": 1080},
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "timeout": 30000
+        },
+        "cookie_consent_selectors": [
+          "button[data-consent-accept]",
+          "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+          "button.consent-accept",
+          "button:has-text('Accept all')"
+        ],
+        "ai_model": {
+          "type": "openai",
+          "name": "default",
+          "stream": false,
+          "max_html_chars": 500000
+        },
+        "output_schema": {
+          "name": "string",
+          "isin": "string",
+          "ticker": "string | null",
+          "fund_size_millions": "number | null",
+          "ter_percent": "number",
+          "replication_method": "string",
+          "distribution_policy": "string",
+          "fund_currency": "string",
+          "domicile": "string",
+          "launch_date": "string (YYYY-MM-DD) | null",
+          "index_tracked": "string",
+          "fund_provider": "string",
+          "holdings": [{"name": "string", "weight_percent": "number"}],
+          "sector_allocation": [{"sector": "string", "weight_percent": "number"}],
+          "country_allocation": [{"country": "string", "weight_percent": "number"}]
+        }
+      },
+      "testing": {
+        "test_urls": [
+          "https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087",
+          "https://www.justetf.com/en/etf-profile.html?isin=IE00B4L5Y983"
+        ],
+        "validation_steps": [
+          "Run with --debug flag to save HTML",
+          "Verify cookie consent handled",
+          "Check AI response contains all required fields",
+          "Validate holdings > 5 items",
+          "Validate sector/country allocations present"
+        ]
+      },
+      "open_questions": [
+        "Does AI consistently extract all fields from justetf.com HTML?",
+        "Are there regional variations in HTML structure?",
+        "Does cookie consent blocking prevent data access?",
+        "What's the optimal HTML truncation limit for AI context?"
+      ],
+      "completion_results": {
+        "validation_status": "PASSED",
+        "test_results": [
+          {
+            "url": "https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087",
+            "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+            "ter_percent": 0.07,
+            "holdings_count": 10,
+            "sectors_count": 11,
+            "countries_count": 8,
+            "status": "SUCCESS"
+          },
+          {
+            "url": "https://www.justetf.com/en/etf-profile.html?isin=IE00B4L5Y983",
+            "name": "iShares Core MSCI World UCITS ETF USD (Acc)",
+            "ter_percent": 0.2,
+            "holdings_count": 10,
+            "sectors_count": 0,
+            "countries_count": 0,
+            "status": "SUCCESS"
+          }
+        ],
+        "learnings": [
+          "Cookie consent modal reliably detected via #CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+          "HTML pages are 2.6M+ chars - increased limit from 100k to 500k for better coverage",
+          "OpenAI (default model) successfully extracts structured JSON - same pattern as financial_crawler.py",
+          "AI extraction quality varies - some ETFs extract perfectly, others miss optional fields",
+          "Critical fields (name, isin) consistently extracted across test cases",
+          "Text parsing of AI response more reliable than JSON mode for this use case",
+          "Page load requires networkidle + 3s wait for dynamic content"
+        ],
+        "answers_to_open_questions": {
+          "ai_consistency": "AI extracts critical fields consistently. Optional fields (holdings, sectors) vary by ETF page structure.",
+          "cookie_consent": "Cookiebot modal found on all test pages. Multiple selector strategy successful.",
+          "html_truncation": "500k chars optimal - balances AI context window with data coverage. Original 100k was insufficient.",
+          "regional_variations": "Not yet tested - Phase 0 focused on English pages only"
+        },
+        "technical_adjustments": {
+          "max_html_chars": "increased from 100000 to 500000",
+          "ai_config": "removed response_mime_type, use text parsing instead",
+          "validation": "relaxed to critical fields only (name, isin) with warnings for optional fields"
+        }
+      }
+    },
+    {
+      "id": "phase_1",
+      "name": "Database Layer",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_0"],
+      "description": "Create ETFFundamental model and Alembic migration",
+      "files": {
+        "new": [
+          "models/etf_fundamental.py",
+          "alembic/versions/<timestamp>_add_etf_fundamental_table.py"
+        ],
+        "reference": [
+          "models/company_fundamental.py (pattern)",
+          "alembic/versions/b02c543f4bf9_add_company_fundamental_table.py (migration pattern)"
+        ]
+      },
+      "requirements": [
+        "Create ETFFundamental SQLAlchemy model",
+        "ISIN as primary identifier (unique constraint)",
+        "Flexible JSON column for all ETF data",
+        "source_url field to track origin",
+        "created_at and updated_at timestamps",
+        "Generate Alembic migration",
+        "Apply migration to local database"
+      ],
+      "model_schema": {
+        "table_name": "etf_fundamental",
+        "columns": {
+          "id": "Integer, primary_key=True, index=True",
+          "isin": "String, index=True, unique via constraint",
+          "ticker": "String, index=True, nullable=True",
+          "data": "JSON - flexible storage for all ETF data",
+          "source_url": "String, nullable=True",
+          "updated_at": "DateTime(timezone=True), server_default=func.now()",
+          "created_at": "DateTime(timezone=True), server_default=func.now()"
+        },
+        "constraints": [
+          "UniqueConstraint('isin', name='uq_etf_fundamental_isin')"
+        ]
+      },
+      "success_criteria": [
+        "Model file created: models/etf_fundamental.py",
+        "Model follows CompanyFundamental pattern exactly",
+        "Migration generated: alembic revision --autogenerate -m 'add etf_fundamental table'",
+        "Migration applied successfully: alembic upgrade head",
+        "Table exists in database: SELECT * FROM etf_fundamental LIMIT 1",
+        "Unique constraint enforced on ISIN",
+        "Manual insert test succeeds"
+      ],
+      "testing": {
+        "manual_test": [
+          "from models.etf_fundamental import ETFFundamental",
+          "from connectors.database import SessionLocal",
+          "with SessionLocal() as db:",
+          "  record = ETFFundamental(isin='TEST123', data={'name': 'Test ETF'})",
+          "  db.add(record)",
+          "  db.commit()",
+          "Check record exists and timestamps populated"
+        ]
+      },
+      "rollback_plan": "alembic downgrade -1"
+    },
+    {
+      "id": "phase_2",
+      "name": "Connector + DTOs",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_1"],
+      "description": "Create ETFFundamentalConnector with CRUD operations and DTOs",
+      "files": {
+        "new": ["connectors/etf_fundamental.py"],
+        "reference": [
+          "connectors/company_insight.py (connector pattern)",
+          "connectors/company_fundamental.py (if exists)"
+        ]
+      },
+      "requirements": [
+        "Create ETFFundamentalDto dataclass with all fields from Phase 0 schema",
+        "Create ETFFundamentalConnector class",
+        "Implement get_by_isin(isin) -> Optional[ETFFundamentalDto]",
+        "Implement upsert(data) -> ETFFundamentalDto with conflict handling",
+        "Implement get_all() -> List[ETFFundamentalDto]",
+        "Include comprehensive type hints",
+        "Follow existing connector patterns"
+      ],
+      "dto_schema": {
+        "class_name": "ETFFundamentalDto",
+        "decorator": "@dataclass(frozen=True)",
+        "fields": {
+          "isin": "str",
+          "ticker": "str | None",
+          "name": "str",
+          "fund_size_millions": "float | None",
+          "ter_percent": "float",
+          "replication_method": "str",
+          "distribution_policy": "str",
+          "fund_currency": "str",
+          "domicile": "str",
+          "launch_date": "str | None",
+          "index_tracked": "str",
+          "fund_provider": "str",
+          "holdings": "list[dict[str, Any]]",
+          "sector_allocation": "list[dict[str, Any]]",
+          "country_allocation": "list[dict[str, Any]]",
+          "source_url": "str | None",
+          "updated_at": "datetime",
+          "created_at": "datetime"
+        }
+      },
+      "connector_methods": {
+        "get_by_isin": {
+          "signature": "def get_by_isin(self, isin: str) -> Optional[ETFFundamentalDto]",
+          "description": "Retrieve ETF by ISIN",
+          "returns": "DTO if found, None otherwise"
+        },
+        "upsert": {
+          "signature": "def upsert(self, data: dict[str, Any]) -> ETFFundamentalDto",
+          "description": "Insert or update ETF record",
+          "conflict_handling": "ON CONFLICT (isin) DO UPDATE",
+          "returns": "Updated DTO"
+        },
+        "get_all": {
+          "signature": "def get_all(self) -> list[ETFFundamentalDto]",
+          "description": "Retrieve all ETF records",
+          "returns": "List of DTOs"
+        }
+      },
+      "success_criteria": [
+        "File created: connectors/etf_fundamental.py",
+        "ETFFundamentalDto defined with all fields",
+        "ETFFundamentalConnector class with all 3 methods",
+        "Type hints comprehensive",
+        "Unit test: Insert record via upsert()",
+        "Unit test: Retrieve record via get_by_isin()",
+        "Unit test: Upsert same ISIN updates existing record",
+        "Unit test: get_all() returns list"
+      ],
+      "testing": {
+        "test_data": {
+          "isin": "IE00TEST001",
+          "name": "Test ETF",
+          "ter_percent": 0.20,
+          "holdings": [{"name": "Apple", "weight_percent": 5.0}]
+        },
+        "test_steps": [
+          "connector = ETFFundamentalConnector()",
+          "dto1 = connector.upsert(test_data)",
+          "assert dto1.isin == 'IE00TEST001'",
+          "dto2 = connector.get_by_isin('IE00TEST001')",
+          "assert dto2.name == 'Test ETF'",
+          "test_data['name'] = 'Updated ETF'",
+          "dto3 = connector.upsert(test_data)",
+          "assert dto3.name == 'Updated ETF'",
+          "all_etfs = connector.get_all()",
+          "assert len(all_etfs) >= 1"
+        ]
+      }
+    },
+    {
+      "id": "phase_3",
+      "name": "Celery Task + AI Extraction",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_2", "phase_4"],
+      "description": "Create Celery task for ETF crawling with Playwright + Gemini extraction",
+      "files": {
+        "new": ["tasks/etf_crawler.py"],
+        "reference": [
+          "tasks/financial_crawler.py (Celery + Playwright pattern)",
+          "scripts/test_etf_scraper.py (validated extraction logic from Phase 0)"
+        ]
+      },
+      "requirements": [
+        "Create crawl_etf_data_task(etf_url: str) Celery task",
+        "Extract ISIN from URL",
+        "Check task state in Redis (prevent duplicate runs)",
+        "Launch Playwright (headless Chromium)",
+        "Handle cookie consent modal",
+        "Wait for dynamic content",
+        "Extract page HTML",
+        "Send to Gemini 2.5 Flash with extraction prompt",
+        "Validate JSON structure",
+        "Save via ETFFundamentalConnector.upsert()",
+        "Update task state in Redis",
+        "Return status + extracted data",
+        "Include retry logic with exponential backoff"
+      ],
+      "task_config": {
+        "decorator": "@celery_app.task(base=CallbackTask, bind=True, name='tasks.crawl_etf_data', max_retries=3, default_retry_delay=300)",
+        "parameters": {
+          "etf_url": "str - full justetf.com URL"
+        },
+        "returns": {
+          "status": "success | failed",
+          "isin": "string",
+          "data": "extracted ETF data dict",
+          "task_id": "Celery task ID",
+          "message": "human-readable result"
+        }
+      },
+      "workflow": [
+        "1. Extract ISIN from etf_url",
+        "2. set_task_state(isin=isin, status='running', task_id=self.request.id)",
+        "3. Launch Playwright browser",
+        "4. Navigate to etf_url",
+        "5. Handle cookie consent (try multiple selectors)",
+        "6. Wait for page load + dynamic content",
+        "7. Extract HTML",
+        "8. Close browser",
+        "9. Send HTML to Gemini via Agent(model_type='gemini', model_name='gemini-2.5-flash')",
+        "10. Parse JSON response",
+        "11. Validate required fields present",
+        "12. connector.upsert(extracted_data)",
+        "13. set_task_state(isin=isin, status='completed', task_id=self.request.id)",
+        "14. Return success result",
+        "On error: set_task_state(status='failed', error=str(e)), retry with backoff"
+      ],
+      "extraction_prompt_template": "Extract ETF data from HTML. Return ONLY valid JSON with fields: name, isin, ticker, fund_size_millions, ter_percent, replication_method, distribution_policy, fund_currency, domicile, launch_date, index_tracked, fund_provider, holdings (array), sector_allocation (array), country_allocation (array). Use null for missing fields. ISIN: {isin}. HTML: {html[:100000]}",
+      "success_criteria": [
+        "File created: tasks/etf_crawler.py",
+        "Task registered in Celery: celery -A celery_app inspect registered | grep crawl_etf_data",
+        "Task runs without errors",
+        "ISIN correctly extracted from URL",
+        "Cookie consent handled",
+        "HTML extracted and sent to AI",
+        "Valid JSON parsed from AI response",
+        "Data saved to database via connector",
+        "Task state tracked in Redis",
+        "Manual test: result = crawl_etf_data_task.delay(test_url)",
+        "Database record created after task completes",
+        "Retry logic triggers on failure"
+      ],
+      "testing": {
+        "test_url": "https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087",
+        "celery_test": [
+          "from tasks.etf_crawler import crawl_etf_data_task",
+          "result = crawl_etf_data_task.delay('https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087')",
+          "print(result.get(timeout=120))",
+          "Verify: status == 'success'",
+          "Verify: Database has record with ISIN 'IE00B5BMR087'"
+        ],
+        "redis_state_test": [
+          "from connectors.cache import get_task_state",
+          "state = get_task_state(isin='IE00B5BMR087')",
+          "assert state['status'] in ['running', 'completed']"
+        ]
+      },
+      "error_handling": [
+        "Playwright timeout: Retry with increased timeout",
+        "Cookie consent not found: Proceed anyway (may not be blocking)",
+        "AI returns invalid JSON: Log error, retry",
+        "Database constraint violation: Log warning, return existing record",
+        "Network error: Retry with exponential backoff"
+      ]
+    },
+    {
+      "id": "phase_4",
+      "name": "Cache + Task State",
+      "status": "pending",
+      "priority": "medium",
+      "blocked_by": [],
+      "description": "Add ETF task state tracking to Redis cache",
+      "files": {
+        "modify": ["connectors/cache.py"],
+        "reference": [
+          "connectors/cache.py (existing task state functions)"
+        ]
+      },
+      "requirements": [
+        "Add get_etf_task_state_key(isin: str) function",
+        "Reuse existing set_task_state() with new parameters",
+        "Reuse existing get_task_state() with ISIN support",
+        "Reuse existing can_dispatch_task() with ISIN support",
+        "Follow existing cache key patterns"
+      ],
+      "implementation": {
+        "new_function": {
+          "name": "get_etf_task_state_key",
+          "signature": "def get_etf_task_state_key(isin: str) -> str",
+          "returns": "f'etf_task_state:{isin.upper()}'",
+          "example": "get_etf_task_state_key('IE00B5BMR087') -> 'etf_task_state:IE00B5BMR087'"
+        },
+        "modified_functions": [
+          "set_task_state() - add isin parameter (optional)",
+          "get_task_state() - add isin parameter (optional)",
+          "can_dispatch_task() - add isin parameter (optional)"
+        ]
+      },
+      "success_criteria": [
+        "Function added: get_etf_task_state_key(isin)",
+        "set_task_state() accepts isin parameter",
+        "get_task_state() accepts isin parameter",
+        "can_dispatch_task() accepts isin parameter",
+        "Redis key format: 'etf_task_state:{ISIN}'",
+        "Test: Set task state for ISIN",
+        "Test: Retrieve task state by ISIN",
+        "Test: can_dispatch_task returns False for running tasks"
+      ],
+      "testing": {
+        "test_code": [
+          "from connectors.cache import set_task_state, get_task_state, can_dispatch_task",
+          "set_task_state(isin='TEST001', status='running', task_id='abc123')",
+          "state = get_task_state(isin='TEST001')",
+          "assert state['status'] == 'running'",
+          "assert state['task_id'] == 'abc123'",
+          "can_run = can_dispatch_task(isin='TEST001')",
+          "assert can_run == False",
+          "set_task_state(isin='TEST001', status='completed', task_id='abc123')",
+          "can_run2 = can_dispatch_task(isin='TEST001')",
+          "assert can_run2 == True"
+        ]
+      }
+    },
+    {
+      "id": "phase_5",
+      "name": "API Endpoints (Optional)",
+      "status": "pending",
+      "priority": "low",
+      "blocked_by": ["phase_3"],
+      "description": "Add FastAPI endpoints for ETF scraping and retrieval",
+      "files": {
+        "modify": ["main.py"],
+        "reference": [
+          "main.py (existing company endpoints pattern)"
+        ]
+      },
+      "requirements": [
+        "POST /api/etf/scrape - Trigger scrape for URL",
+        "GET /api/etf/{isin} - Get stored ETF data",
+        "GET /api/etf - List all ETFs",
+        "Follow RESTful conventions",
+        "Use ticker parameter naming pattern",
+        "Return proper HTTP status codes"
+      ],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/etf/scrape",
+          "request_body": {
+            "url": "string - justetf.com ETF profile URL"
+          },
+          "response": {
+            "status": "success | failed",
+            "task_id": "string - Celery task ID",
+            "isin": "string",
+            "message": "string"
+          },
+          "logic": [
+            "Validate URL is from justetf.com",
+            "Extract ISIN from URL",
+            "Check can_dispatch_task(isin)",
+            "If already running, return 409 Conflict",
+            "Dispatch crawl_etf_data_task.delay(url)",
+            "Return 202 Accepted with task_id"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/api/etf/{isin}",
+          "parameters": {
+            "isin": "string - ETF ISIN code"
+          },
+          "response": "ETFFundamentalDto | 404",
+          "logic": [
+            "connector = ETFFundamentalConnector()",
+            "dto = connector.get_by_isin(isin)",
+            "If None, return 404",
+            "Else return dto as JSON"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/api/etf",
+          "response": "list[ETFFundamentalDto]",
+          "logic": [
+            "connector = ETFFundamentalConnector()",
+            "return connector.get_all()"
+          ]
+        }
+      ],
+      "success_criteria": [
+        "Endpoints added to main.py",
+        "POST /api/etf/scrape triggers Celery task",
+        "GET /api/etf/{isin} returns ETF data",
+        "GET /api/etf returns all ETFs",
+        "404 returned for non-existent ISIN",
+        "409 returned for already-running tasks",
+        "Integration test with real URL succeeds"
+      ],
+      "testing": {
+        "curl_tests": [
+          "# Trigger scrape",
+          "curl -X POST http://localhost:8080/api/etf/scrape -H 'Content-Type: application/json' -d '{\"url\": \"https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087\"}'",
+          "# Get ETF data",
+          "curl http://localhost:8080/api/etf/IE00B5BMR087",
+          "# List all ETFs",
+          "curl http://localhost:8080/api/etf"
+        ]
+      }
+    }
+  ],
+  "global_patterns": {
+    "playwright": {
+      "launch_config": "headless=True, chromium",
+      "context_config": "viewport 1920x1080, realistic user agent",
+      "wait_strategy": "wait_for_load_state('networkidle') + wait_for_timeout(3000)",
+      "cookie_consent": "Try multiple selectors, proceed if not found",
+      "rate_limiting": "2s delay between requests"
+    },
+    "ai_extraction": {
+      "model": "gemini-2.5-flash",
+      "agent_init": "Agent(model_type='gemini', model_name='gemini-2.5-flash')",
+      "stream": false,
+      "html_limit": 100000,
+      "response_format": "JSON only, no markdown",
+      "fallback": "Log error, retry task"
+    },
+    "database": {
+      "session_pattern": "with SessionLocal() as db:",
+      "conflict_handling": "UniqueConstraint + ON CONFLICT DO UPDATE",
+      "timestamps": "server_default=func.now()"
+    },
+    "celery": {
+      "base_class": "CallbackTask",
+      "bind": true,
+      "max_retries": 3,
+      "retry_delay": "exponential backoff: 60 * (2**self.request.retries)"
+    },
+    "type_hints": {
+      "required": "All function signatures",
+      "dto_pattern": "@dataclass(frozen=True)",
+      "nullable": "Use | None syntax"
+    }
+  },
+  "dependencies": {
+    "existing": [
+      "playwright",
+      "celery",
+      "redis",
+      "sqlalchemy",
+      "alembic",
+      "google-genai",
+      "fastapi"
+    ],
+    "new": []
+  },
+  "verification_workflow": {
+    "before_commit": [
+      "python -m pytest tests/test_healthcheck.py -v",
+      "ruff check <modified_files>",
+      "python -m py_compile <modified_files>"
+    ]
+  }
+}
