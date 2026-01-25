@@ -14,6 +14,48 @@ Stonkie is an AI-driven financial analysis platform that provides automated comp
 
 ## Development Commands
 
+### Virtual Environment
+
+**CRITICAL: ALWAYS activate the virtual environment before running ANY Python commands or scripts.**
+
+```bash
+# Activate virtual environment (REQUIRED before any Python command)
+source venv/bin/activate
+
+# Verify activation (should show venv path)
+which python
+```
+
+**Running scripts from scripts/ directory:**
+Scripts require PYTHONPATH set to backend directory to import local modules:
+
+```bash
+# Correct way to run scripts
+source venv/bin/activate && PYTHONPATH=/Users/vinhle/dev/projects/stonkie/backend python scripts/test_etf_scraper.py <args>
+
+# Or using a shorter form (if already in backend directory)
+source venv/bin/activate && PYTHONPATH=. python scripts/script_name.py <args>
+```
+
+**Common scenarios requiring venv activation:**
+- Running scripts: `source venv/bin/activate && PYTHONPATH=. python scripts/test_etf_scraper.py`
+- Running tests: `source venv/bin/activate && pytest tests/`
+- Running the application: `source venv/bin/activate && hypercorn main:app`
+- Database migrations: `source venv/bin/activate && alembic upgrade head`
+- Installing packages: `pip install -r requirements.txt`
+- Code quality checks: `ruff check .`
+
+**Error pattern indicating missing venv or PYTHONPATH:**
+```
+ModuleNotFoundError: No module named 'agent'
+ModuleNotFoundError: No module named 'fastapi'
+ModuleNotFoundError: No module named 'services'
+```
+
+If you encounter these errors:
+1. Activate venv: `source venv/bin/activate`
+2. For scripts: Add PYTHONPATH to command
+
 ### Running the Application
 
 ```bash
