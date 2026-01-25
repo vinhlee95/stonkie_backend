@@ -10,7 +10,7 @@ test_data = {
     "ticker": "SXR8",
     "name": "iShares Core S&P 500 UCITS ETF (Acc)",
     "fund_provider": "iShares",
-    "fund_size_millions": 55570,
+    "fund_size_billions": 55.57,
     "ter_percent": 0.07,
     "replication_method": "Physical (Full replication)",
     "distribution_policy": "Accumulating",
@@ -58,7 +58,7 @@ print("\n✅ Testing get_by_ticker...")
 etf = connector.get_by_ticker("SXR8")
 assert etf is not None, "ETF not found by ticker"
 print(f"   Retrieved: {etf.name}")
-print(f"   Fund Size: ${etf.fund_size_millions}M")
+print(f"   Fund Size: ${etf.fund_size_billions}B")
 
 # Test get_by_provider
 print("\n✅ Testing get_by_provider...")
@@ -68,10 +68,10 @@ assert len(etfs) >= 1, "Expected at least 1 iShares ETF"
 
 # Test upsert (update)
 print("\n✅ Testing upsert (update)...")
-test_data["fund_size_millions"] = 60000  # Change value
+test_data["fund_size_billions"] = 60.0  # Change value
 result = connector.upsert(test_data)
-assert result.fund_size_millions == 60000, "Fund size not updated"
-print(f"   Updated fund size to ${result.fund_size_millions}M")
+assert result.fund_size_billions == 60.0, "Fund size not updated"
+print(f"   Updated fund size to ${result.fund_size_billions}B")
 
 # Test get_all
 print("\n✅ Testing get_all...")

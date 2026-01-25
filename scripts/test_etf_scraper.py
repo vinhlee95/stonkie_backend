@@ -197,8 +197,8 @@ STEP 1: Basic Information
 - fund_provider: Look for "Provider", "Fund provider", "Issuer" (e.g., iShares, Vanguard)
 
 STEP 2: Financial Metrics
-- fund_size_millions: Find "Fund size", "AUM", "Assets under management"
-  * Convert: "€55.5bn" -> 55500, "$1.2m" -> 1.2
+- fund_size_billions: Find "Fund size", "AUM", "Assets under management"
+  * Convert to billions: "€55.5bn" -> 55.5, "$114.6bn" -> 114.6, "$1.2m" -> 0.0012
 - ter_percent: Find "TER", "Total expense ratio", "Ongoing charges"
   * Convert: "0.07%" -> 0.07 (numeric, NOT string)
 
@@ -268,7 +268,7 @@ Example 1 - Good extraction with all arrays populated:
   "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
   "isin": "IE00B5BMR087",
   "ticker": "CSPX",
-  "fund_size_millions": 55500.0,
+  "fund_size_billions": 55.5,
   "ter_percent": 0.07,
   "replication_method": "Physical (Full replication)",
   "distribution_policy": "Accumulating",
@@ -474,6 +474,9 @@ def main():
         logger.info("=" * 80)
         try:
             from connectors.etf_fundamental import ETFFundamentalConnector
+
+            # Add source URL to extracted data
+            etf_data["source_url"] = args.url
 
             connector = ETFFundamentalConnector()
             result = connector.upsert(etf_data)

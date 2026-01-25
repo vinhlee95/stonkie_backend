@@ -13,7 +13,7 @@ class ETFFundamental(Base):
     fund_provider = Column(String, index=True)
 
     # Core metadata as JSON (all non-array fields except fund_provider)
-    core_metadata = Column(JSON)  # {name, fund_size_millions, ter_percent, replication_method, ...}
+    core_metadata = Column(JSON)  # {name, fund_size_billions, ter_percent, replication_method, ...}
 
     # Separate JSON columns for each array type
     holdings = Column(JSON)  # [{name, weight_percent}, ...]

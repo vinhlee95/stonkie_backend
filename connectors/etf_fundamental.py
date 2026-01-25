@@ -36,7 +36,7 @@ class ETFFundamentalDto:
     ticker: str | None
     name: str
     fund_provider: str
-    fund_size_millions: float | None
+    fund_size_billions: float | None
     ter_percent: float
     replication_method: str
     distribution_policy: str
@@ -89,7 +89,7 @@ class ETFFundamentalConnector:
             ticker=etf.ticker,
             name=metadata.get("name"),
             fund_provider=etf.fund_provider,
-            fund_size_millions=metadata.get("fund_size_millions"),
+            fund_size_billions=metadata.get("fund_size_billions"),
             ter_percent=metadata.get("ter_percent"),
             replication_method=metadata.get("replication_method"),
             distribution_policy=metadata.get("distribution_policy"),
@@ -144,7 +144,7 @@ class ETFFundamentalConnector:
                       "ticker": "SXR8",
                       "name": "iShares Core S&P 500 UCITS ETF (Acc)",
                       "fund_provider": "iShares",
-                      "fund_size_millions": 55570,
+                      "fund_size_billions": 55.57,
                       "ter_percent": 0.07,
                       "replication_method": "Physical (Full replication)",
                       "distribution_policy": "Accumulating",
@@ -169,7 +169,7 @@ class ETFFundamentalConnector:
         # Build metadata JSON (exclude arrays and indexed fields)
         metadata = {
             "name": data.get("name"),
-            "fund_size_millions": data.get("fund_size_millions"),
+            "fund_size_billions": data.get("fund_size_billions"),
             "ter_percent": data.get("ter_percent"),
             "replication_method": data.get("replication_method"),
             "distribution_policy": data.get("distribution_policy"),
