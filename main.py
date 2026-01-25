@@ -31,6 +31,7 @@ from services.company import (
 from services.company_filings import analyze_financial_report, analyze_uploaded_file, get_company_filings
 from services.company_insight import InsightType, fetch_insights_for_ticker, get_insights_for_ticker
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
+from services.etf import get_all_etfs, get_etf_by_ticker
 from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
@@ -87,6 +88,22 @@ async def health_check():
 @app.get("/api/healthcheck")
 async def healthcheck():
     return {"success": True}
+
+
+@app.get("/api/etf")
+async def get_etfs():
+    """
+    Get all available ETFs for display on home page
+
+    Returns:
+        JSON with data array containing ETF list items (ticker, name, fund_provider)
+    """
+    try:
+        etfs = await get_all_etfs()
+        return {"data": etfs}
+    except Exception as e:
+        logger.error(f"Error fetching ETF list: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while fetching ETF list")
 
 
 class ReportType(Enum):
@@ -602,3 +619,20 @@ async def analyze_company_report(
     except Exception as e:
         logger.error(f"Error analyzing report for {ticker} ({period_end_at}): {str(e)}")
         raise HTTPException(status_code=500, detail="Error processing report analysis request")
+
+
+@app.get("/api/etf/{ticker}")
+async def get_etf(ticker: str):
+    """
+    Get ETF fundamental data by ticker symbol
+
+    Args:
+        ticker (str): ETF ticker symbol (e.g., 'SXR8', 'CSPX')
+
+    Returns:
+        ETF fundamental data including holdings, sectors, and country allocation
+    """
+    etf = get_etf_by_ticker(ticker.upper())
+    if not etf:
+        raise HTTPException(status_code=404, detail=f"ETF with ticker '{ticker}' not found")
+    return etf

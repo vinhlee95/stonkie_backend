@@ -1,0 +1,184 @@
+{
+  "project": "ETF List Endpoint - Backend Implementation",
+  "overview": "Implement GET /api/etf endpoint to return all ETFs for display on the home page. Returns a list of ETFs with essential fields (ticker, name, fund_provider) suitable for listing/grid display.",
+  "api_contract": {
+    "backend_endpoint": {
+      "method": "GET",
+      "path": "/api/etf",
+      "base_url": "http://localhost:8080",
+      "description": "Fetch all available ETFs for display on home page"
+    },
+    "response_success": {
+      "status_code": 200,
+      "content_type": "application/json",
+      "schema": {
+        "data": {
+          "type": "array",
+          "description": "Array of ETF list items",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ticker": {
+                "type": "string",
+                "description": "ETF ticker symbol (uppercase)",
+                "required": true
+              },
+              "name": {
+                "type": "string",
+                "description": "Full ETF name",
+                "required": true
+              },
+              "fund_provider": {
+                "type": "string",
+                "description": "Fund provider name (e.g., 'iShares', 'SPDR ETF')",
+                "required": true
+              }
+            }
+          }
+        }
+      },
+      "example_response": {
+        "data": [
+          {
+            "ticker": "SXR8",
+            "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+            "fund_provider": "iShares"
+          },
+          {
+            "ticker": "SPYY",
+            "name": "SPDR MSCI All Country World UCITS ETF (Acc)",
+            "fund_provider": "SPDR ETF"
+          },
+          {
+            "ticker": "CSPX",
+            "name": "iShares Core S&P 500 UCITS ETF USD (Dist)",
+            "fund_provider": "iShares"
+          }
+        ]
+      }
+    },
+    "response_error": {
+      "status_code": 500,
+      "content_type": "application/json",
+      "example_response": {
+        "detail": "Internal server error while fetching ETF list"
+      }
+    },
+    "cors": {
+      "enabled": true,
+      "description": "Use existing CORSMiddleware configuration"
+    }
+  },
+  "implementation_phases": [
+    {
+      "id": "phase_1",
+      "name": "Service Layer",
+      "status": "completed",
+      "priority": "critical",
+      "description": "Create service function to query all ETFs from database",
+      "requirements": [
+        "Query ETF table/model from database",
+        "Return list with fields: ticker, name, fund_provider",
+        "Return empty array if no ETFs exist",
+        "Handle database errors gracefully"
+      ],
+      "service_function": {
+        "signature": "async def get_all_etfs() -> List[Dict[str, str]]",
+        "return_type": "List of dicts with ticker, name, fund_provider"
+      },
+      "success_criteria": [
+        "Function returns list of ETF dictionaries",
+        "All returned ETFs have ticker, name, fund_provider fields",
+        "Empty database returns empty list",
+        "Database errors logged and handled"
+      ]
+    },
+    {
+      "id": "phase_2",
+      "name": "API Endpoint",
+      "status": "completed",
+      "priority": "critical",
+      "blocked_by": ["phase_1"],
+      "description": "Create GET /api/etf endpoint",
+      "requirements": [
+        "Create GET /api/etf route handler",
+        "Call service function from phase_1",
+        "Return JSON response with 'data' wrapper",
+        "Handle errors and return 500 status",
+        "Follow existing API patterns"
+      ],
+      "endpoint_implementation": {
+        "route": "@router.get('/api/etf')",
+        "response_format": {
+          "success": { "status_code": 200, "body": { "data": "Array of ETF objects" } },
+          "error": { "status_code": 500, "body": { "detail": "Error message" } }
+        }
+      },
+      "success_criteria": [
+        "Endpoint accessible at GET /api/etf",
+        "Returns 200 with ETF list",
+        "Errors return 500 with message"
+      ]
+    },
+    {
+      "id": "phase_3",
+      "name": "Testing",
+      "status": "completed",
+      "priority": "high",
+      "blocked_by": ["phase_2"],
+      "description": "Test endpoint and frontend integration",
+      "testing": {
+        "manual_tests": [
+          "curl http://localhost:8080/api/etf - should return ETF list",
+          "Verify response has 'data' array",
+          "Verify each ETF has ticker, name, fund_provider"
+        ],
+        "frontend_integration": [
+          "Start frontend: npm run dev",
+          "Navigate to http://localhost:3000",
+          "Verify ETFs section shows below 'Most Viewed Companies'",
+          "Verify ETF cards display correctly"
+        ]
+      },
+      "success_criteria": [
+        "Endpoint returns valid JSON",
+        "Frontend displays ETF list",
+        "No console errors"
+      ]
+    }
+  ],
+  "frontend_integration": {
+    "endpoint_url": "http://localhost:8080/api/etf",
+    "frontend_code": {
+      "file": "app/page.tsx",
+      "fetch_code": "fetch(`${BACKEND_URL}/api/etf`, { next: { revalidate: 60 } })"
+    },
+    "expected_fields": {
+      "ticker": "string - ETF ticker symbol",
+      "name": "string - Full ETF name",
+      "fund_provider": "string - Provider name"
+    },
+    "notes": [
+      "Frontend handles both { data: [...] } and direct array formats",
+      "Frontend only renders ETFs section if data exists"
+    ]
+  },
+  "verification": {
+    "backend_test": {
+      "command": "curl http://localhost:8080/api/etf",
+      "expected": "JSON response with 'data' array of ETFs"
+    },
+    "frontend_test": {
+      "url": "http://localhost:3000",
+      "expected": "ETFs section visible below 'Most Viewed Companies'"
+    }
+  },
+  "data_requirements": {
+    "required_fields": [
+      { "field": "ticker", "type": "string", "example": "SXR8" },
+      { "field": "name", "type": "string", "example": "iShares Core S&P 500 UCITS ETF USD (Acc)" },
+      { "field": "fund_provider", "type": "string", "example": "iShares" }
+    ],
+    "data_source": "Same ETF table/model used by /api/etf/{ticker} endpoint"
+  }
+}
