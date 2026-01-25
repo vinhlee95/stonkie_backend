@@ -140,11 +140,109 @@
       }
     },
     {
+      "id": "phase_0_5",
+      "name": "AI Extraction Optimization",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_0"],
+      "description": "Improve AI extraction accuracy through prompt engineering and HTML optimization before building infrastructure",
+      "files": {
+        "modify": ["scripts/test_etf_scraper.py"],
+        "reference": [
+          "scripts/test_etf_scraper.py (Phase 0 baseline)"
+        ]
+      },
+      "requirements": [
+        "Optimize AI prompt for better field extraction (especially holdings, sectors, countries)",
+        "Test HTML preprocessing to remove noise",
+        "Reduce timeouts for faster iteration (page wait 3s -> 2s, timeout 30s -> 20s)",
+        "Test with single URL for quick feedback loop",
+        "Compare extraction quality across prompt versions",
+        "Document optimal prompt template for Phase 3"
+      ],
+      "optimization_strategies": [
+        {
+          "area": "Prompt Engineering",
+          "experiments": [
+            "Add few-shot examples of correct extractions",
+            "More explicit HTML selectors guidance (e.g., 'look in <table class=\"holdings\">')",
+            "Step-by-step extraction instructions vs single-shot",
+            "Request structured thinking before JSON output",
+            "Emphasize array population (holdings, sectors, countries)"
+          ]
+        },
+        {
+          "area": "HTML Preprocessing",
+          "experiments": [
+            "Remove <script>, <style>, <nav> tags before sending to AI",
+            "Extract only main content area (look for .content, .etf-details classes)",
+            "Preserve tables and structured data sections",
+            "Test if smaller focused HTML improves accuracy"
+          ]
+        },
+        {
+          "area": "Timeout Optimization",
+          "changes": [
+            "page.goto timeout: 30000ms -> 20000ms",
+            "page.wait_for_load_state timeout: 30000ms -> 20000ms",
+            "page.wait_for_timeout: 3000ms -> 2000ms",
+            "cookie_selector wait: 5000ms -> 3000ms"
+          ]
+        }
+      ],
+      "success_criteria": [
+        "Extraction success rate for holdings: 100% (was ~50% in Phase 0)",
+        "Extraction success rate for sectors: 100% (was ~50% in Phase 0)",
+        "Extraction success rate for countries: 100% (was ~75% in Phase 0)",
+        "Script execution time reduced by 20-30%",
+        "Optimal prompt documented for Phase 3 Celery task",
+        "All critical fields extracted: name, isin, ter_percent, fund_provider",
+        "All array fields populated with >0 items"
+      ],
+      "testing": {
+        "test_url": "https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087",
+        "baseline_metrics": {
+          "holdings": 10,
+          "sectors": 11,
+          "countries": 8,
+          "execution_time": "~45s"
+        },
+        "target_metrics": {
+          "holdings": 10,
+          "sectors": 11,
+          "countries": 8,
+          "execution_time": "<35s"
+        },
+        "iteration_workflow": [
+          "1. Modify prompt in test_etf_scraper.py",
+          "2. Run: python scripts/test_etf_scraper.py <test_url>",
+          "3. Check extraction quality (holdings/sectors/countries count)",
+          "4. Record results in progress doc",
+          "5. Repeat with next optimization",
+          "6. Select best performing prompt"
+        ]
+      },
+      "deliverables": [
+        "Updated scripts/test_etf_scraper.py with optimized prompt",
+        "Documented optimal prompt template in ETF_INTEGRATION_PROGRESS.md",
+        "HTML preprocessing function (if beneficial)",
+        "Reduced timeout configuration",
+        "Extraction quality comparison table",
+        "Update ETF_INTEGRATION_PROGRESS.md with Phase 0.5 learnings and results",
+        "Mark phase_0_5 as completed in ETF_INTEGRATION_SPECS.json with completion_results"
+      ],
+      "validation": {
+        "critical_test": "Run optimized script with test URL - must extract all fields with 100% accuracy",
+        "speed_test": "Execution time must be <35s (baseline ~45s)",
+        "robustness_test": "Re-run 3 times to ensure consistent results"
+      }
+    },
+    {
       "id": "phase_1",
       "name": "Database Layer",
       "status": "pending",
       "priority": "high",
-      "blocked_by": ["phase_0"],
+      "blocked_by": ["phase_0_5"],
       "description": "Create ETFFundamental model and Alembic migration",
       "files": {
         "new": [
@@ -550,12 +648,13 @@
       "rate_limiting": "2s delay between requests"
     },
     "ai_extraction": {
-      "model": "gemini-2.5-flash",
-      "agent_init": "Agent(model_type='gemini', model_name='gemini-2.5-flash')",
+      "model": "openai (default)",
+      "agent_init": "Agent(model_type='openai')",
       "stream": false,
-      "html_limit": 100000,
-      "response_format": "JSON only, no markdown",
-      "fallback": "Log error, retry task"
+      "html_limit": 800000,
+      "response_format": "Text response with JSON parsing (strip markdown, fallback to ast.literal_eval)",
+      "fallback": "Log error, retry task",
+      "note": "OpenAI used for consistency with existing financial_crawler.py. Phase 0.5 will optimize prompt."
     },
     "database": {
       "session_pattern": "with SessionLocal() as db:",
