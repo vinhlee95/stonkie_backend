@@ -14,6 +14,7 @@ Example:
 import argparse
 import json
 import logging
+import re
 import sys
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +25,39 @@ from agent.agent import Agent
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def preprocess_html(html: str) -> str:
+    """
+    Remove unnecessary HTML content to reduce token usage and improve AI focus.
+
+    Args:
+        html: Raw HTML content
+
+    Returns:
+        Cleaned HTML with scripts, styles, and navigation removed
+    """
+    logger.info("Preprocessing HTML to remove noise...")
+
+    # Remove script tags and their content
+    html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove style tags and their content
+    html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove navigation, header, footer elements (common non-content areas)
+    html = re.sub(r"<nav[^>]*>.*?</nav>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<header[^>]*>.*?</header>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<footer[^>]*>.*?</footer>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove comments
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
+
+    # Compress whitespace
+    html = re.sub(r"\s+", " ", html)
+
+    logger.info(f"HTML preprocessed: {len(html)} characters after cleanup")
+    return html
 
 
 def extract_isin_from_url(url: str) -> str | None:
@@ -71,12 +105,12 @@ def fetch_etf_page(url: str, debug: bool = False) -> str | None:
             page = context.new_page()
 
             logger.info(f"Navigating to {url}...")
-            page.goto(url, timeout=30000)
+            page.goto(url, timeout=20000)
 
             # Wait for page to load
             logger.info("Waiting for page load...")
-            page.wait_for_load_state("networkidle", timeout=30000)
-            page.wait_for_timeout(3000)
+            page.wait_for_load_state("networkidle", timeout=20000)
+            page.wait_for_timeout(2000)
 
             # Handle cookie consent with multiple selector strategies
             cookie_selectors = [
@@ -90,7 +124,7 @@ def fetch_etf_page(url: str, debug: bool = False) -> str | None:
             for selector in cookie_selectors:
                 try:
                     logger.info(f"Trying cookie consent selector: {selector}")
-                    page.wait_for_selector(selector, timeout=5000)
+                    page.wait_for_selector(selector, timeout=3000)
                     page.click(selector)
                     logger.info(f"✓ Cookie consent handled via {selector}")
                     page.wait_for_timeout(2000)
@@ -104,7 +138,7 @@ def fetch_etf_page(url: str, debug: bool = False) -> str | None:
 
             # Wait for dynamic content to load
             logger.info("Waiting for dynamic content...")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(2000)
 
             # Extract full page HTML
             html = page.content()
@@ -136,73 +170,155 @@ def extract_etf_data_with_ai(html: str, isin: str) -> dict[str, Any] | None:
         Extracted ETF data as dict or None if failed
     """
     try:
-        logger.info("Initializing OpenAI...")
-        agent = Agent(model_type="openai")
+        logger.info("Initializing Gemini 2.5 Flash for extraction...")
+        agent = Agent(model_type="gemini", model_name="gemini-2.5-flash")
 
-        # Truncate HTML to fit AI context window (OpenAI rate limits)
-        # Balance between coverage and token limits (~200k tokens max for safety)
-        html_truncated = html[:800000]
-        logger.info(f"Using {len(html_truncated)} characters of HTML for AI extraction (full HTML: {len(html)} chars)")
+        # Preprocess HTML to remove noise and reduce token usage
+        html_cleaned = preprocess_html(html)
 
-        prompt = f"""Extract ETF data from the HTML page below and format it as a JSON object.
+        # Truncate HTML to fit AI context window
+        # Gemini 2.5 Flash supports 1M tokens (~4 chars/token), use 800k chars for safety
+        # Preprocessing reduces size by ~30%, so 800k cleaned chars ≈ 1M original chars
+        html_truncated = html_cleaned[:800000]
+        logger.info(
+            f"Using {len(html_truncated)} characters of HTML for AI extraction (full HTML: {len(html)} chars, cleaned: {len(html_cleaned)} chars)"
+        )
 
-Follow these strict instructions:
+        prompt = f"""You are an expert financial data extractor. Extract ETF data from the HTML page below and return ONLY valid JSON.
 
-1. Extract the ETF name - usually in an <h1> tag or prominent heading
-2. Extract ISIN: {isin}
-3. Extract ticker symbol if available
-4. Extract fund size/AUM - look for "Fund size", "AUM", or "Assets" (convert to millions, e.g., "€55.5bn" becomes 55500)
-5. Extract TER (Total Expense Ratio) - look for "TER", "Ongoing charges", or "Expense ratio" (as decimal percentage, e.g., "0.07%" becomes 0.07)
-6. Extract replication method - look for "Replication", "Replication method" (e.g., "Physical", "Synthetic")
-7. Extract distribution policy - look for "Distribution", "Use of income" (e.g., "Accumulating", "Distributing")
-8. Extract fund currency - look for "Fund currency" or currency symbol
-9. Extract domicile - look for "Domicile", "Fund domicile" (country code like "IE", "LU")
-10. Extract launch date - look for "Inception", "Launch date" (format as YYYY-MM-DD)
-11. Extract index tracked - look for "Index", "Tracks"
-12. Extract fund provider - look for "Provider", "Fund provider", "Issuer" (e.g., "iShares", "Vanguard")
+CRITICAL: The holdings, sector_allocation, and country_allocation arrays MUST be populated if the data exists in the HTML. Look carefully in tables and lists.
 
-13. Extract top holdings from tables/lists showing company holdings:
-    - Look for sections like "Holdings", "Top 10 holdings", "Portfolio composition"
-    - Each holding should have: company name and weight percentage
-    - Extract at least 5-10 holdings if available
-    - Convert percentages to numbers (e.g., "7.04%" becomes 7.04)
+STEP-BY-STEP EXTRACTION PROCESS:
 
-14. Extract sector allocation:
-    - Look for sections like "Sector allocation", "Sector breakdown"
-    - Each sector should have: sector name and weight percentage
-    - Extract all sectors shown
+STEP 1: Basic Information
+- name: Look in <h1> tag or class="etf-name" or page title
+- isin: Use provided value: {isin}
+- ticker: Look for "Ticker", "Symbol" fields
+- fund_provider: Look for "Provider", "Fund provider", "Issuer" (e.g., iShares, Vanguard)
 
-15. Extract country allocation:
-    - Look for sections like "Country allocation", "Geographic breakdown"
-    - Each country should have: country name and weight percentage
-    - Extract all countries shown
+STEP 2: Financial Metrics
+- fund_size_millions: Find "Fund size", "AUM", "Assets under management"
+  * Convert: "€55.5bn" -> 55500, "$1.2m" -> 1.2
+- ter_percent: Find "TER", "Total expense ratio", "Ongoing charges"
+  * Convert: "0.07%" -> 0.07 (numeric, NOT string)
 
-Output format (JSON object only, no explanation, no markdown):
+STEP 3: Fund Details
+- replication_method: "Physical (Full replication)", "Synthetic", "Physical (Optimized sampling)"
+- distribution_policy: "Accumulating", "Distributing", "Capitalisation"
+- fund_currency: "USD", "EUR", "GBP" (NOT symbol)
+- domicile: Country code like "IE", "LU", "US"
+- launch_date: Format as YYYY-MM-DD
+- index_tracked: Full index name like "S&P 500"
+
+STEP 4: Holdings Array (CRITICAL - MUST EXTRACT)
+Look for HTML sections with classes/ids like:
+- class="holdings", class="top-holdings", id="holdings-table"
+- <table> elements with headers "Name", "Weight", "Company"
+- Section headings: "Top 10 Holdings", "Portfolio Holdings", "Largest Holdings"
+
+Extract EVERY holding shown (typically 10-15 rows):
+- name: Company/security name (e.g., "Apple Inc", "Microsoft Corp")
+- weight_percent: Numeric value (e.g., "7.04%" -> 7.04)
+
+Example format:
+[
+  {{"name": "Apple Inc", "weight_percent": 7.04}},
+  {{"name": "Microsoft Corp", "weight_percent": 6.52}},
+  {{"name": "NVIDIA Corp", "weight_percent": 5.11}}
+]
+
+STEP 5: Sector Allocation Array (CRITICAL - MUST EXTRACT)
+Look for HTML sections with:
+- class="sector-allocation", class="sector-breakdown"
+- <table> with headers "Sector", "Weight", "Allocation"
+- Section headings: "Sector Allocation", "Sector Breakdown", "Industry Breakdown"
+
+Extract ALL sectors shown (typically 10-15 rows):
+- sector: Sector name (e.g., "Information Technology", "Financials", "Health Care")
+- weight_percent: Numeric value (e.g., "28.5%" -> 28.5)
+
+Example format:
+[
+  {{"sector": "Information Technology", "weight_percent": 28.5}},
+  {{"sector": "Financials", "weight_percent": 13.2}},
+  {{"sector": "Health Care", "weight_percent": 12.8}}
+]
+
+STEP 6: Country Allocation Array (CRITICAL - MUST EXTRACT)
+Look for HTML sections with:
+- class="country-allocation", class="geographic-breakdown"
+- <table> with headers "Country", "Weight", "Region"
+- Section headings: "Country Allocation", "Geographic Breakdown"
+
+Extract ALL countries shown (typically 5-15 rows):
+- country: Country name (e.g., "United States", "Japan", "United Kingdom")
+- weight_percent: Numeric value (e.g., "70.2%" -> 70.2)
+
+Example format:
+[
+  {{"country": "United States", "weight_percent": 70.2}},
+  {{"country": "Japan", "weight_percent": 5.8}},
+  {{"country": "United Kingdom", "weight_percent": 4.1}}
+]
+
+FEW-SHOT EXAMPLES:
+
+Example 1 - Good extraction with all arrays populated:
 {{
-  "name": "string",
-  "isin": "{isin}",
-  "ticker": "string or null",
-  "fund_size_millions": number or null,
-  "ter_percent": number or null,
-  "replication_method": "string or null",
-  "distribution_policy": "string or null",
-  "fund_currency": "string or null",
-  "domicile": "string or null",
-  "launch_date": "YYYY-MM-DD or null",
-  "index_tracked": "string or null",
-  "fund_provider": "string or null",
-  "holdings": [{{"name": "string", "weight_percent": number}}],
-  "sector_allocation": [{{"sector": "string", "weight_percent": number}}],
-  "country_allocation": [{{"country": "string", "weight_percent": number}}]
+  "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+  "isin": "IE00B5BMR087",
+  "ticker": "CSPX",
+  "fund_size_millions": 55500.0,
+  "ter_percent": 0.07,
+  "replication_method": "Physical (Full replication)",
+  "distribution_policy": "Accumulating",
+  "fund_currency": "USD",
+  "domicile": "IE",
+  "launch_date": "2010-05-19",
+  "index_tracked": "S&P 500",
+  "fund_provider": "iShares",
+  "holdings": [
+    {{"name": "Apple Inc", "weight_percent": 7.04}},
+    {{"name": "Microsoft Corp", "weight_percent": 6.52}},
+    {{"name": "NVIDIA Corp", "weight_percent": 5.11}},
+    {{"name": "Amazon.com Inc", "weight_percent": 3.71}},
+    {{"name": "Meta Platforms Inc", "weight_percent": 2.48}}
+  ],
+  "sector_allocation": [
+    {{"sector": "Information Technology", "weight_percent": 28.5}},
+    {{"sector": "Financials", "weight_percent": 13.2}},
+    {{"sector": "Health Care", "weight_percent": 12.8}},
+    {{"sector": "Consumer Discretionary", "weight_percent": 10.5}}
+  ],
+  "country_allocation": [
+    {{"country": "United States", "weight_percent": 100.0}}
+  ]
 }}
 
-Use null for missing fields. Use empty arrays [] if no holdings/sectors/countries found.
+Example 2 - Bad extraction with empty arrays (AVOID THIS):
+{{
+  "name": "Some ETF",
+  "isin": "IE00B5BMR087",
+  "holdings": [],
+  "sector_allocation": [],
+  "country_allocation": []
+}}
+
+OUTPUT REQUIREMENTS:
+1. Return ONLY the JSON object, no explanatory text
+2. No markdown code blocks (no ```json)
+3. Use null for truly missing fields
+4. Convert ALL percentages to numeric decimals
+5. Arrays MUST be populated if data exists in HTML
+6. Validate: holdings array should have 5-15 items
+7. Validate: sector_allocation array should have 8-15 items
+8. Validate: country_allocation array should have 1-15 items
 
 HTML page content:
 {html_truncated}
 """
 
-        logger.info("Sending HTML to OpenAI for extraction...")
+        logger.info("Sending HTML to Gemini for extraction...")
         response = agent.generate_content(
             prompt=prompt,
             stream=False,
