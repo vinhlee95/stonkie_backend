@@ -977,17 +977,240 @@
           "Log extraction metrics (execution time, array counts) for monitoring"
         ],
         "next_phase_readiness": {
+          "phase_2_6": "READY - API endpoint can use ETFFundamentalConnector.get_by_ticker()",
           "phase_3": "READY - End-to-end workflow validated, can wrap in Celery task",
           "phase_4": "READY - Can implement in parallel"
         }
       }
     },
     {
+      "id": "phase_2_6",
+      "name": "API Endpoint - Get ETF Data",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_2_5"],
+      "description": "Add FastAPI endpoint to fetch ETF fundamental data by ticker for frontend rendering",
+      "files": {
+        "modify": ["main.py"],
+        "reference": [
+          "main.py (existing company endpoints: /api/companies/{ticker}/fundamentals)",
+          "connectors/etf_fundamental.py (ETFFundamentalConnector)"
+        ]
+      },
+      "requirements": [
+        "Add GET /api/etf/{ticker} endpoint to fetch ETF data",
+        "Use ticker as path parameter (follows company endpoints pattern)",
+        "Return all ETF fundamental data (name, ISIN, TER, fund size, holdings, sectors, countries)",
+        "Return 404 if ticker not found",
+        "Include proper type hints and response models",
+        "Follow existing RESTful conventions from company endpoints",
+        "Support CORS for frontend access"
+      ],
+      "endpoint_specification": {
+        "method": "GET",
+        "path": "/api/etf/{ticker}",
+        "path_parameters": {
+          "ticker": "string - ETF ticker symbol (e.g., 'SXR8', 'CSPX', 'SPYY')"
+        },
+        "response_success": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "schema": "ETFFundamentalDto",
+          "example": {
+            "isin": "IE00B5BMR087",
+            "ticker": "SXR8",
+            "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+            "fund_provider": "iShares",
+            "fund_size_billions": 114.617,
+            "ter_percent": 0.07,
+            "replication_method": "Physical (Full replication)",
+            "distribution_policy": "Accumulating",
+            "fund_currency": "USD",
+            "domicile": "IE",
+            "launch_date": "2010-05-19",
+            "index_tracked": "S&P 500",
+            "holdings": [
+              {"name": "NVIDIA Corp.", "weight_percent": 7.38},
+              {"name": "Apple", "weight_percent": 7.07}
+            ],
+            "sector_allocation": [
+              {"sector": "Technology", "weight_percent": 36.15},
+              {"sector": "Financials", "weight_percent": 10.66}
+            ],
+            "country_allocation": [
+              {"country": "United States", "weight_percent": 95.83},
+              {"country": "Ireland", "weight_percent": 1.32}
+            ],
+            "source_url": "https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087",
+            "created_at": "2026-01-25T13:28:10.465852+00:00",
+            "updated_at": "2026-01-25T13:28:10.465852+00:00"
+          }
+        },
+        "response_not_found": {
+          "status_code": 404,
+          "content": {
+            "detail": "ETF with ticker '{ticker}' not found"
+          }
+        },
+        "response_validation_error": {
+          "status_code": 422,
+          "description": "Invalid ticker format"
+        }
+      },
+      "implementation_details": {
+        "endpoint_handler": {
+          "function_name": "get_etf_by_ticker",
+          "decorator": "@app.get(\"/api/etf/{ticker}\", response_model=ETFFundamentalDto)",
+          "logic": [
+            "1. Initialize ETFFundamentalConnector",
+            "2. Call connector.get_by_ticker(ticker)",
+            "3. If None, raise HTTPException(status_code=404, detail=f'ETF with ticker {ticker} not found')",
+            "4. Return DTO (FastAPI auto-serializes to JSON)"
+          ],
+          "error_handling": [
+            "Database connection errors: Return 500 Internal Server Error",
+            "Invalid ticker format: Return 422 Unprocessable Entity",
+            "Ticker not found: Return 404 Not Found"
+          ]
+        },
+        "response_model": {
+          "type": "ETFFundamentalDto",
+          "serialization": "Pydantic model or dataclass with json() serialization",
+          "datetime_fields": "ISO 8601 format strings (already handled by connector._model_to_dto)"
+        },
+        "logging": [
+          "Log request: ticker parameter",
+          "Log database query execution time",
+          "Log errors with full traceback"
+        ]
+      },
+      "frontend_integration": {
+        "use_case": "Frontend fetches ETF data to render ETF detail page",
+        "request_example": "fetch('/api/etf/SXR8')",
+        "response_handling": [
+          "Parse JSON response",
+          "Render ETF overview (name, ISIN, provider, fund size, TER)",
+          "Display holdings table with top holdings",
+          "Display sector allocation chart",
+          "Display country allocation chart",
+          "Show metadata (replication method, distribution policy, domicile, launch date)"
+        ],
+        "error_handling": [
+          "404: Display 'ETF not found' message",
+          "500: Display 'Server error, please try again' message"
+        ]
+      },
+      "success_criteria": [
+        "Endpoint added to main.py",
+        "GET /api/etf/{ticker} returns ETF data for existing ticker",
+        "GET /api/etf/{ticker} returns 404 for non-existent ticker",
+        "Response includes all fields: isin, name, ticker, fund_provider, fund_size_billions, ter_percent, holdings, sectors, countries",
+        "Response datetime fields in ISO 8601 format",
+        "CORS enabled for frontend access",
+        "Integration test passes: curl http://localhost:8080/api/etf/SXR8",
+        "Response time <100ms for database lookup",
+        "Frontend can successfully fetch and render ETF data"
+      ],
+      "testing": {
+        "manual_curl_tests": [
+          {
+            "description": "Fetch existing ETF by ticker",
+            "command": "curl http://localhost:8080/api/etf/SXR8",
+            "expected_status": 200,
+            "expected_response": "JSON with isin='IE00B5BMR087', name='iShares Core S&P 500...'"
+          },
+          {
+            "description": "Fetch non-existent ETF",
+            "command": "curl http://localhost:8080/api/etf/NONEXISTENT",
+            "expected_status": 404,
+            "expected_response": "{\"detail\": \"ETF with ticker 'NONEXISTENT' not found\"}"
+          },
+          {
+            "description": "Fetch another existing ETF",
+            "command": "curl http://localhost:8080/api/etf/SPYY",
+            "expected_status": 200,
+            "expected_response": "JSON with isin='IE00B44Z5B48', name='SPDR MSCI All Country World...'"
+          }
+        ],
+        "integration_test": {
+          "file": "tests/test_etf_api.py (create new test file)",
+          "test_cases": [
+            "test_get_etf_by_ticker_success",
+            "test_get_etf_by_ticker_not_found",
+            "test_get_etf_response_schema",
+            "test_get_etf_datetime_serialization"
+          ]
+        },
+        "test_data_setup": [
+          "Ensure database has test ETF records (from Phase 2.5)",
+          "ISIN IE00B5BMR087 with ticker SXR8",
+          "ISIN IE00B44Z5B48 with ticker SPYY"
+        ]
+      },
+      "validation_workflow": {
+        "pre_implementation": [
+          "Read main.py to understand existing endpoint patterns",
+          "Read connectors/etf_fundamental.py to understand get_by_ticker method",
+          "Check database has ETF records for testing"
+        ],
+        "implementation": [
+          "Add endpoint to main.py following existing patterns",
+          "Import ETFFundamentalConnector",
+          "Import ETFFundamentalDto for response model",
+          "Add proper error handling (404, 500)"
+        ],
+        "post_implementation": [
+          "Start dev server: hypercorn main:app --bind localhost:8080 --reload",
+          "Test with curl commands",
+          "Verify JSON response structure",
+          "Test 404 case with invalid ticker",
+          "Run integration tests: pytest tests/test_etf_api.py -v",
+          "Run healthcheck: pytest tests/test_healthcheck.py -v"
+        ]
+      },
+      "deliverables": [
+        "Endpoint added to main.py: GET /api/etf/{ticker}",
+        "Integration test file: tests/test_etf_api.py",
+        "All manual curl tests passing",
+        "All integration tests passing",
+        "Documentation updated (if applicable)",
+        "Update ETF_INTEGRATION_SPECS.json with completion_results"
+      ],
+      "additional_endpoints_future": {
+        "note": "These endpoints can be added later as needed by frontend",
+        "endpoints": [
+          {
+            "path": "GET /api/etf",
+            "description": "List all ETFs (with pagination)",
+            "priority": "low"
+          },
+          {
+            "path": "GET /api/etf/search",
+            "description": "Search ETFs by name or ISIN",
+            "priority": "medium"
+          },
+          {
+            "path": "GET /api/etf/provider/{provider}",
+            "description": "Filter ETFs by fund provider (e.g., iShares)",
+            "priority": "low"
+          }
+        ]
+      },
+      "notes": [
+        "This phase focuses on GET endpoint only (no scraping/POST endpoint)",
+        "Uses existing database records from Phase 2.5",
+        "Does not depend on Celery tasks (Phase 3)",
+        "Frontend can start integrating immediately after this phase",
+        "Follows same RESTful pattern as /api/companies/{ticker}/fundamentals",
+        "Response model is ETFFundamentalDto (already exists from Phase 1)"
+      ]
+    },
+    {
       "id": "phase_3",
       "name": "Celery Task + AI Extraction",
       "status": "pending",
       "priority": "high",
-      "blocked_by": ["phase_2_5", "phase_4"],
+      "blocked_by": ["phase_2_6", "phase_4"],
       "description": "Create Celery task for ETF crawling with Playwright + Gemini extraction",
       "files": {
         "new": ["tasks/etf_crawler.py"],
@@ -1139,11 +1362,12 @@
     },
     {
       "id": "phase_5",
-      "name": "API Endpoints (Optional)",
+      "name": "API Endpoints - Scraping & List (Optional)",
       "status": "pending",
       "priority": "low",
       "blocked_by": ["phase_3"],
-      "description": "Add FastAPI endpoints for ETF scraping and retrieval",
+      "description": "Add FastAPI endpoints for ETF scraping trigger and listing all ETFs",
+      "note": "Phase 2.6 already implements GET /api/etf/{ticker}. This phase adds POST endpoint for scraping and GET endpoint for listing all ETFs.",
       "files": {
         "modify": ["main.py"],
         "reference": [
@@ -1151,12 +1375,11 @@
         ]
       },
       "requirements": [
-        "POST /api/etf/scrape - Trigger scrape for URL",
-        "GET /api/etf/{isin} - Get stored ETF data",
-        "GET /api/etf - List all ETFs",
+        "POST /api/etf/scrape - Trigger scrape for URL (requires Phase 3 Celery task)",
+        "GET /api/etf - List all ETFs with pagination support",
         "Follow RESTful conventions",
-        "Use ticker parameter naming pattern",
-        "Return proper HTTP status codes"
+        "Return proper HTTP status codes",
+        "Note: GET /api/etf/{ticker} already implemented in Phase 2.6"
       ],
       "endpoints": [
         {
