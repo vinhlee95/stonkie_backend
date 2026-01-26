@@ -8,6 +8,20 @@ In all interactions and commit messages, be extremely concise. Sacrifice grammar
 At the end of each plan, give me a list of unresolved questions to answer, if any.
 Make the questions extremely concise. Sacrifice grammar for the sake of concision.
 
+## Specs JSON Implementation Workflow
+
+**When instructed to work on a specs JSON file (e.g., ETF_QUESTION_ANALYSIS_SPECS.json):**
+
+1. **Implement the phase** as specified
+2. **Update phase status** to "completed" in the specs JSON
+3. **Document progress** by adding to "implementation_progress" section:
+   - Phase ID and name
+   - Completion date
+   - Files created/modified
+   - Key learnings and observations
+
+This creates a clear audit trail of implementation progress and decisions.
+
 ## Project Overview
 
 Stonkie is an AI-driven financial analysis platform that provides automated company insights, financial statement analysis, and intelligent reporting. The backend is built with FastAPI, PostgreSQL, and integrates multiple AI models (OpenAI, Google Gemini, OpenRouter) for natural language processing and financial analysis.

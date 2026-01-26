@@ -1,0 +1,1328 @@
+{
+  "project": "ETF Question Analysis - Backend Implementation",
+  "overview": "Add support for analyzing ETF-related questions through POST /api/etf/{ticker}/analyze endpoint. Leverages existing question analysis architecture (classifier, handlers, data optimizer) but adapted for ETF-specific data and queries.",
+  "scope": {
+    "in_scope": [
+      "POST /api/etf/{ticker}/analyze endpoint with streaming responses",
+      "ETF question classification (general ETF, specific ETF analysis)",
+      "ETF-specific question handlers",
+      "ETF data optimizer for efficient data fetching",
+      "Conversation history support for ETF questions with separate namespace",
+      "Integration with existing Agent/AI infrastructure",
+      "ETF-specific related questions generation",
+      "URL context support for ETF factsheets and prospectuses"
+    ],
+    "out_of_scope": [
+      "ETF scraping infrastructure (Phase 3 in ETF_INTEGRATION_SPECS.json)",
+      "ETF fundamental data storage (already completed in Phase 1-2.6)",
+      "Cross-asset comparisons (ETF vs stock)",
+      "Portfolio optimization recommendations",
+      "Real-time ETF price data"
+    ]
+  },
+  "api_contract": {
+    "endpoint": {
+      "method": "POST",
+      "path": "/api/etf/{ticker}/analyze",
+      "base_url": "http://localhost:8080",
+      "description": "Analyze ETF-related questions with streaming responses"
+    },
+    "path_parameters": {
+      "ticker": {
+        "type": "string",
+        "description": "ETF ticker symbol (e.g., 'SXR8', 'SPYY'). Can be 'undefined' or 'null' for general ETF questions",
+        "required": true,
+        "examples": ["SXR8", "CSPX", "SPYY", "undefined"]
+      }
+    },
+    "request_body": {
+      "content_type": "application/json",
+      "schema": {
+        "question": {
+          "type": "string",
+          "description": "The question to analyze about the ETF",
+          "required": true,
+          "examples": [
+            "What is the TER of this ETF?",
+            "Show me the top holdings",
+            "How does this ETF allocate across sectors?",
+            "What's the difference between physical and synthetic replication?",
+            "Compare this ETF to similar S&P 500 ETFs"
+          ]
+        },
+        "useGoogleSearch": {
+          "type": "boolean",
+          "description": "Whether to use Google Search for additional context",
+          "required": false,
+          "default": false
+        },
+        "useUrlContext": {
+          "type": "boolean",
+          "description": "Whether to use URL context from question",
+          "required": false,
+          "default": false
+        },
+        "deepAnalysis": {
+          "type": "boolean",
+          "description": "Whether to use detailed analysis prompt",
+          "required": false,
+          "default": false
+        },
+        "preferredModel": {
+          "type": "string",
+          "description": "Preferred AI model ('fastest', 'balanced', 'best', 'free')",
+          "required": false,
+          "default": "fastest",
+          "enum": ["fastest", "balanced", "best", "free"]
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "Optional conversation ID for context",
+          "required": false
+        }
+      },
+      "example": {
+        "question": "What are the top 5 holdings and their weights?",
+        "useGoogleSearch": false,
+        "deepAnalysis": false,
+        "preferredModel": "fastest",
+        "conversationId": "etf_conv_abc123"
+      }
+    },
+    "response_streaming": {
+      "content_type": "text/event-stream",
+      "description": "Server-Sent Events (SSE) stream with JSON chunks",
+      "chunk_types": [
+        {
+          "type": "conversation",
+          "description": "Emitted first, contains conversation ID",
+          "example": {
+            "type": "conversation",
+            "body": {
+              "conversationId": "etf_conv_abc123"
+            }
+          }
+        },
+        {
+          "type": "thinking_status",
+          "description": "Status updates during analysis (e.g., 'Analyzing ETF data...', 'Examining holdings...')",
+          "example": {
+            "type": "thinking_status",
+            "body": "Analyzing sector allocation..."
+          }
+        },
+        {
+          "type": "answer",
+          "description": "Streamed answer chunks (main content)",
+          "example": {
+            "type": "answer",
+            "body": "The top 5 holdings are:\n1. NVIDIA Corp. (7.38%)\n"
+          }
+        },
+        {
+          "type": "related_question",
+          "description": "Generated related questions for follow-up",
+          "example": {
+            "type": "related_question",
+            "body": "How does this ETF's TER compare to competitors?"
+          }
+        },
+        {
+          "type": "google_search_ground",
+          "description": "Google Search context citations (if useGoogleSearch=true)",
+          "example": {
+            "type": "google_search_ground",
+            "body": "According to iShares website...",
+            "url": "https://www.ishares.com/..."
+          }
+        }
+      ]
+    },
+    "response_error": {
+      "status_code": 400,
+      "scenarios": [
+        {
+          "condition": "Missing question in request body",
+          "response": {
+            "detail": "Question is required in request body"
+          }
+        },
+        {
+          "condition": "ETF ticker not found (for specific ETF questions)",
+          "behavior": "Handler attempts to answer without ETF data or returns informative message"
+        }
+      ]
+    },
+    "response_error_500": {
+      "status_code": 500,
+      "response": {
+        "detail": "Something went wrong. Please try again later."
+      }
+    },
+    "cors": {
+      "enabled": true,
+      "description": "Uses existing CORSMiddleware configuration"
+    }
+  },
+  "architecture": {
+    "overview": "Mirrors company question analysis architecture with ETF-specific adaptations. Reuses existing context builder pattern from services/question_analyzer/context_builders/ for prompt construction.",
+    "key_patterns": {
+      "context_builders": {
+        "description": "Reuse existing context builder pattern for consistent prompt construction",
+        "structure": [
+          "ETFContextBuilderInput dataclass - Input data for building prompts",
+          "ETFContextBuilder abstract base class - Defines build(input) interface",
+          "ETFPromptComponents - Reusable ETF-specific prompt fragments",
+          "Specific builders: NoneETFBuilder, BasicETFBuilder, DetailedETFBuilder, UrlETFBuilder",
+          "get_etf_context_builder(requirement) - Factory function"
+        ],
+        "rationale": "Consistent with existing codebase patterns, promotes reusability, clear separation of concerns"
+      }
+    },
+    "components": [
+      {
+        "name": "ETFAnalyzer",
+        "file": "services/etf_analyzer.py",
+        "description": "Main entry point for ETF question analysis (similar to FinancialAnalyzer)",
+        "responsibilities": [
+          "Accept question and ticker from API endpoint",
+          "Classify question using ETFQuestionClassifier",
+          "Route to appropriate handler",
+          "Manage streaming responses",
+          "Generate related questions",
+          "Handle conversation context"
+        ]
+      },
+      {
+        "name": "ETFQuestionClassifier",
+        "file": "services/etf_question_analyzer/classifier.py",
+        "description": "Classifies ETF questions into types",
+        "question_types": [
+          {
+            "type": "GENERAL_ETF",
+            "description": "General questions about ETFs, not specific to one ETF",
+            "examples": [
+              "What is an ETF?",
+              "Difference between physical and synthetic replication?",
+              "What is TER?",
+              "How do ETFs work?"
+            ],
+            "data_requirement": "NONE"
+          },
+          {
+            "type": "ETF_OVERVIEW",
+            "description": "Questions about ETF basic information",
+            "examples": [
+              "What index does this ETF track?",
+              "What is the TER?",
+              "Who is the fund provider?",
+              "When was this ETF launched?"
+            ],
+            "data_requirement": "BASIC"
+          },
+          {
+            "type": "ETF_DETAILED_ANALYSIS",
+            "description": "Questions requiring detailed ETF data (holdings, sectors, countries)",
+            "examples": [
+              "What are the top holdings?",
+              "Show sector allocation",
+              "How is this ETF allocated geographically?",
+              "What percentage is in technology stocks?",
+              "Compare holdings to another ETF"
+            ],
+            "data_requirement": "DETAILED"
+          }
+        ],
+        "data_requirements": [
+          {
+            "level": "NONE",
+            "description": "Can answer without ETF data",
+            "use_cases": ["General ETF education", "Terminology explanations"]
+          },
+          {
+            "level": "BASIC",
+            "description": "Needs only core metadata (name, TER, provider, index tracked)",
+            "use_cases": ["ETF overview", "Basic facts"]
+          },
+          {
+            "level": "DETAILED",
+            "description": "Needs full ETF data including holdings, sectors, countries",
+            "use_cases": ["Holdings analysis", "Sector breakdown", "Geographic allocation"]
+          }
+        ]
+      },
+      {
+        "name": "ETFDataOptimizer",
+        "file": "services/etf_question_analyzer/data_optimizer.py",
+        "description": "Fetches only required ETF data based on classification",
+        "methods": {
+          "fetch_optimized_data": {
+            "signature": "async def fetch_optimized_data(ticker: str, data_requirement: ETFDataRequirement) -> ETFFundamentalDto | None",
+            "logic": [
+              "If data_requirement == NONE: return None",
+              "If data_requirement == BASIC: return DTO with only core_metadata fields",
+              "If data_requirement == DETAILED: return full DTO with holdings, sectors, countries"
+            ],
+            "returns": "ETFFundamentalDto or None"
+          }
+        }
+      },
+      {
+        "name": "ETF Context Builders",
+        "directory": "services/etf_question_analyzer/context_builders/",
+        "description": "Builds prompts for different ETF data requirements (mirrors company context_builders pattern)",
+        "files": [
+          "base.py - ETFContextBuilder ABC and ETFContextBuilderInput dataclass",
+          "components.py - ETFPromptComponents with reusable fragments",
+          "none_builder.py - NoneETFBuilder for general ETF questions",
+          "basic_builder.py - BasicETFBuilder for ETF overview questions",
+          "detailed_builder.py - DetailedETFBuilder for holdings/sector analysis",
+          "url_builder.py - UrlETFBuilder for ETF factsheet analysis",
+          "__init__.py - Exports and factory function get_etf_context_builder()"
+        ],
+        "key_components": {
+          "ETFContextBuilderInput": {
+            "fields": [
+              "ticker: str",
+              "question: str",
+              "etf_data: Optional[ETFFundamentalDto]",
+              "use_google_search: bool",
+              "deep_analysis: bool",
+              "source_url: Optional[str]"
+            ]
+          },
+          "ETFPromptComponents": {
+            "methods": [
+              "base_context(ticker, question) - Common context for all prompts",
+              "source_instructions() - Citation requirements",
+              "etf_data_formatting() - How to format TER, fund size, percentages",
+              "holdings_formatting() - How to format holdings tables",
+              "sector_formatting() - How to format sector breakdowns"
+            ]
+          }
+        }
+      },
+      {
+        "name": "ETF Question Handlers",
+        "file": "services/etf_question_analyzer/handlers.py",
+        "handlers": [
+          {
+            "class": "GeneralETFHandler",
+            "description": "Handles general ETF education questions",
+            "data_sources": ["AI knowledge", "optional Google Search"],
+            "typical_response_time": "Fast (<2s)"
+          },
+          {
+            "class": "ETFOverviewHandler",
+            "description": "Handles basic ETF information questions",
+            "data_sources": ["ETF core_metadata", "AI knowledge"],
+            "typical_response_time": "Fast (<2s)"
+          },
+          {
+            "class": "ETFDetailedAnalysisHandler",
+            "description": "Handles complex ETF analysis questions",
+            "data_sources": ["Full ETFFundamentalDto", "AI analysis"],
+            "typical_response_time": "Moderate (2-5s)",
+            "features": [
+              "Holdings table generation",
+              "Sector allocation visualization data",
+              "Country allocation analysis",
+              "Comparative analysis (if multiple tickers)"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "implementation_phases": [
+    {
+      "id": "phase_1",
+      "name": "Core Types & Enums",
+      "status": "completed",
+      "priority": "critical",
+      "description": "Define ETF-specific types, enums, and DTOs",
+      "files": {
+        "new": ["services/etf_question_analyzer/types.py"]
+      },
+      "requirements": [
+        "Create ETFQuestionType enum (GENERAL_ETF, ETF_OVERVIEW, ETF_DETAILED_ANALYSIS)",
+        "Create ETFDataRequirement enum (NONE, BASIC, DETAILED)",
+        "Reuse AnalysisChunk from services/question_analyzer/types.py",
+        "Create ETFAnalysisContext dataclass for passing context between components"
+      ],
+      "success_criteria": [
+        "File created: services/etf_question_analyzer/types.py",
+        "All enums defined with clear values",
+        "Type hints comprehensive",
+        "Follows pattern from services/question_analyzer/types.py"
+      ]
+    },
+    {
+      "id": "phase_2",
+      "name": "ETF Question Classifier",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_1"],
+      "description": "Implement AI-powered question classification for ETFs",
+      "files": {
+        "new": ["services/etf_question_analyzer/classifier.py"]
+      },
+      "requirements": [
+        "Create ETFQuestionClassifier class",
+        "Implement async classify_question(ticker, question) method",
+        "Use Gemini 2.5 Flash Lite for fast classification",
+        "Return ETFQuestionType and ETFDataRequirement",
+        "Handle edge cases (ticker='undefined', empty questions)"
+      ],
+      "classification_prompt_template": {
+        "role": "ETF question classifier",
+        "task": "Classify the following question about ETFs",
+        "output_format": "JSON with fields: question_type, data_requirement, reasoning",
+        "examples": [
+          {
+            "question": "What is the TER?",
+            "ticker": "SXR8",
+            "classification": {
+              "question_type": "ETF_OVERVIEW",
+              "data_requirement": "BASIC",
+              "reasoning": "Asks for basic ETF metadata (TER)"
+            }
+          },
+          {
+            "question": "Show me the top holdings",
+            "ticker": "CSPX",
+            "classification": {
+              "question_type": "ETF_DETAILED_ANALYSIS",
+              "data_requirement": "DETAILED",
+              "reasoning": "Requires holdings array data"
+            }
+          },
+          {
+            "question": "What is an ETF?",
+            "ticker": "undefined",
+            "classification": {
+              "question_type": "GENERAL_ETF",
+              "data_requirement": "NONE",
+              "reasoning": "General education question, no specific ETF needed"
+            }
+          }
+        ]
+      },
+      "success_criteria": [
+        "File created: services/etf_question_analyzer/classifier.py",
+        "ETFQuestionClassifier class with classify_question method",
+        "Returns correct classification for test questions",
+        "Handles ticker='undefined' correctly",
+        "Classification time <500ms"
+      ],
+      "testing": {
+        "test_cases": [
+          {
+            "question": "What is the TER of this ETF?",
+            "ticker": "SXR8",
+            "expected_type": "ETF_OVERVIEW",
+            "expected_data_req": "BASIC"
+          },
+          {
+            "question": "Show me the top 10 holdings and their weights",
+            "ticker": "SPYY",
+            "expected_type": "ETF_DETAILED_ANALYSIS",
+            "expected_data_req": "DETAILED"
+          },
+          {
+            "question": "What is the difference between accumulating and distributing ETFs?",
+            "ticker": "undefined",
+            "expected_type": "GENERAL_ETF",
+            "expected_data_req": "NONE"
+          }
+        ]
+      }
+    },
+    {
+      "id": "phase_3",
+      "name": "ETF Context Builders",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_1"],
+      "description": "Create context builders for ETF prompt construction (mirrors company context_builders pattern)",
+      "files": {
+        "new": [
+          "services/etf_question_analyzer/context_builders/__init__.py",
+          "services/etf_question_analyzer/context_builders/base.py",
+          "services/etf_question_analyzer/context_builders/components.py",
+          "services/etf_question_analyzer/context_builders/none_builder.py",
+          "services/etf_question_analyzer/context_builders/basic_builder.py",
+          "services/etf_question_analyzer/context_builders/detailed_builder.py",
+          "services/etf_question_analyzer/context_builders/url_builder.py"
+        ],
+        "reference": [
+          "services/question_analyzer/context_builders/ (pattern reference)"
+        ]
+      },
+      "requirements": [
+        "Create ETFContextBuilderInput dataclass with ticker, question, etf_data, use_google_search, deep_analysis, source_url",
+        "Create ETFContextBuilder abstract base class with build(input) method",
+        "Create ETFPromptComponents with reusable ETF-specific prompt fragments",
+        "Create NoneETFBuilder for general ETF questions (no data needed)",
+        "Create BasicETFBuilder for ETF overview questions (core_metadata only)",
+        "Create DetailedETFBuilder for holdings/sector analysis (full ETFFundamentalDto)",
+        "Create UrlETFBuilder for ETF factsheet/prospectus analysis",
+        "Create get_etf_context_builder(requirement) factory function",
+        "All prompts must include source citation instructions",
+        "Handle incomplete data gracefully (enable Google Search fallback)"
+      ],
+      "builder_implementations": {
+        "ETFPromptComponents": {
+          "purpose": "Reusable prompt fragments for ETF analysis",
+          "static_methods": [
+            {
+              "name": "base_context(ticker, question)",
+              "returns": "Common context: 'You are an ETF analyst. Question: {question}, ETF: {ticker}'",
+              "note": "Similar to PromptComponents.base_context() but ETF-focused"
+            },
+            {
+              "name": "source_instructions()",
+              "returns": "Citation requirements: 'Cite sources as: Sources: [Name](URL). For ETF data from database, cite as: ETF Fundamental Data. If using Google Search, cite specific sources.'",
+              "note": "Critical for user requirement: agent must cite sources and not make up information"
+            },
+            {
+              "name": "etf_data_formatting()",
+              "returns": "Guidelines for formatting TER (0.07%), fund size ($114.6B), dates, etc."
+            },
+            {
+              "name": "holdings_formatting()",
+              "returns": "Guidelines for formatting holdings tables: numbered list, percentages, concentration metrics"
+            },
+            {
+              "name": "sector_formatting()",
+              "returns": "Guidelines for sector/country allocation breakdowns"
+            },
+            {
+              "name": "incomplete_data_instructions()",
+              "returns": "How to handle missing data: 'If holdings/sectors missing, state this clearly and use Google Search to find information. Always cite sources.'"
+            }
+          ]
+        },
+        "NoneETFBuilder": {
+          "purpose": "Build prompts for general ETF education questions",
+          "data_inputs": "None (no ETF data)",
+          "prompt_template": "base_context + 'This is a general ETF education question. Provide clear explanation using ETF terminology. Keep under 150 words. Use Google Search if needed. MUST cite sources.'",
+          "example_questions": ["What is an ETF?", "Difference between accumulating and distributing?"]
+        },
+        "BasicETFBuilder": {
+          "purpose": "Build prompts for ETF overview questions",
+          "data_inputs": "ETFFundamentalDto core_metadata fields",
+          "prompt_template": "base_context + 'ETF Data: {core_metadata}' + etf_data_formatting() + source_instructions() + 'Answer using ETF data. Keep under 150 words. If data incomplete, use Google Search and cite sources.'",
+          "example_questions": ["What is the TER?", "Who provides this ETF?"],
+          "incomplete_data_handling": "Check if required fields (name, ter_percent, fund_provider) present. If missing, add: 'Note: Some ETF data unavailable. Use Google Search to supplement.'"
+        },
+        "DetailedETFBuilder": {
+          "purpose": "Build prompts for holdings/sector/country analysis",
+          "data_inputs": "Full ETFFundamentalDto (core_metadata + holdings + sectors + countries)",
+          "prompt_template": "base_context + 'ETF Data: {full_dto}' + holdings_formatting() + sector_formatting() + source_instructions() + 'Analyze holdings and allocations. Format as tables/lists. Calculate concentration metrics. If data incomplete, use Google Search and cite sources.'",
+          "example_questions": ["Top 10 holdings?", "Sector allocation?"],
+          "incomplete_data_handling": {
+            "missing_holdings": "If holdings array empty, state: 'Holdings data unavailable. Searching online...' then use Google Search",
+            "missing_sectors": "If sector_allocation empty, state: 'Sector data unavailable. Searching online...' then use Google Search",
+            "always_cite": "Must cite sources whether from database or Google Search"
+          }
+        },
+        "UrlETFBuilder": {
+          "purpose": "Build prompts for analyzing ETF factsheets/prospectuses from URLs",
+          "data_inputs": "source_url, optional ETFFundamentalDto",
+          "prompt_template": "base_context + 'Analyze the ETF document at: {source_url}' + 'Combine with database data if available: {etf_data}' + source_instructions() + 'Extract key information: strategy, costs, risks, performance. MUST cite the URL as source.'",
+          "example_questions": ["Analyze this ETF factsheet", "What does the prospectus say about risks?"],
+          "supported_urls": ["justetf.com", "ishares.com", "ssga.com", "vanguard.com", "etf.com"]
+        }
+      },
+      "success_criteria": [
+        "Directory created: services/etf_question_analyzer/context_builders/",
+        "All 7 files created (base, components, 4 builders, __init__)",
+        "ETFContextBuilderInput dataclass with all required fields",
+        "ETFContextBuilder ABC with build() method",
+        "ETFPromptComponents with all static methods",
+        "All 4 builders implement build() method correctly",
+        "get_etf_context_builder() factory function works",
+        "All prompts include source citation instructions",
+        "Incomplete data handling implemented in Basic and Detailed builders",
+        "Pattern mirrors services/question_analyzer/context_builders/ structure"
+      ]
+    },
+    {
+      "id": "phase_4",
+      "name": "ETF Data Optimizer",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_1"],
+      "description": "Implement efficient ETF data fetching based on requirements",
+      "files": {
+        "new": ["services/etf_question_analyzer/data_optimizer.py"]
+      },
+      "requirements": [
+        "Create ETFDataOptimizer class",
+        "Implement fetch_optimized_data(ticker, data_requirement) method",
+        "Use ETFFundamentalConnector.get_by_ticker() from existing infrastructure",
+        "Return None for NONE requirement",
+        "Return partial DTO for BASIC (only core_metadata fields)",
+        "Return full DTO for DETAILED",
+        "Handle ticker not found gracefully"
+      ],
+      "optimization_logic": {
+        "NONE": {
+          "action": "Return None immediately",
+          "rationale": "No data needed for general ETF questions"
+        },
+        "BASIC": {
+          "action": "Fetch full DTO but only pass core_metadata to handler",
+          "fields": [
+            "name",
+            "isin",
+            "ticker",
+            "fund_provider",
+            "ter_percent",
+            "fund_size_billions",
+            "replication_method",
+            "distribution_policy",
+            "fund_currency",
+            "domicile",
+            "launch_date",
+            "index_tracked"
+          ],
+          "rationale": "Sufficient for overview questions, avoids processing large arrays"
+        },
+        "DETAILED": {
+          "action": "Return full DTO including holdings, sectors, countries",
+          "fields": ["All BASIC fields", "holdings", "sector_allocation", "country_allocation"],
+          "rationale": "Needed for deep analysis questions"
+        }
+      },
+      "success_criteria": [
+        "File created: services/etf_question_analyzer/data_optimizer.py",
+        "ETFDataOptimizer class with fetch_optimized_data method",
+        "Returns None for NONE requirement",
+        "Returns appropriate data for BASIC and DETAILED",
+        "Handles non-existent tickers gracefully",
+        "Logs warnings for missing data"
+      ]
+    },
+    {
+      "id": "phase_5",
+      "name": "ETF Question Handlers",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_1", "phase_3", "phase_4"],
+      "description": "Implement handlers for different ETF question types",
+      "files": {
+        "new": ["services/etf_question_analyzer/handlers.py"]
+      },
+      "requirements": [
+        "Create BaseETFHandler with ETF-specific related questions generator",
+        "Create GeneralETFHandler for education questions",
+        "Create ETFOverviewHandler for basic ETF info",
+        "Create ETFDetailedAnalysisHandler for complex analysis",
+        "All handlers implement async handle(context) method",
+        "All handlers yield streaming chunks (AnalysisChunk)",
+        "Support conversation context",
+        "Support URL context extraction for ETF factsheets",
+        "Generate ETF-specific related questions"
+      ],
+      "handler_implementations": {
+        "BaseETFHandler": {
+          "purpose": "Base class for all ETF handlers with shared functionality",
+          "key_method": "_generate_related_questions(original_question, preferred_model)",
+          "related_questions_prompt": {
+            "template": "Based on this ETF-related question: '{original_question}'\n\nGenerate exactly 3 high-quality follow-up questions that a curious investor might ask next.\n\nRequirements:\n- Question 1: Go deeper into the same ETF topic (e.g., if asked about TER, ask about tracking difference)\n- Question 2: Compare or contrast (e.g., compare to similar ETFs, compare accumulating vs distributing)\n- Question 3: Explore adjacent ETF topic (e.g., if asked about holdings, ask about sector allocation or rebalancing)\n- Keep questions 8-15 words\n- Make them specific and actionable\n- Use proper ETF terminology\n\nExample dimensions:\n- Holdings: concentration, top positions, turnover, rebalancing\n- Costs: TER, trading costs, bid-ask spread, tracking difference\n- Performance: returns, volatility, drawdowns, vs benchmark\n- Structure: replication method, fund size, liquidity, domicile\n- Allocation: sectors, countries, market cap, style factors\n- Distributions: dividend yield, distribution policy, tax efficiency",
+            "rationale": "ETF questions have different follow-up patterns than company financials. ETF investors care about holdings, costs, replication, and allocation rather than revenue, earnings, and cash flow."
+          },
+          "url_context_support": {
+            "enabled": true,
+            "description": "Extract and analyze URL context from ETF factsheets and prospectuses",
+            "pattern": "Reuse existing URL extraction utilities from utils/url_helper.py",
+            "supported_urls": [
+              "justetf.com ETF profiles",
+              "iShares ETF factsheets (ishares.com)",
+              "SPDR ETF factsheets (ssga.com)",
+              "Vanguard ETF pages (vanguard.com)",
+              "ETF.com research pages"
+            ]
+          }
+        },
+        "GeneralETFHandler": {
+          "purpose": "Answer general ETF questions without specific ETF data",
+          "data_inputs": ["question", "conversation_messages", "optional Google Search"],
+          "context_builder": "NoneETFBuilder",
+          "workflow": [
+            "1. Build prompt using NoneETFBuilder.build(ETFContextBuilderInput(ticker='', question=question, etf_data=None, use_google_search=True))",
+            "2. Call MultiAgent.generate_content(prompt, use_google_search=use_google_search)",
+            "3. Stream answer chunks as AI generates",
+            "4. Call _generate_related_questions() and yield related_question chunks"
+          ],
+          "example_questions": [
+            "What is an ETF?",
+            "Difference between physical and synthetic replication?",
+            "What does TER mean?",
+            "How are ETFs taxed?"
+          ],
+          "streaming_pattern": [
+            "Yield thinking_status: 'Analyzing question...'",
+            "Yield answer chunks as AI generates (must cite sources if using Google Search)",
+            "Yield related_question chunks (2-3 related questions)"
+          ]
+        },
+        "ETFOverviewHandler": {
+          "purpose": "Answer basic questions about a specific ETF using core metadata",
+          "data_inputs": [
+            "ETFFundamentalDto (core_metadata only)",
+            "question",
+            "conversation_messages"
+          ],
+          "context_builder": "BasicETFBuilder",
+          "workflow": [
+            "1. Check if ETF data complete (name, ter_percent, fund_provider present)",
+            "2. Build prompt using BasicETFBuilder.build(ETFContextBuilderInput(ticker=ticker, question=question, etf_data=etf_dto, use_google_search=(data_incomplete)))",
+            "3. If data incomplete, yield thinking_status: 'ETF data incomplete, searching for additional information...'",
+            "4. Call MultiAgent.generate_content(prompt, use_google_search=(data_incomplete))",
+            "5. Stream answer chunks (AI must cite sources)",
+            "6. Call _generate_related_questions() and yield related_question chunks"
+          ],
+          "example_questions": [
+            "What is the TER of this ETF?",
+            "Who provides this ETF?",
+            "What index does it track?",
+            "When was this ETF launched?"
+          ],
+          "incomplete_data_handling": "Check for None/missing fields in core_metadata. If critical fields missing, enable Google Search and yield warning thinking_status.",
+          "streaming_pattern": [
+            "Yield thinking_status: 'Fetching ETF data...'",
+            "Yield thinking_status: 'ETF data incomplete, searching...' (if needed)",
+            "Yield answer chunks with formatted ETF information (must cite sources)",
+            "Yield related_question chunks"
+          ]
+        },
+        "ETFDetailedAnalysisHandler": {
+          "purpose": "Answer complex questions requiring holdings, sectors, or country data",
+          "data_inputs": [
+            "Full ETFFundamentalDto (all fields)",
+            "question",
+            "conversation_messages"
+          ],
+          "context_builder": "DetailedETFBuilder",
+          "workflow": [
+            "1. Check if holdings/sectors/countries arrays populated",
+            "2. Build prompt using DetailedETFBuilder.build(ETFContextBuilderInput(ticker=ticker, question=question, etf_data=full_dto, use_google_search=(arrays_empty)))",
+            "3. If holdings empty: yield thinking_status: 'Holdings data unavailable, searching online...'",
+            "4. If sectors empty: yield thinking_status: 'Sector data unavailable, searching online...'",
+            "5. Call MultiAgent.generate_content(prompt, use_google_search=(arrays_empty))",
+            "6. Stream answer chunks with formatted tables/lists (AI must cite sources)",
+            "7. Call _generate_related_questions() and yield related_question chunks"
+          ],
+          "example_questions": [
+            "What are the top 10 holdings?",
+            "Show sector allocation breakdown",
+            "What percentage is allocated to the United States?",
+            "How concentrated is this ETF?",
+            "Compare this to another S&P 500 ETF"
+          ],
+          "incomplete_data_handling": {
+            "check_arrays": "if len(holdings) == 0 or len(sector_allocation) == 0 or len(country_allocation) == 0",
+            "fallback": "Enable Google Search, yield appropriate thinking_status warning, let AI supplement with online data",
+            "always_cite": "AI must cite whether using database arrays or Google Search results"
+          },
+          "streaming_pattern": [
+            "Yield thinking_status: 'Analyzing holdings...'",
+            "Yield thinking_status: 'Holdings data unavailable, searching...' (if needed)",
+            "Yield thinking_status: 'Examining sector allocation...'",
+            "Yield answer chunks with formatted data and insights (must cite sources)",
+            "Yield related_question chunks"
+          ],
+          "advanced_features": [
+            "Calculate concentration metrics (top 10 holdings %)",
+            "Format holdings as numbered list",
+            "Format sectors/countries as percentage breakdowns"
+          ]
+        }
+      },
+      "success_criteria": [
+        "File created: services/etf_question_analyzer/handlers.py",
+        "All 3 handler classes implemented",
+        "Each handler streams chunks correctly",
+        "Handles missing ETF data gracefully",
+        "Related questions generated appropriately",
+        "Conversation context utilized"
+      ]
+    },
+    {
+      "id": "phase_6",
+      "name": "ETF Analyzer Service",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_2", "phase_4", "phase_5"],
+      "description": "Implement main ETFAnalyzer service (orchestrator)",
+      "files": {
+        "new": ["services/etf_analyzer.py"]
+      },
+      "requirements": [
+        "Create ETFAnalyzer class (mirrors FinancialAnalyzer structure)",
+        "Initialize classifier, data_optimizer, handlers in __init__",
+        "Implement async analyze_question() method",
+        "Handle conversation context via conversation_store",
+        "Stream responses as JSON chunks",
+        "Generate related questions at end of stream",
+        "Log performance metrics"
+      ],
+      "analyze_question_signature": {
+        "signature": "async def analyze_question(ticker: str, question: str, use_google_search: bool = False, use_url_context: bool = False, deep_analysis: bool = False, preferred_model: ModelName = ModelName.Auto, conversation_messages: Optional[List[Dict[str, str]]] = None, conversation_id: Optional[str] = None, anon_user_id: Optional[str] = None) -> AsyncGenerator[Dict[str, Any], None]",
+        "parameters": {
+          "ticker": "ETF ticker symbol (can be 'undefined' for general questions)",
+          "question": "The question to analyze",
+          "use_google_search": "Whether to use Google Search",
+          "use_url_context": "Whether to extract context from URLs in question",
+          "deep_analysis": "Whether to use detailed analysis prompts",
+          "preferred_model": "AI model preference",
+          "conversation_messages": "Previous conversation for context",
+          "conversation_id": "Conversation ID for tracking",
+          "anon_user_id": "Anonymous user ID"
+        },
+        "returns": "AsyncGenerator yielding dict chunks with type and body"
+      },
+      "workflow": [
+        "1. Normalize ticker (handle 'undefined', 'null', empty)",
+        "2. Classify question using ETFQuestionClassifier",
+        "3. Fetch optimized data using ETFDataOptimizer",
+        "4. Select appropriate handler based on question type",
+        "5. Create analysis context with all inputs",
+        "6. Call handler.handle(context) and stream chunks",
+        "7. Generate and yield related questions",
+        "8. Log metrics (classification time, handler time, total time)"
+      ],
+      "success_criteria": [
+        "File created: services/etf_analyzer.py",
+        "ETFAnalyzer class with analyze_question method",
+        "Correctly routes to handlers based on classification",
+        "Streams chunks in correct format",
+        "Handles conversation context",
+        "Generates related questions",
+        "Logs performance metrics"
+      ]
+    },
+    {
+      "id": "phase_7",
+      "name": "API Endpoint Integration",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_6"],
+      "description": "Add POST /api/etf/{ticker}/analyze endpoint to main.py",
+      "files": {
+        "modify": ["main.py"]
+      },
+      "requirements": [
+        "Add POST /api/etf/{ticker}/analyze endpoint",
+        "Import ETFAnalyzer from services/etf_analyzer",
+        "Parse request body (question, useGoogleSearch, deepAnalysis, preferredModel, conversationId)",
+        "Handle anonymous user ID via cookies",
+        "Generate conversation ID if not provided",
+        "Store conversation messages using conversation_store",
+        "Stream responses using StreamingResponse",
+        "Set cookie for new anonymous users",
+        "Handle errors gracefully (400, 500)",
+        "Follow exact pattern from /api/companies/{ticker}/analyze"
+      ],
+      "endpoint_implementation": {
+        "function_name": "analyze_etf_question",
+        "decorator": "@app.post('/api/etf/{ticker}/analyze')",
+        "logic": [
+          "1. Parse request body and extract parameters",
+          "2. Map preferredModel string to ModelName enum",
+          "3. Validate question exists (400 if missing)",
+          "4. Normalize ticker ('undefined'/'null' -> '')",
+          "5. Get or create anonymous user ID from cookie",
+          "6. Get or create conversation ID",
+          "7. Load conversation history from conversation_store",
+          "8. Append user message to conversation",
+          "9. Create async generator that streams analysis",
+          "10. Buffer assistant output for persistence",
+          "11. Yield conversation ID chunk first",
+          "12. Yield analysis chunks from ETFAnalyzer.analyze_question()",
+          "13. Store assistant response to conversation after streaming completes",
+          "14. Set cookie if new user",
+          "15. Return StreamingResponse with text/event-stream"
+        ],
+        "error_handling": [
+          "Missing question: 400 Bad Request",
+          "Client disconnect: Handle asyncio.CancelledError",
+          "General errors: 500 Internal Server Error"
+        ]
+      },
+      "conversation_store_integration": {
+        "namespace": "etf",
+        "key_pattern": "etf:{anon_user_id}:{ticker}:{conversation_id}",
+        "rationale": "Separate namespace prevents mixing ETF and company conversations. Users asking about 'AAPL' stock and 'SXR8' ETF should have distinct conversation contexts.",
+        "implementation": "Prefix ticker with 'etf_' when storing: get_conversation_history_for_prompt(anon_user_id, f'etf_{ticker}', conversation_id)",
+        "functions_used": [
+          "generate_conversation_id()",
+          "get_conversation_history_for_prompt(anon_user_id, f'etf_{ticker}', conversation_id)",
+          "append_user_message(anon_user_id, f'etf_{ticker}', conversation_id, question)",
+          "append_assistant_message(anon_user_id, f'etf_{ticker}', conversation_id, response)"
+        ],
+        "notes": [
+          "Reuse existing conversation_store functions with 'etf_' prefix",
+          "Ticker can be 'undefined' for general ETF questions (stored as 'etf_none')",
+          "Conversation TTL: 15 minutes (existing behavior)",
+          "Redis key example: 'conversation:user123:etf_SXR8:conv456'"
+        ]
+      },
+      "success_criteria": [
+        "Endpoint added: POST /api/etf/{ticker}/analyze",
+        "Request parsing works correctly",
+        "Ticker normalization handles 'undefined'/'null'",
+        "Conversation ID generation/reuse works",
+        "Conversation history loaded and stored correctly",
+        "Anonymous user cookie set correctly",
+        "Streaming response format matches company endpoint",
+        "Error handling comprehensive",
+        "Integration test with curl succeeds"
+      ],
+      "testing": {
+        "manual_curl_tests": [
+          {
+            "description": "Ask general ETF question (no specific ticker)",
+            "command": "curl -X POST http://localhost:8080/api/etf/undefined/analyze -H 'Content-Type: application/json' -d '{\"question\": \"What is an ETF?\"}'",
+            "expected": "Streaming response with educational answer about ETFs"
+          },
+          {
+            "description": "Ask basic ETF info question",
+            "command": "curl -X POST http://localhost:8080/api/etf/SXR8/analyze -H 'Content-Type: application/json' -d '{\"question\": \"What is the TER of this ETF?\"}'",
+            "expected": "Streaming response with TER: 0.07%"
+          },
+          {
+            "description": "Ask detailed holdings question",
+            "command": "curl -X POST http://localhost:8080/api/etf/SXR8/analyze -H 'Content-Type: application/json' -d '{\"question\": \"What are the top 5 holdings?\"}'",
+            "expected": "Streaming response with holdings list (NVIDIA, Apple, Microsoft, etc.)"
+          },
+          {
+            "description": "Test conversation continuity",
+            "command": "curl -X POST http://localhost:8080/api/etf/SXR8/analyze -H 'Content-Type: application/json' -d '{\"question\": \"What about sector allocation?\", \"conversationId\": \"<previous_conv_id>\"}'",
+            "expected": "Streaming response using conversation context"
+          }
+        ]
+      }
+    },
+    {
+      "id": "phase_8",
+      "name": "Testing & Validation",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_7"],
+      "description": "Comprehensive testing of ETF question analysis",
+      "files": {
+        "new": ["tests/test_etf_analyzer.py", "tests/test_etf_question_classifier.py"]
+      },
+      "requirements": [
+        "Unit tests for ETFQuestionClassifier",
+        "Unit tests for ETFDataOptimizer",
+        "Unit tests for each handler",
+        "Integration tests for ETFAnalyzer",
+        "End-to-end API tests",
+        "Performance benchmarks",
+        "Conversation context tests"
+      ],
+      "test_scenarios": [
+        {
+          "category": "Classification Accuracy",
+          "tests": [
+            "General ETF questions classified correctly",
+            "Basic ETF questions classified correctly",
+            "Detailed analysis questions classified correctly",
+            "Edge cases handled (ticker='undefined', empty questions)"
+          ]
+        },
+        {
+          "category": "Data Optimization",
+          "tests": [
+            "NONE requirement returns None",
+            "BASIC requirement returns core_metadata only",
+            "DETAILED requirement returns full DTO",
+            "Missing ticker handled gracefully"
+          ]
+        },
+        {
+          "category": "Handler Behavior",
+          "tests": [
+            "GeneralETFHandler provides educational answers",
+            "ETFOverviewHandler uses ETF metadata correctly",
+            "ETFDetailedAnalysisHandler formats holdings/sectors correctly",
+            "Related questions generated appropriately"
+          ]
+        },
+        {
+          "category": "API Integration",
+          "tests": [
+            "Endpoint accepts valid requests",
+            "Returns 400 for missing question",
+            "Streams chunks in correct format",
+            "Conversation ID generated/reused correctly",
+            "Anonymous user cookie set",
+            "Conversation history persisted"
+          ]
+        },
+        {
+          "category": "Performance",
+          "benchmarks": [
+            "Classification time: <500ms",
+            "General ETF question: <2s total",
+            "Basic ETF question: <2s total",
+            "Detailed ETF question: <5s total",
+            "Data fetch time: <100ms"
+          ]
+        }
+      ],
+      "success_criteria": [
+        "All unit tests passing",
+        "All integration tests passing",
+        "Performance benchmarks met",
+        "Code coverage >80%",
+        "No breaking changes to existing tests (test_healthcheck.py passes)"
+      ]
+    },
+    {
+      "id": "phase_9",
+      "name": "Documentation & Cleanup",
+      "status": "pending",
+      "priority": "medium",
+      "blocked_by": ["phase_8"],
+      "description": "Document ETF question analysis and clean up code",
+      "files": {
+        "new": ["services/etf_question_analyzer/README.md"],
+        "modify": ["CLAUDE.md (if needed for ETF-specific patterns)"]
+      },
+      "requirements": [
+        "Document ETF question types and examples",
+        "Document handler selection logic",
+        "Document data requirement optimization",
+        "Add inline code comments for complex logic",
+        "Update CLAUDE.md with ETF analyzer patterns (if different from company patterns)",
+        "Clean up unused imports and debug logging"
+      ],
+      "success_criteria": [
+        "README.md created with comprehensive documentation",
+        "Code comments added where needed",
+        "CLAUDE.md updated if applicable",
+        "Code passes ruff checks",
+        "No unused imports or variables"
+      ]
+    }
+  ],
+  "example_interactions": {
+    "general_etf_question": {
+      "request": {
+        "method": "POST",
+        "path": "/api/etf/undefined/analyze",
+        "body": {
+          "question": "What is the difference between physical and synthetic replication in ETFs?"
+        }
+      },
+      "classification": {
+        "question_type": "GENERAL_ETF",
+        "data_requirement": "NONE"
+      },
+      "handler": "GeneralETFHandler",
+      "response_chunks": [
+        {
+          "type": "conversation",
+          "body": {
+            "conversationId": "etf_conv_xyz789"
+          }
+        },
+        {
+          "type": "thinking_status",
+          "body": "Analyzing question..."
+        },
+        {
+          "type": "answer",
+          "body": "ETFs can use two main replication methods:\n\n**Physical Replication:**\n- The ETF actually buys and holds the underlying securities\n- Full replication: owns all securities in the index\n- Sampling: owns a representative sample of securities\n- More transparent but higher trading costs\n\n**Synthetic Replication:**\n- Uses derivatives (swaps) to replicate index performance\n- Doesn't own the underlying securities directly\n- Lower tracking error and costs\n- Counterparty risk from swap agreements\n\nMost investors prefer physical replication for transparency, while synthetic can be useful for hard-to-access markets."
+        },
+        {
+          "type": "related_question",
+          "body": "What is tracking error and how does it affect ETF performance?"
+        },
+        {
+          "type": "related_question",
+          "body": "How can I tell if an ETF uses physical or synthetic replication?"
+        }
+      ]
+    },
+    "basic_etf_info": {
+      "request": {
+        "method": "POST",
+        "path": "/api/etf/SXR8/analyze",
+        "body": {
+          "question": "What is the TER of this ETF and how does it compare to competitors?"
+        }
+      },
+      "classification": {
+        "question_type": "ETF_OVERVIEW",
+        "data_requirement": "BASIC"
+      },
+      "handler": "ETFOverviewHandler",
+      "etf_data_fetched": {
+        "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+        "isin": "IE00B5BMR087",
+        "ticker": "SXR8",
+        "fund_provider": "iShares",
+        "ter_percent": 0.07,
+        "fund_size_billions": 114.617,
+        "index_tracked": "S&P 500"
+      },
+      "response_chunks": [
+        {
+          "type": "conversation",
+          "body": {
+            "conversationId": "etf_conv_abc123"
+          }
+        },
+        {
+          "type": "thinking_status",
+          "body": "Fetching ETF data..."
+        },
+        {
+          "type": "answer",
+          "body": "The **iShares Core S&P 500 UCITS ETF (SXR8)** has a Total Expense Ratio (TER) of **0.07%** per year.\n\nThis is extremely competitive for an S&P 500 ETF. To provide context:\n- This is one of the lowest TERs available for S&P 500 ETFs in Europe\n- The ETF tracks the S&P 500 index, providing exposure to 500 large US companies\n- With $114.6B in assets, it's one of the largest S&P 500 ETFs globally\n- The low TER is possible due to economies of scale\n\nFor comparison, similar S&P 500 ETFs typically have TERs between 0.05% and 0.20%, so 0.07% is very cost-efficient."
+        },
+        {
+          "type": "related_question",
+          "body": "What are the top holdings in this ETF?"
+        },
+        {
+          "type": "related_question",
+          "body": "How has this ETF performed compared to the S&P 500 index?"
+        }
+      ]
+    },
+    "detailed_holdings_analysis": {
+      "request": {
+        "method": "POST",
+        "path": "/api/etf/SXR8/analyze",
+        "body": {
+          "question": "Show me the top 10 holdings and their weights. Are there any concentration risks?"
+        }
+      },
+      "classification": {
+        "question_type": "ETF_DETAILED_ANALYSIS",
+        "data_requirement": "DETAILED"
+      },
+      "handler": "ETFDetailedAnalysisHandler",
+      "etf_data_fetched": {
+        "name": "iShares Core S&P 500 UCITS ETF USD (Acc)",
+        "holdings": [
+          {
+            "name": "NVIDIA Corp.",
+            "weight_percent": 7.38
+          },
+          {
+            "name": "Apple",
+            "weight_percent": 7.07
+          },
+          {
+            "name": "Microsoft",
+            "weight_percent": 6.25
+          }
+        ],
+        "sector_allocation": [
+          {
+            "sector": "Technology",
+            "weight_percent": 36.15
+          }
+        ]
+      },
+      "response_chunks": [
+        {
+          "type": "conversation",
+          "body": {
+            "conversationId": "etf_conv_def456"
+          }
+        },
+        {
+          "type": "thinking_status",
+          "body": "Analyzing holdings..."
+        },
+        {
+          "type": "thinking_status",
+          "body": "Calculating concentration metrics..."
+        },
+        {
+          "type": "answer",
+          "body": "Here are the **top 10 holdings** in the iShares Core S&P 500 ETF (SXR8):\n\n1. **NVIDIA Corp.** - 7.38%\n2. **Apple** - 7.07%\n3. **Microsoft** - 6.25%\n4. **Amazon** - 3.82%\n5. **Meta Platforms** - 2.65%\n6. **Alphabet (Class A)** - 2.12%\n7. **Alphabet (Class C)** - 1.84%\n8. **Berkshire Hathaway** - 1.76%\n9. **Tesla** - 1.45%\n10. **Broadcom** - 1.38%\n\n**Top 10 Concentration:** 35.72%\n\n**Concentration Risk Analysis:**\n\n✅ **Moderate concentration** - Top 10 holdings represent ~36% of the portfolio, which is typical for S&P 500 ETFs due to market cap weighting.\n\n⚠️ **Tech dominance** - The top 3 holdings are all technology companies (NVIDIA, Apple, Microsoft), representing 20.7% combined. This creates sector concentration risk.\n\n⚠️ **Single stock risk** - NVIDIA alone represents 7.38%, which is significant. The ETF's performance is notably influenced by mega-cap tech stocks.\n\n**Recommendation:** This concentration is inherent to the S&P 500's market cap weighting methodology. If you're concerned about tech concentration, consider diversifying with equal-weight S&P 500 ETFs or broader global ETFs."
+        },
+        {
+          "type": "related_question",
+          "body": "How is this ETF allocated across sectors?"
+        },
+        {
+          "type": "related_question",
+          "body": "What is the geographic allocation of this ETF?"
+        }
+      ]
+    }
+  },
+  "data_flow_diagram": {
+    "description": "High-level flow from API request to response",
+    "steps": [
+      "1. Client sends POST /api/etf/{ticker}/analyze with question",
+      "2. API endpoint parses request, gets/creates conversation ID",
+      "3. API calls ETFAnalyzer.analyze_question(ticker, question, ...)",
+      "4. ETFAnalyzer calls ETFQuestionClassifier.classify_question()",
+      "5. Classifier returns question_type and data_requirement",
+      "6. ETFAnalyzer calls ETFDataOptimizer.fetch_optimized_data()",
+      "7. DataOptimizer fetches ETF data via ETFFundamentalConnector (if needed)",
+      "8. ETFAnalyzer selects appropriate handler based on question_type",
+      "9. ETFAnalyzer calls handler.handle(context)",
+      "10. Handler streams chunks (thinking_status, answer, related_questions)",
+      "11. API endpoint yields chunks to client as SSE stream",
+      "12. Client receives and displays streamed response"
+    ]
+  },
+  "dependencies": {
+    "existing_infrastructure": [
+      "Agent (agent/agent.py) - AI model abstraction",
+      "ModelName enum (ai_models/model_name.py) - Model selection",
+      "ETFFundamentalConnector (connectors/etf_fundamental.py) - Database access",
+      "ETFFundamentalDto (connectors/etf_fundamental.py) - Data transfer object",
+      "conversation_store functions (connectors/conversation_store.py) - Conversation context",
+      "CORSMiddleware (main.py) - CORS configuration",
+      "Langfuse observe decorator - Observability"
+    ],
+    "new_modules": [
+      "services/etf_analyzer.py",
+      "services/etf_question_analyzer/types.py",
+      "services/etf_question_analyzer/classifier.py",
+      "services/etf_question_analyzer/data_optimizer.py",
+      "services/etf_question_analyzer/handlers.py",
+      "services/etf_question_analyzer/context_builders/__init__.py",
+      "services/etf_question_analyzer/context_builders/base.py",
+      "services/etf_question_analyzer/context_builders/components.py",
+      "services/etf_question_analyzer/context_builders/none_builder.py",
+      "services/etf_question_analyzer/context_builders/basic_builder.py",
+      "services/etf_question_analyzer/context_builders/detailed_builder.py",
+      "services/etf_question_analyzer/context_builders/url_builder.py"
+    ],
+    "no_new_packages_required": "All dependencies already in requirements.txt"
+  },
+  "performance_targets": {
+    "classification_time": "<500ms",
+    "data_fetch_time": "<100ms",
+    "general_etf_question_total": "<2s",
+    "basic_etf_question_total": "<2s",
+    "detailed_etf_question_total": "<5s",
+    "streaming_first_chunk_time": "<1s"
+  },
+  "additional_questions_for_user": [],
+  "resolved_questions": [
+    {
+      "question": "Should we support multi-ETF comparisons in Phase 1? (e.g., 'Compare SXR8 and CSPX')",
+      "answer": "NO - Future enhancement, not needed in Phase 1"
+    },
+    {
+      "question": "Do we need a separate related questions generator for ETFs, or reuse company pattern?",
+      "answer": "YES - Create ETF-specific related questions generator. Company questions focus on financials (revenue, earnings, cash flow) while ETF questions focus on holdings, sectors, TER, replication. Tailored prompts will generate better follow-ups.",
+      "implementation": "Add _generate_related_questions() method to BaseETFHandler with ETF-specific prompt dimensions: (1) deeper ETF details, (2) comparative ETF questions, (3) adjacent topics (performance, costs, risks)"
+    },
+    {
+      "question": "Should ETF questions support URL context (e.g., analyzing ETF factsheets)?",
+      "answer": "YES - Include URL context support for analyzing ETF factsheets and prospectuses"
+    },
+    {
+      "question": "Do we need a separate conversation namespace for ETFs vs companies?",
+      "answer": "YES - Use separate namespace to avoid mixing ETF and company conversation contexts. Pattern: 'etf:{anon_user_id}:{ticker}:{conversation_id}' vs 'company:{anon_user_id}:{ticker}:{conversation_id}'"
+    },
+    {
+      "question": "Should we implement ETF search/discovery ('What S&P 500 ETFs are available?')",
+      "answer": "NO - Future enhancement, not needed in Phase 1"
+    },
+    {
+      "question": "Should we validate that a ticker is an ETF before processing?",
+      "answer": "NO - Just attempt to fetch from etf_fundamental table and handle 'not found' gracefully"
+    },
+    {
+      "question": "If ETF data is incomplete (e.g., missing holdings or sector allocation), should handlers still answer?",
+      "answer": "YES - Return available data and enable Google Search mode to fill gaps. Agent must cite sources and not fabricate information.",
+      "implementation": "Check data completeness in handlers. If missing critical fields, yield thinking_status: 'ETF data incomplete, searching for additional information...' then use Google Search to supplement."
+    },
+    {
+      "question": "Should we track ETF conversations separately in analytics/langfuse?",
+      "answer": "NO - Not needed, can use existing observability patterns"
+    },
+    {
+      "question": "Should we reuse existing prompt builder architecture or create new one?",
+      "answer": "YES - Reuse and adapt existing context builder pattern from services/question_analyzer/context_builders/. Create ETF-specific builders: NoneETFBuilder, BasicETFBuilder, DetailedETFBuilder, UrlETFBuilder.",
+      "implementation": "Create services/etf_question_analyzer/context_builders/ with same pattern: ETFContextBuilder base class, ETFContextBuilderInput dataclass, ETFPromptComponents, get_etf_context_builder() factory"
+    }
+  ],
+  "open_questions": [],
+  "future_enhancements": [
+    "Multi-ETF comparison support ('Compare SXR8 vs CSPX')",
+    "ETF discovery and recommendation ('Best low-cost S&P 500 ETFs')",
+    "Historical performance analysis (requires price data integration)",
+    "Dividend yield and distribution history analysis",
+    "Cost comparison calculator (TER + trading costs)",
+    "Tax efficiency analysis (accumulating vs distributing)",
+    "Benchmark tracking error analysis"
+  ],
+  "notes": [
+    "This implementation reuses existing company analysis architecture patterns",
+    "ETF data is simpler than company financials (no income statements, balance sheets)",
+    "Classification is faster for ETFs due to simpler question space",
+    "Most ETF questions can be answered quickly (<2s) except detailed analysis",
+    "Conversation context is critical for multi-turn ETF discussions",
+    "ETF-specific related questions generator provides better follow-ups than generic prompts",
+    "Separate conversation namespace (etf_) prevents mixing with company conversations",
+    "URL context support enables analysis of ETF factsheets and prospectuses",
+    "Multi-ETF comparisons and ETF discovery deferred to future enhancements",
+    "Context builder pattern mirrors services/question_analyzer/context_builders/ for consistency",
+    "Incomplete data handling: return available data + enable Google Search fallback",
+    "Source citation required: AI must cite sources, never fabricate information",
+    "Ticker validation: just fetch from etf_fundamental table, handle not-found gracefully"
+  ],
+  "implementation_progress": {
+    "completed_phases": [
+      {
+        "phase_id": "phase_1",
+        "name": "Core Types & Enums",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_question_analyzer/__init__.py",
+          "services/etf_question_analyzer/types.py"
+        ],
+        "learnings": [
+          "Created ETFQuestionType enum with 3 types: GENERAL_ETF, ETF_OVERVIEW, ETF_DETAILED_ANALYSIS",
+          "Created ETFDataRequirement enum with 3 levels: NONE, BASIC, DETAILED",
+          "Reused AnalysisChunk from services/question_analyzer/types.py for consistency",
+          "Added ETFAnalysisContext dataclass for passing context between components",
+          "All enums use StrEnum for better JSON serialization",
+          "Syntax verified successfully"
+        ]
+      }
+    ]
+  },
+  "implementation_summary": {
+    "total_phases": 9,
+    "critical_phases": 6,
+    "estimated_files_created": 13,
+    "key_architectural_decisions": [
+      "Reuse existing context builder pattern from company analysis",
+      "Separate conversation namespace for ETFs (etf_ prefix)",
+      "ETF-specific related questions generator with tailored prompts",
+      "Incomplete data handling via Google Search fallback with source citations",
+      "No ticker validation - attempt fetch and handle gracefully",
+      "URL context support for ETF factsheets",
+      "Factory pattern for context builders and handlers"
+    ],
+    "dependencies_on_existing_code": [
+      "Agent and MultiAgent for AI generation",
+      "ETFFundamentalConnector for database access",
+      "conversation_store functions for context management",
+      "URL extraction utilities from utils/url_helper.py",
+      "ModelName enum for model selection",
+      "Langfuse for observability"
+    ]
+  }
+}
