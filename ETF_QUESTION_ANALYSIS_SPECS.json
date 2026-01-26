@@ -551,7 +551,7 @@
     {
       "id": "phase_4",
       "name": "ETF Data Optimizer",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "blocked_by": ["phase_1"],
       "description": "Implement efficient ETF data fetching based on requirements",
@@ -1344,6 +1344,25 @@
           "All builders include source citation instructions as critical requirement",
           "Incomplete data handling: warn user and suggest Google Search fallback",
           "Pattern mirrors services/question_analyzer/context_builders/ for consistency"
+        ]
+      },
+      {
+        "phase_id": "phase_4",
+        "name": "ETF Data Optimizer",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_question_analyzer/data_optimizer.py"
+        ],
+        "learnings": [
+          "Created ETFDataOptimizer class with async fetch_optimized_data() method",
+          "Uses ETFFundamentalConnector.get_by_ticker() for database access",
+          "NONE requirement: returns None immediately, no DB query",
+          "BASIC requirement: returns full DTO (context builder extracts core_metadata)",
+          "DETAILED requirement: returns full DTO with holdings/sectors/countries arrays",
+          "Handles invalid ticker gracefully (undefined/null/none)",
+          "Handles ticker not found gracefully with warning log",
+          "Logs data completeness for DETAILED queries (holdings/sectors/countries present)",
+          "Error handling with try/catch and logging"
         ]
       }
     ]
