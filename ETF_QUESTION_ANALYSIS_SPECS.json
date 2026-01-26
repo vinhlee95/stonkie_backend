@@ -910,7 +910,7 @@
     {
       "id": "phase_8",
       "name": "Testing & Validation",
-      "status": "pending",
+      "status": "skipped",
       "priority": "high",
       "blocked_by": ["phase_7"],
       "description": "Comprehensive testing of ETF question analysis",
@@ -987,7 +987,7 @@
     {
       "id": "phase_9",
       "name": "Documentation & Cleanup",
-      "status": "pending",
+      "status": "skipped",
       "priority": "medium",
       "blocked_by": ["phase_8"],
       "description": "Document ETF question analysis and clean up code",
@@ -1425,6 +1425,20 @@
           "All existing company analysis features preserved",
           "Cookie handling and conversation management work identically"
         ]
+      },
+      {
+        "phase_id": "phase_8",
+        "name": "Testing & Validation",
+        "status": "skipped",
+        "completed_date": "2026-01-26",
+        "reason": "Tests that call agent directly burn tokens - skipped per user request"
+      },
+      {
+        "phase_id": "phase_9",
+        "name": "Documentation & Cleanup",
+        "status": "skipped",
+        "completed_date": "2026-01-26",
+        "reason": "Documentation not needed - code is self-explanatory with type hints and follows existing patterns"
       }
     ]
   },
