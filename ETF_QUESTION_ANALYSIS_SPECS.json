@@ -808,7 +808,7 @@
     {
       "id": "phase_7",
       "name": "API Endpoint Integration",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "blocked_by": ["phase_6"],
       "description": "Add POST /api/etf/{ticker}/analyze endpoint to main.py",
@@ -1405,6 +1405,25 @@
           "Langfuse observability for full analyze_question flow",
           "Comprehensive performance logging (classification, data fetch, handler, total)",
           "Simpler than FinancialAnalyzer (no PDF handling, no sticky routing)"
+        ]
+      },
+      {
+        "phase_id": "phase_7",
+        "name": "API Endpoint Integration",
+        "completed_date": "2026-01-26",
+        "files_modified": [
+          "main.py"
+        ],
+        "learnings": [
+          "Modified existing POST /api/companies/{ticker}/analyze endpoint instead of creating new one",
+          "Added ETF detection: checks if ticker exists in ETF database via get_etf_by_ticker()",
+          "Routes to ETFAnalyzer if ticker is ETF, else routes to FinancialAnalyzer",
+          "Separate conversation namespace: etf_{ticker} for ETFs vs {ticker} for companies",
+          "Uses etf_ prefix in storage_ticker for conversation persistence",
+          "Unified API interface for frontend - no need to know ticker type",
+          "Logs ETF vs company routing for debugging",
+          "All existing company analysis features preserved",
+          "Cookie handling and conversation management work identically"
         ]
       }
     ]

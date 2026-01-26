@@ -32,6 +32,7 @@ from services.company_filings import analyze_financial_report, analyze_uploaded_
 from services.company_insight import InsightType, fetch_insights_for_ticker, get_insights_for_ticker
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from services.etf import get_all_etfs, get_etf_by_ticker
+from services.etf_analyzer import ETFAnalyzer
 from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
@@ -56,6 +57,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize financial analyzer
 financial_analyzer = FinancialAnalyzer()
+
+# Initialize ETF analyzer
+etf_analyzer = ETFAnalyzer()
 
 # FastAPI application instance
 app = FastAPI()
@@ -181,7 +185,8 @@ async def get_revenue_insights_region(ticker: str):
 async def analyze_financial_data(ticker: str, request: Request):
     """
     Analyze financial statements for a given ticker symbol based on a specific question,
-    streaming the results using Server-Sent Events
+    streaming the results using Server-Sent Events.
+    Automatically routes to ETF or company analyzer based on ticker type.
 
     Args:
         request (Request): FastAPI request object containing the question and ticker in body
@@ -209,6 +214,14 @@ async def analyze_financial_data(ticker: str, request: Request):
             normalized_ticker = ""
             logger.debug(f"🔧 Normalized ticker '{ticker}' to empty (no ticker context)")
 
+        # Check if ticker is an ETF
+        is_etf = False
+        if normalized_ticker:
+            etf_data = get_etf_by_ticker(normalized_ticker)
+            if etf_data:
+                is_etf = True
+                logger.info(f"🔍 Ticker {normalized_ticker} identified as ETF, routing to ETFAnalyzer")
+
         # Get or create anonymous user ID from cookie
         anon_user_id = request.cookies.get("anon_user_id")
         if not anon_user_id:
@@ -224,24 +237,26 @@ async def analyze_financial_data(ticker: str, request: Request):
         else:
             logger.info(f"💬 Using existing conversation ID: {conversation_id} (ticker: {normalized_ticker or 'none'})")
 
-        # Load conversation history (use normalized ticker for storage key)
-        conversation_messages = get_conversation_history_for_prompt(
-            anon_user_id, normalized_ticker or "none", conversation_id
-        )
+        # Load conversation history (use appropriate namespace for ETF vs company)
+        storage_ticker = normalized_ticker or "none"
+        if is_etf and normalized_ticker:
+            storage_ticker = f"etf_{normalized_ticker}"
+
+        conversation_messages = get_conversation_history_for_prompt(anon_user_id, storage_ticker, conversation_id)
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
                 f"📚 Retrieved {num_pairs} Q/A pair(s) from conversation history "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, conv: {conversation_id[:8]}...)"
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conversation_id[:8]}...)"
             )
         else:
             logger.info(
                 f"📚 No conversation history found (new conversation) "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, conv: {conversation_id[:8]}...)"
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conversation_id[:8]}...)"
             )
 
-        # Append user message to conversation before generation (use normalized ticker)
-        append_user_message(anon_user_id, normalized_ticker or "none", conversation_id, question)
+        # Append user message to conversation before generation
+        append_user_message(anon_user_id, storage_ticker, conversation_id, question)
         logger.debug(f"💾 Stored user message in conversation {conversation_id[:8]}...")
 
         async def generate_analysis():
@@ -252,17 +267,33 @@ async def analyze_financial_data(ticker: str, request: Request):
                 # Buffer assistant output for persistence
                 assistant_output_buffer = []
 
-                async for chunk in financial_analyzer.analyze_question(
-                    normalized_ticker or ticker,  # Use normalized ticker, fallback to original for display
-                    question,
-                    use_google_search,
-                    use_url_context,
-                    deep_analysis,
-                    preferred_model,
-                    conversation_messages=conversation_messages,
-                    conversation_id=conversation_id,
-                    anon_user_id=anon_user_id,
-                ):
+                # Route to appropriate analyzer based on ticker type
+                if is_etf:
+                    analyzer_generator = etf_analyzer.analyze_question(
+                        normalized_ticker or ticker,
+                        question,
+                        use_google_search,
+                        use_url_context,
+                        deep_analysis,
+                        preferred_model,
+                        conversation_messages=conversation_messages,
+                        conversation_id=conversation_id,
+                        anon_user_id=anon_user_id,
+                    )
+                else:
+                    analyzer_generator = financial_analyzer.analyze_question(
+                        normalized_ticker or ticker,
+                        question,
+                        use_google_search,
+                        use_url_context,
+                        deep_analysis,
+                        preferred_model,
+                        conversation_messages=conversation_messages,
+                        conversation_id=conversation_id,
+                        anon_user_id=anon_user_id,
+                    )
+
+                async for chunk in analyzer_generator:
                     # Check if the client has disconnected
                     if await request.is_disconnected():
                         return
@@ -274,12 +305,10 @@ async def analyze_financial_data(ticker: str, request: Request):
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
 
-                # After streaming completes, append assistant message to conversation (use normalized ticker)
+                # After streaming completes, append assistant message to conversation
                 if assistant_output_buffer:
                     assistant_full_text = "".join(assistant_output_buffer)
-                    append_assistant_message(
-                        anon_user_id, normalized_ticker or "none", conversation_id, assistant_full_text
-                    )
+                    append_assistant_message(anon_user_id, storage_ticker, conversation_id, assistant_full_text)
                     logger.debug(
                         f"💾 Stored assistant response in conversation {conversation_id[:8]}... "
                         f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
