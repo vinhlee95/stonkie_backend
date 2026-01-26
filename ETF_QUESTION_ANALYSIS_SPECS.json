@@ -360,7 +360,7 @@
     {
       "id": "phase_2",
       "name": "ETF Question Classifier",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "blocked_by": ["phase_1"],
       "description": "Implement AI-powered question classification for ETFs",
@@ -1299,6 +1299,24 @@
           "Added ETFAnalysisContext dataclass for passing context between components",
           "All enums use StrEnum for better JSON serialization",
           "Syntax verified successfully"
+        ]
+      },
+      {
+        "phase_id": "phase_2",
+        "name": "ETF Question Classifier",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_question_analyzer/classifier.py",
+          "tests/test_etf_question_classifier.py"
+        ],
+        "learnings": [
+          "Created ETFQuestionClassifier with async classify_question() method",
+          "Uses Gemini 3.0 Flash for fast classification (<1s)",
+          "Returns tuple of (ETFQuestionType, ETFDataRequirement)",
+          "Uses JSON-based prompt response for structured output",
+          "Fallback logic: no ticker -> GENERAL_ETF/NONE, with ticker -> ETF_OVERVIEW/BASIC",
+          "Added 3 unit tests covering general, basic, and detailed question types",
+          "All tests pass with proper classification"
         ]
       }
     ]
