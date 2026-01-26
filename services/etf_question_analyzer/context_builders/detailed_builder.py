@@ -1,6 +1,7 @@
 """Context builder for detailed ETF analysis questions."""
 
 import json
+from dataclasses import asdict
 
 from .base import ETFContextBuilder, ETFContextBuilderInput
 from .components import ETFPromptComponents
@@ -26,9 +27,13 @@ class DetailedETFBuilder(ETFContextBuilder):
                 "ter_percent": input.etf_data.ter_percent,
                 "fund_size_billions": input.etf_data.fund_size_billions,
                 "index_tracked": input.etf_data.index_tracked,
-                "holdings": input.etf_data.holdings or [],
-                "sector_allocation": input.etf_data.sector_allocation or [],
-                "country_allocation": input.etf_data.country_allocation or [],
+                "holdings": [asdict(h) for h in input.etf_data.holdings] if input.etf_data.holdings else [],
+                "sector_allocation": [asdict(s) for s in input.etf_data.sector_allocation]
+                if input.etf_data.sector_allocation
+                else [],
+                "country_allocation": [asdict(c) for c in input.etf_data.country_allocation]
+                if input.etf_data.country_allocation
+                else [],
             }
 
         # Check data completeness
