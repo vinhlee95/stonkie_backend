@@ -608,7 +608,7 @@
     {
       "id": "phase_5",
       "name": "ETF Question Handlers",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "blocked_by": ["phase_1", "phase_3", "phase_4"],
       "description": "Implement handlers for different ETF question types",
@@ -1363,6 +1363,26 @@
           "Handles ticker not found gracefully with warning log",
           "Logs data completeness for DETAILED queries (holdings/sectors/countries present)",
           "Error handling with try/catch and logging"
+        ]
+      },
+      {
+        "phase_id": "phase_5",
+        "name": "ETF Question Handlers",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_question_analyzer/handlers.py"
+        ],
+        "learnings": [
+          "Created BaseETFHandler with ETF-specific _generate_related_questions()",
+          "Related questions prompt tailored for ETF dimensions (holdings, costs, performance, structure, allocation)",
+          "GeneralETFHandler: handles education questions, uses NoneETFBuilder",
+          "ETFOverviewHandler: checks data completeness, enables Google Search if incomplete, uses BasicETFBuilder",
+          "ETFDetailedAnalysisHandler: checks holdings/sectors/countries availability, yields thinking_status warnings, uses DetailedETFBuilder",
+          "All handlers stream answer chunks via MultiAgent.generate_content()",
+          "All handlers yield model_used and related_question chunks",
+          "Langfuse observability integrated for all handlers",
+          "Error handling with graceful fallback messages",
+          "Performance logging for total handler time"
         ]
       }
     ]
