@@ -441,7 +441,7 @@
     {
       "id": "phase_3",
       "name": "ETF Context Builders",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "blocked_by": ["phase_1"],
       "description": "Create context builders for ETF prompt construction (mirrors company context_builders pattern)",
@@ -1317,6 +1317,33 @@
           "Fallback logic: no ticker -> GENERAL_ETF/NONE, with ticker -> ETF_OVERVIEW/BASIC",
           "Added 3 unit tests covering general, basic, and detailed question types",
           "All tests pass with proper classification"
+        ]
+      },
+      {
+        "phase_id": "phase_3",
+        "name": "ETF Context Builders",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_question_analyzer/context_builders/__init__.py",
+          "services/etf_question_analyzer/context_builders/base.py",
+          "services/etf_question_analyzer/context_builders/components.py",
+          "services/etf_question_analyzer/context_builders/none_builder.py",
+          "services/etf_question_analyzer/context_builders/basic_builder.py",
+          "services/etf_question_analyzer/context_builders/detailed_builder.py",
+          "services/etf_question_analyzer/context_builders/url_builder.py"
+        ],
+        "learnings": [
+          "Created ETFContextBuilderInput dataclass with ticker, question, etf_data, use_google_search, deep_analysis, source_url",
+          "Created ETFContextBuilder ABC following company context_builders pattern",
+          "ETFPromptComponents provides reusable fragments: base_context, source_instructions, formatting guidelines",
+          "NoneETFBuilder: general ETF education without data",
+          "BasicETFBuilder: core metadata only, checks data completeness",
+          "DetailedETFBuilder: full DTO with holdings/sectors/countries, handles missing arrays",
+          "UrlETFBuilder: analyzes factsheets/prospectuses from URLs",
+          "Factory function get_etf_context_builder() routes by data requirement and use_url_context",
+          "All builders include source citation instructions as critical requirement",
+          "Incomplete data handling: warn user and suggest Google Search fallback",
+          "Pattern mirrors services/question_analyzer/context_builders/ for consistency"
         ]
       }
     ]
