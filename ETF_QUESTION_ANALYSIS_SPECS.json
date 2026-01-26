@@ -754,7 +754,7 @@
     {
       "id": "phase_6",
       "name": "ETF Analyzer Service",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "blocked_by": ["phase_2", "phase_4", "phase_5"],
       "description": "Implement main ETFAnalyzer service (orchestrator)",
@@ -1383,6 +1383,28 @@
           "Langfuse observability integrated for all handlers",
           "Error handling with graceful fallback messages",
           "Performance logging for total handler time"
+        ]
+      },
+      {
+        "phase_id": "phase_6",
+        "name": "ETF Analyzer Service",
+        "completed_date": "2026-01-26",
+        "files_created": [
+          "services/etf_analyzer.py"
+        ],
+        "learnings": [
+          "Created ETFAnalyzer class as main orchestrator",
+          "Initializes classifier, data_optimizer, and all three handlers",
+          "analyze_question() method handles full workflow",
+          "Normalizes ticker (undefined/null/none -> empty string)",
+          "Classifies question using ETFQuestionClassifier",
+          "Fetches optimized data using ETFDataOptimizer",
+          "Creates ETFAnalysisContext with all parameters",
+          "Routes to appropriate handler based on question_type",
+          "Streams all chunks from handlers",
+          "Langfuse observability for full analyze_question flow",
+          "Comprehensive performance logging (classification, data fetch, handler, total)",
+          "Simpler than FinancialAnalyzer (no PDF handling, no sticky routing)"
         ]
       }
     ]
