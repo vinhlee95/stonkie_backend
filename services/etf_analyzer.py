@@ -9,6 +9,7 @@ from langfuse import observe
 from ai_models.model_name import ModelName
 
 from .etf_question_analyzer.classifier import ETFQuestionClassifier
+from .etf_question_analyzer.comparison_handler import ETFComparisonHandler
 from .etf_question_analyzer.data_optimizer import ETFDataOptimizer
 from .etf_question_analyzer.handlers import (
     ETFDetailedAnalysisHandler,
@@ -33,6 +34,7 @@ class ETFAnalyzer:
         self.general_handler = GeneralETFHandler()
         self.overview_handler = ETFOverviewHandler()
         self.detailed_handler = ETFDetailedAnalysisHandler()
+        self.comparison_handler = ETFComparisonHandler()
 
     @observe(name="etf_analyzer.analyze_question")
     async def analyze_question(
@@ -92,13 +94,17 @@ class ETFAnalyzer:
             f"({t_classify_end - t_classify:.4f}s)"
         )
 
-        # Handle comparison questions (Phase 4 - TODO: Implement comparison handler)
+        # Handle comparison questions
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
-            logger.warning(f"ETF comparison detected but handler not yet implemented. Tickers: {comparison_tickers}")
-            yield {
-                "type": "error",
-                "body": "ETF comparison feature coming soon. Currently handling single ETF questions only.",
-            }
+            logger.info(f"Routing to comparison handler for tickers: {comparison_tickers}")
+            async for chunk in self.comparison_handler.handle(
+                tickers=comparison_tickers,
+                question=question,
+                use_google_search=use_google_search,
+                preferred_model=preferred_model,
+                conversation_messages=conversation_messages,
+            ):
+                yield chunk
             return
 
         # Fetch optimized data
