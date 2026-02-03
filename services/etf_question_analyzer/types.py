@@ -13,6 +13,7 @@ class ETFQuestionType(StrEnum):
     GENERAL_ETF = "general_etf"  # General ETF education questions
     ETF_OVERVIEW = "etf_overview"  # Basic ETF information questions
     ETF_DETAILED_ANALYSIS = "etf_detailed_analysis"  # Complex ETF analysis questions
+    ETF_COMPARISON = "etf_comparison"  # Multi-ETF comparison questions
 
 
 class ETFDataRequirement(StrEnum):
@@ -38,3 +39,15 @@ class ETFAnalysisContext:
     preferred_model: str
     conversation_messages: Optional[list] = None
     source_url: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ETFComparisonContext:
+    """Context for multi-ETF comparison analysis."""
+
+    tickers: list[str]
+    question: str
+    etf_data_list: list[ETFFundamentalDto]
+    use_google_search: bool
+    preferred_model: str
+    conversation_messages: Optional[list] = None
