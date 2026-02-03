@@ -83,12 +83,23 @@ class ETFAnalyzer:
 
         # Classify question
         t_classify = time.perf_counter()
-        question_type, data_requirement = await self.classifier.classify_question(normalized_ticker, question)
+        question_type, data_requirement, comparison_tickers = await self.classifier.classify_question(
+            normalized_ticker, question
+        )
         t_classify_end = time.perf_counter()
         logger.info(
             f"ETF question classified: {question_type.value}, data: {data_requirement.value} "
             f"({t_classify_end - t_classify:.4f}s)"
         )
+
+        # Handle comparison questions (Phase 4 - TODO: Implement comparison handler)
+        if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
+            logger.warning(f"ETF comparison detected but handler not yet implemented. Tickers: {comparison_tickers}")
+            yield {
+                "type": "error",
+                "body": "ETF comparison feature coming soon. Currently handling single ETF questions only.",
+            }
+            return
 
         # Fetch optimized data
         t_data = time.perf_counter()
