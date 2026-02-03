@@ -4,6 +4,7 @@ from services.etf_question_analyzer.types import ETFDataRequirement
 
 from .base import ETFContextBuilder, ETFContextBuilderInput
 from .basic_builder import BasicETFBuilder
+from .comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 from .components import ETFPromptComponents
 from .detailed_builder import DetailedETFBuilder
 from .none_builder import NoneETFBuilder
@@ -17,6 +18,8 @@ __all__ = [
     "BasicETFBuilder",
     "DetailedETFBuilder",
     "UrlETFBuilder",
+    "ComparisonETFBuilder",
+    "ComparisonContextBuilderInput",
     "get_etf_context_builder",
 ]
 
