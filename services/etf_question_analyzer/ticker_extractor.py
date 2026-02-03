@@ -48,14 +48,14 @@ class ETFTickerExtractor:
         """
         Extract explicit tickers via regex pattern matching.
 
-        Pattern: 2-6 uppercase letters (ETF ticker format)
-        Examples: SXR8, CSPX, VUSA, IWDA
+        Pattern: 2-6 uppercase letters/digits (ETF ticker format)
+        Examples: SXR8, CSPX, VUSA, IWDA, SPYY
 
         Returns:
             List of validated tickers found in question
         """
-        # Find potential tickers: 2-6 consecutive uppercase letters
-        pattern = r"\b[A-Z]{2,6}\b"
+        # Find potential tickers: 2-6 consecutive uppercase letters and digits
+        pattern = r"\b[A-Z][A-Z0-9]{1,5}\b"
         potential_tickers = re.findall(pattern, question)
 
         # Validate against database
