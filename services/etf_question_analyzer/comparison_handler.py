@@ -31,6 +31,7 @@ class ETFComparisonHandler:
         tickers: list[str],
         question: str,
         use_google_search: bool,
+        short_analysis: bool,
         preferred_model: ModelName,
         conversation_messages: list | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -41,6 +42,7 @@ class ETFComparisonHandler:
             tickers: List of 2-4 ETF tickers to compare
             question: The comparison question
             use_google_search: Whether to use Google Search
+            short_analysis: Whether to use concise analysis
             preferred_model: Preferred model to use
             conversation_messages: Conversation history
 
@@ -48,6 +50,7 @@ class ETFComparisonHandler:
             Dictionary chunks with comparison analysis results
         """
         t_start = time.perf_counter()
+        logger.info(f"ETF Comparison - short_analysis mode: {short_analysis}")
 
         try:
             yield {"type": "thinking_status", "body": f"Fetching {len(tickers)} ETFs..."}
@@ -84,7 +87,9 @@ class ETFComparisonHandler:
                 question=question,
                 etf_data_list=etf_data_list,
                 use_google_search=use_google_search,
+                short_analysis=short_analysis,
             )
+            logger.info(f"Builder input created: short_analysis={builder_input.short_analysis}")
             prompt = self.builder.build(builder_input)
 
             # Generate comparison with LLM
@@ -118,7 +123,9 @@ class ETFComparisonHandler:
             yield {"type": "model_used", "body": model_used}
 
             # Generate comparison-specific follow-up questions
-            async for related_q in self._generate_comparison_related_questions(question, preferred_model):
+            async for related_q in self._generate_comparison_related_questions(
+                question, preferred_model, short_analysis
+            ):
                 yield related_q
 
             t_end = time.perf_counter()
@@ -161,7 +168,7 @@ class ETFComparisonHandler:
 
     @observe(name="generate_comparison_related_questions")
     async def _generate_comparison_related_questions(
-        self, original_question: str, preferred_model: ModelName = ModelName.Auto
+        self, original_question: str, preferred_model: ModelName = ModelName.Auto, short_analysis: bool = False
     ) -> AsyncGenerator[Dict[str, str], None]:
         """
         Generate comparison-specific follow-up questions.
@@ -169,20 +176,23 @@ class ETFComparisonHandler:
         Args:
             original_question: The original comparison question
             preferred_model: Preferred model to use
+            short_analysis: Whether to generate fewer questions
 
         Yields:
             Dictionary with type "related_question" and body
         """
         try:
+            num_questions = 2 if short_analysis else 3
+
             prompt = f"""
                 Based on this ETF comparison question: "{original_question}"
 
-                Generate exactly 3 high-quality follow-up questions for comparing ETFs.
+                Generate exactly {num_questions} high-quality follow-up questions for comparing ETFs.
 
                 Requirements:
                 - Question 1: Deeper comparison on same aspect (e.g., if asked about TER, ask about total cost of ownership)
-                - Question 2: Compare different dimension (e.g., if cost comparison, ask about holdings overlap or performance)
-                - Question 3: Investment decision question (e.g., "Which is better for long-term investing?")
+                {"- Question 2: Investment decision question" if short_analysis else "- Question 2: Compare different dimension (e.g., if cost comparison, ask about holdings overlap or performance)"}
+                {"" if short_analysis else "- Question 3: Investment decision question (e.g., \"Which is better for long-term investing?\")"}
                 - Keep questions 8-15 words
                 - Make them specific and actionable
                 - Focus on comparative aspects
@@ -197,8 +207,7 @@ class ETFComparisonHandler:
 
                 Output format (one question per line, no numbering):
                 Which ETF has lower total cost of ownership including trading costs?
-                How much overlap is there in their top holdings?
-                Which is better for tax-efficient long-term investing?
+                {"Which is better for tax-efficient long-term investing?" if short_analysis else "How much overlap is there in their top holdings?\nWhich is better for tax-efficient long-term investing?"}
             """
 
             agent = MultiAgent(model_name=preferred_model)
@@ -206,7 +215,7 @@ class ETFComparisonHandler:
             for question in agent.generate_content_by_lines(
                 prompt=prompt,
                 use_google_search=False,
-                max_lines=3,
+                max_lines=num_questions,
                 min_line_length=10,
                 strip_numbering=True,
                 strip_markdown=True,

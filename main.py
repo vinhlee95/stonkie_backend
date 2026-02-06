@@ -202,6 +202,8 @@ async def analyze_financial_data(ticker: str, request: Request):
         preferred_model_str = body.get("preferredModel", "fastest")
         conversation_id = body.get("conversationId")
 
+        logger.info(f"📋 Request params: deepAnalysis={deep_analysis} (type: {type(deep_analysis)})")
+
         # Map and validate the model name early
         preferred_model = map_frontend_model_to_enum(preferred_model_str)
 

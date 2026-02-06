@@ -69,3 +69,23 @@ class ETFPromptComponents:
             - MUST cite sources when using Google Search
             - Be transparent about data limitations
         """
+
+    @staticmethod
+    def comparison_section_structure() -> str:
+        """Build section structure template specifically for ETF comparisons."""
+        return """
+            **Structure:**
+            - Follow up with 2-3 focused comparison sections, each covering a distinct aspect
+            - Each section should have a bold, descriptive heading: **Section Heading**
+            - Keep each section content under 50 words - concise but comprehensive enough for meaningful comparison
+
+            **Section Guidelines:**
+            - Each section heading should be specific and descriptive (3-6 words). Section headings must be in separate lines and bolded.
+            - Add a new line after each section heading.
+            - Each section should compare a specific aspect across the ETFs
+            - Include concrete numbers, percentages, and metrics for comparison
+            - Highlight key differences and similarities
+            - Bold important figures and percentages for quick scanning
+            - Use the largest appropriate unit (e.g., "$1.5B" not "$1,500M")
+            - Make every word count - avoid filler phrases
+        """

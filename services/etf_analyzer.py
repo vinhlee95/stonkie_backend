@@ -57,7 +57,7 @@ class ETFAnalyzer:
             question: The question to answer
             use_google_search: Whether to use Google Search
             use_url_context: Whether to use URL context
-            deep_analysis: Whether to use detailed analysis
+            deep_analysis: Whether to use detailed analysis (False = short mode for comparisons)
             preferred_model: Preferred model to use
             conversation_messages: Optional conversation history
             conversation_id: Conversation ID for tracking
@@ -96,11 +96,16 @@ class ETFAnalyzer:
 
         # Handle comparison questions
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
-            logger.info(f"Routing to comparison handler for tickers: {comparison_tickers}")
+            # For comparisons: deep_analysis=False means short mode
+            short_analysis = not deep_analysis
+            logger.info(
+                f"Routing to comparison handler for tickers: {comparison_tickers}, deep_analysis={deep_analysis}, short_analysis={short_analysis}"
+            )
             async for chunk in self.comparison_handler.handle(
                 tickers=comparison_tickers,
                 question=question,
                 use_google_search=use_google_search,
+                short_analysis=short_analysis,
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
             ):
