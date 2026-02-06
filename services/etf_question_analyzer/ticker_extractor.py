@@ -16,7 +16,61 @@ class ETFTickerExtractor:
         self.connector = ETFFundamentalConnector()
         self.agent = MultiAgent(model_name=ModelName.Gemini30Flash)
 
-    async def extract_tickers(self, question: str) -> list[str]:
+    async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
+        """
+        Use AI to resolve contextual references in the question.
+
+        Handles:
+        - "this ETF" → "SXR8"
+        - "this one" / "that one" → "SXR8"
+        - "it" → "SXR8"
+        - "the current one" / "the one I'm viewing" → "SXR8"
+
+        Returns:
+            Question rewritten with explicit ticker
+        """
+        prompt = f"""You are helping resolve contextual references in ETF comparison questions.
+
+Current context: User is viewing ETF ticker "{current_ticker}"
+
+Original question: "{question}"
+
+Rewrite the question to replace contextual references like "this ETF", "this one", "it", "that", "the current one", "the one I'm viewing" with the explicit ticker "{current_ticker}".
+
+Rules:
+- Only replace references clearly pointing to the current ETF
+- Keep all other tickers unchanged
+- Preserve question structure and intent
+- If no contextual references exist, return original question unchanged
+
+Examples:
+Input: "Compare this ETF with SPYY"
+Output: "Compare {current_ticker} with SPYY"
+
+Input: "How does it compare to VUSA?"
+Output: "How does {current_ticker} compare to VUSA?"
+
+Input: "Compare SPYY vs CSPX"
+Output: "Compare SPYY vs CSPX"
+
+Input: "Difference between the one I'm viewing and CSPX"
+Output: "Difference between {current_ticker} and CSPX"
+
+Return ONLY the rewritten question, no explanation."""
+
+        try:
+            response = ""
+            for chunk in self.agent.generate_content(prompt):
+                response += chunk
+
+            rewritten = response.strip()
+            return rewritten if rewritten else question
+
+        except Exception as e:
+            logger.error(f"AI preprocessing failed: {e}")
+            return question
+
+    async def extract_tickers(self, question: str, current_ticker: Optional[str] = None) -> list[str]:
         """
         Extract ETF tickers using two-stage approach:
         1. Regex fast path for explicit tickers
@@ -24,19 +78,27 @@ class ETFTickerExtractor:
 
         Args:
             question: User question potentially containing ETF tickers/names
+            current_ticker: Optional current ticker for contextual reference resolution
 
         Returns:
             List of 2-4 validated ETF ticker strings, or empty list
         """
+        # AI preprocessing if context provided
+        processed_question = question
+        if current_ticker:
+            processed_question = await self._preprocess_question_with_context(question, current_ticker)
+            if processed_question != question:
+                logger.info(f"Context resolved: '{question}' → '{processed_question}'")
+
         # Stage 1: Try regex extraction (fast, free)
-        regex_tickers = self._extract_via_regex(question)
+        regex_tickers = self._extract_via_regex(processed_question)
         if len(regex_tickers) >= 2:
             logger.info(f"Extracted {len(regex_tickers)} tickers via regex: {regex_tickers}")
             return regex_tickers
 
         # Stage 2: Fall back to AI extraction (handles names)
         logger.info("Regex found < 2 tickers, falling back to AI extraction")
-        ai_tickers = await self._extract_via_ai(question)
+        ai_tickers = await self._extract_via_ai(processed_question)
         if len(ai_tickers) >= 2:
             logger.info(f"Extracted {len(ai_tickers)} tickers via AI: {ai_tickers}")
             return ai_tickers

@@ -46,7 +46,7 @@ class ETFQuestionClassifier:
         t_start = time.perf_counter()
 
         # Check for comparison intent FIRST (before LLM classification)
-        comparison_tickers = await self.ticker_extractor.extract_tickers(question)
+        comparison_tickers = await self.ticker_extractor.extract_tickers(question, current_ticker=ticker)
         if len(comparison_tickers) >= 2:
             logger.info(f"Detected comparison question with {len(comparison_tickers)} tickers: {comparison_tickers}")
             return ETFQuestionType.ETF_COMPARISON, ETFDataRequirement.DETAILED, comparison_tickers
