@@ -1,0 +1,614 @@
+{
+  "project": "ETF Comparison Feature",
+  "overview": "Add multi-ETF comparison capability to POST /analyze endpoint. Supports 2-3 ETF comparisons with structured table format, Google Search fallback, and strict source citation.",
+  "requirements": {
+    "multi_ticker_support": "Extract 2-3 ETF tickers from comparison questions",
+    "google_search_fallback": "Auto-enable Google Search if any ETF not in database",
+    "structured_table_format": "Return comparison as JSON with dimension-grouped rows",
+    "strict_source_citation": "Prevent hallucination - only use provided data or cited sources",
+    "fixed_dimensions": "Always return 5 dimensions: Basic Info, Costs & Size, Top Holdings, Sector Allocation, Geographic Allocation"
+  },
+  "design_decisions": {
+    "table_format": "Structured JSON with dimension grouping (not markdown)",
+    "partial_data_handling": "Auto-enable Google Search for missing ETFs (transparent to user)",
+    "ticker_limit": "2-3 ETFs maximum (warn and truncate if >3)",
+    "comparison_dimensions": "Fixed set (consistent structure, easier to parse)"
+  },
+  "phases": [
+    {
+      "id": "phase_0",
+      "name": "Specs JSON Creation",
+      "status": "completed",
+      "priority": "critical",
+      "completed_date": "2026-02-03",
+      "blocked_by": [],
+      "description": "Create ETF_COMPARISON_SPECS.json file with all phase specifications",
+      "files": {
+        "new": ["ETF_COMPARISON_SPECS.json"],
+        "reference": ["ETF_INTEGRATION_SPECS.json"]
+      },
+      "requirements": [
+        "Create specs file similar to ETF_INTEGRATION_SPECS.json",
+        "Document all 7 phases with detailed requirements",
+        "Include success criteria per phase",
+        "Define testing strategy",
+        "Add completion tracking structure"
+      ],
+      "success_criteria": [
+        "ETF_COMPARISON_SPECS.json file created",
+        "All phases documented (Phase 0-7)",
+        "Requirements clearly specified",
+        "Success criteria defined",
+        "Technical details included",
+        "Testing scenarios outlined"
+      ],
+      "completion_results": {
+        "validation_status": "PASSED",
+        "completed_date": "2026-02-03",
+        "files_created": ["ETF_COMPARISON_SPECS.json"],
+        "phases_documented": 8,
+        "total_requirements": 45,
+        "design_decisions": {
+          "table_format": "Structured JSON with dimension grouping",
+          "partial_data": "Auto-enable Google Search for missing ETFs",
+          "ticker_limit": "2-3 ETFs",
+          "dimensions": "Fixed set (5 dimensions)"
+        }
+      }
+    },
+    {
+      "id": "phase_1",
+      "name": "Question Classification & Ticker Extraction",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": [],
+      "description": "Add ETF_COMPARISON question type and implement multi-ticker extraction from comparison questions",
+      "files": {
+        "new": ["services/etf_question_analyzer/ticker_extractor.py"],
+        "modified": [
+          "services/etf_question_analyzer/types.py",
+          "services/etf_question_analyzer/classifier.py"
+        ],
+        "reference": [
+          "services/etf_question_analyzer/classifier.py (existing classification patterns)"
+        ]
+      },
+      "requirements": [
+        "Add ETFQuestionType.ETF_COMPARISON enum value",
+        "Create ETFTickerExtractor class with regex-based extraction",
+        "Implement AI fallback for complex phrasing",
+        "Detect comparison keywords: 'vs', 'compare', 'difference between', 'or'",
+        "Return (question_type, tickers: list[str]) from classify_question()",
+        "Enforce 2-3 ticker limit (warn if >3 detected)"
+      ],
+      "success_criteria": [
+        "ETF_COMPARISON enum added to types.py",
+        "ETFTickerExtractor class implemented",
+        "Regex extraction works for common patterns",
+        "AI fallback extraction works for complex questions",
+        "Classifier detects comparison questions and extracts tickers",
+        "Test: 'Compare SXR8 vs SPYY' → ['SXR8', 'SPYY']",
+        "Test: 'Difference between CSPX and VUSA?' → ['CSPX', 'VUSA']",
+        "Test: 'SXR8 or SPYY or VUSA?' → ['SXR8', 'SPYY', 'VUSA']",
+        "Test: 'Compare A vs B vs C vs D' → ['A', 'B', 'C'] + warning"
+      ],
+      "technical_details": {
+        "regex_patterns": [
+          "(\\\\w+)\\\\s+vs\\\\.?\\\\s+(\\\\w+)",
+          "compare\\\\s+(\\\\w+)\\\\s+(?:and|with|to)\\\\s+(\\\\w+)",
+          "(\\\\w+)\\\\s+or\\\\s+(\\\\w+)",
+          "difference\\\\s+between\\\\s+(\\\\w+)\\\\s+and\\\\s+(\\\\w+)"
+        ],
+        "ai_fallback_prompt": "Extract all ETF ticker symbols from this question. Return JSON: {\"tickers\": [\"SXR8\", \"SPYY\"]}",
+        "ticker_limits": {
+          "min": 2,
+          "max": 3,
+          "action_if_exceeded": "truncate to first 3 and yield warning"
+        }
+      },
+      "testing": {
+        "unit_tests": [
+          "test_extract_tickers_vs_pattern",
+          "test_extract_tickers_compare_pattern",
+          "test_extract_tickers_or_pattern",
+          "test_extract_tickers_difference_pattern",
+          "test_extract_tickers_complex_ai_fallback",
+          "test_ticker_limit_enforcement"
+        ],
+        "test_data": [
+          {"question": "Compare SXR8 vs SPYY", "expected": ["SXR8", "SPYY"]},
+          {"question": "What's the difference between CSPX and VUSA?", "expected": ["CSPX", "VUSA"]},
+          {"question": "Should I buy SXR8 or SPYY or VUSA?", "expected": ["SXR8", "SPYY", "VUSA"]},
+          {"question": "Which ETF is better for growth: CSPX, VUSA, SXR8, or SPYY?", "expected": ["CSPX", "VUSA", "SXR8"]}
+        ]
+      }
+    },
+    {
+      "id": "phase_2",
+      "name": "Multi-ETF Data Fetching",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_1"],
+      "description": "Implement parallel data fetching for multiple ETFs with auto-enable Google Search for missing data",
+      "files": {
+        "modified": [
+          "services/etf_question_analyzer/data_optimizer.py",
+          "services/etf_question_analyzer/types.py"
+        ],
+        "reference": [
+          "services/etf_question_analyzer/data_optimizer.py (existing fetch patterns)",
+          "connectors/etf_fundamental.py (get_by_ticker method)"
+        ]
+      },
+      "requirements": [
+        "Add fetch_comparison_data(tickers: list[str]) method to ETFDataOptimizer",
+        "Create ETFComparisonContext dataclass",
+        "Parallel fetch all tickers using asyncio.gather()",
+        "Detect missing ETFs: if any is None → auto-enable use_google_search=True",
+        "Log which ETFs found in DB vs need search",
+        "Return dict[str, ETFFundamentalDto | None]"
+      ],
+      "success_criteria": [
+        "fetch_comparison_data() method implemented",
+        "ETFComparisonContext dataclass defined",
+        "Parallel fetching works correctly",
+        "Auto-enable Google Search logic works",
+        "Test: Fetch ['SXR8', 'SPYY'] → both found, use_google_search=False",
+        "Test: Fetch ['SXR8', 'NONEXIST'] → 1 found, 1 None, use_google_search=True",
+        "Logging works correctly"
+      ],
+      "technical_details": {
+        "parallel_fetching": "asyncio.gather(*[connector.get_by_ticker(t) for t in tickers])",
+        "auto_enable_logic": "if any(data is None for data in results.values()): use_google_search = True",
+        "context_structure": {
+          "tickers": "list[str] - 2-3 ticker symbols",
+          "question": "str - original user question",
+          "etf_data_map": "dict[str, ETFFundamentalDto | None]",
+          "use_google_search": "bool - auto-enabled if any ETF missing",
+          "deep_analysis": "bool",
+          "preferred_model": "ModelName",
+          "conversation_messages": "Optional[list]"
+        }
+      },
+      "testing": {
+        "unit_tests": [
+          "test_fetch_comparison_data_all_found",
+          "test_fetch_comparison_data_one_missing",
+          "test_fetch_comparison_data_all_missing",
+          "test_auto_enable_google_search",
+          "test_parallel_execution"
+        ]
+      }
+    },
+    {
+      "id": "phase_3",
+      "name": "Comparison Context Builder",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_2"],
+      "description": "Create prompt builder for ETF comparisons with strict sourcing rules and fixed dimension structure",
+      "files": {
+        "new": ["services/etf_question_analyzer/context_builders/comparison_builder.py"],
+        "modified": ["services/etf_question_analyzer/context_builders/__init__.py"],
+        "reference": [
+          "services/etf_question_analyzer/context_builders/detailed_builder.py (builder pattern)",
+          "services/etf_question_analyzer/context_builders/basic_builder.py (prompt structure)"
+        ]
+      },
+      "requirements": [
+        "Create ComparisonETFBuilder class",
+        "Generate prompt with ETF data sections (1 per ticker)",
+        "Add strict sourcing rules to prevent hallucination",
+        "Specify JSON output format with 5 fixed dimensions",
+        "Handle missing data gracefully (N/A markers)",
+        "Include source citation requirements"
+      },
+      "success_criteria": [
+        "ComparisonETFBuilder class implemented",
+        "Prompt includes all ETF data sections",
+        "Sourcing rules are explicit and strict",
+        "JSON schema specified correctly",
+        "Fixed dimensions: Basic Info, Costs & Size, Top Holdings, Sector Allocation, Geographic",
+        "Prompt tested with 2 ETFs",
+        "Prompt tested with 3 ETFs"
+      ],
+      "technical_details": {
+        "prompt_sections": [
+          "Role definition (ETF comparison expert)",
+          "Critical sourcing rules",
+          "ETF data blocks (1 per ticker)",
+          "Output format specification (JSON schema)",
+          "Dimension requirements (5 fixed dimensions)",
+          "Examples of correct vs incorrect comparisons"
+        ],
+        "sourcing_rules": [
+          "ONLY use data from 'ETF Data' sections below",
+          "If data missing, state 'N/A' - do NOT guess",
+          "For Google Search data, cite source URLs",
+          "Do NOT use training data knowledge - ONLY provided context",
+          "Mark each metric with data source: [DB] or [Search: url]"
+        ],
+        "fixed_dimensions": [
+          {
+            "dimension": "Basic Info",
+            "metrics": ["Full Name", "Fund Provider", "ISIN", "Domicile", "Launch Date"]
+          },
+          {
+            "dimension": "Costs & Size",
+            "metrics": ["TER (%)", "Fund Size (Billions)", "Replication Method", "Distribution Policy"]
+          },
+          {
+            "dimension": "Top 5 Holdings",
+            "metrics": ["Holding #1", "Holding #2", "Holding #3", "Holding #4", "Holding #5"]
+          },
+          {
+            "dimension": "Sector Allocation",
+            "metrics": ["Top 5 sectors with percentages"]
+          },
+          {
+            "dimension": "Geographic Allocation",
+            "metrics": ["Top 5 countries with percentages"]
+          }
+        ],
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "dimension": {"type": "string"},
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "metric": {"type": "string"},
+                        "<TICKER>": {"type": "string"}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "testing": {
+        "unit_tests": [
+          "test_builder_generates_prompt_for_two_etfs",
+          "test_builder_generates_prompt_for_three_etfs",
+          "test_sourcing_rules_included",
+          "test_all_five_dimensions_specified",
+          "test_json_schema_included"
+        ]
+      }
+    },
+    {
+      "id": "phase_4",
+      "name": "Comparison Handler",
+      "status": "pending",
+      "priority": "critical",
+      "blocked_by": ["phase_3"],
+      "description": "Implement ETFComparisonHandler to orchestrate comparison logic and yield structured table chunks",
+      "files": {
+        "modified": [
+          "services/etf_question_analyzer/handlers.py",
+          "services/etf_analyzer.py"
+        ],
+        "reference": [
+          "services/etf_question_analyzer/handlers.py (existing handler patterns)"
+        ]
+      },
+      "requirements": [
+        "Create ETFComparisonHandler class inheriting from BaseETFHandler",
+        "Implement handle() method with comparison logic",
+        "Validate ticker count (2-3)",
+        "Build comparison prompt via ComparisonETFBuilder",
+        "Generate content via AI agent",
+        "Parse AI response as JSON table",
+        "Yield 'comparison_table' chunk with structured data",
+        "Yield 'answer' chunk with narrative summary",
+        "Generate comparison-specific related questions",
+        "Route ETF_COMPARISON questions in ETFAnalyzer"
+      ],
+      "success_criteria": [
+        "ETFComparisonHandler class implemented",
+        "Ticker validation works (2-3 range)",
+        "Comparison prompt built correctly",
+        "AI response parsed as JSON",
+        "comparison_table chunk yielded with correct structure",
+        "answer chunk yielded with summary",
+        "Related questions generated",
+        "Routing works in ETFAnalyzer",
+        "Integration test passes"
+      ],
+      "technical_details": {
+        "chunk_flow": [
+          {"type": "thinking_status", "body": "Comparing {N} ETFs..."},
+          {"type": "thinking_status", "body": "Fetching ETF data..."},
+          {"type": "thinking_status", "body": "Searching online for {ticker}..." },
+          {"type": "comparison_table", "body": "{...}"},
+          {"type": "answer", "body": "Based on comparison..."},
+          {"type": "related_question", "body": "..."},
+          {"type": "model_used", "body": "..."}
+        ],
+        "comparison_table_structure": {
+          "tickers": ["SXR8", "SPYY"],
+          "dimensions": [
+            {
+              "dimension": "Basic Info",
+              "rows": [
+                {"metric": "Full Name", "SXR8": "...", "SPYY": "..."}
+              ]
+            }
+          ],
+          "data_sources": [
+            {"ticker": "SXR8", "source": "Database"},
+            {"ticker": "SPYY", "source": "Google Search", "urls": ["..."]}
+          ]
+        },
+        "error_handling": [
+          "Invalid JSON from AI: fallback to answer chunk only",
+          "Missing dimensions: log warning, yield partial table",
+          "Only 1 ticker: fallback to ETF_DETAILED_ANALYSIS",
+          "0 tickers: yield error message"
+        ]
+      },
+      "testing": {
+        "integration_tests": [
+          "test_comparison_handler_two_etfs_both_in_db",
+          "test_comparison_handler_three_etfs",
+          "test_comparison_handler_one_etf_missing_google_search",
+          "test_comparison_table_structure_validation",
+          "test_related_questions_generated",
+          "test_error_handling_invalid_json",
+          "test_edge_case_only_one_ticker",
+          "test_edge_case_zero_tickers"
+        ]
+      }
+    },
+    {
+      "id": "phase_5",
+      "name": "Google Search Grounding Fix",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": [],
+      "description": "Fix Google Search grounding metadata extraction to yield sources to frontend",
+      "files": {
+        "modified": [
+          "agent/multi_agent.py",
+          "services/etf_question_analyzer/handlers.py"
+        ],
+        "reference": [
+          "ai_models/gemini.py (grounding metadata extraction)"
+        ]
+      },
+      "requirements": [
+        "Identify where grounding metadata is parsed but not yielded",
+        "Yield 'google_search_ground' chunk after answer completes",
+        "Extract source URLs, titles, snippets from grounding metadata",
+        "Test with use_google_search=True",
+        "Verify frontend receives sources"
+      ],
+      "success_criteria": [
+        "Grounding metadata extraction fixed",
+        "google_search_ground chunk yielded",
+        "Sources array populated with URLs and titles",
+        "Test: Compare ETF not in DB with Google Search enabled",
+        "Verify sources in response",
+        "No breaking changes to existing functionality"
+      ],
+      "technical_details": {
+        "current_issue": "Grounding metadata extracted in ai_models/gemini.py but discarded before reaching frontend",
+        "fix_location": "agent/multi_agent.py or handler layer",
+        "chunk_structure": {
+          "type": "google_search_ground",
+          "body": {
+            "sources": [
+              {"title": "...", "url": "...", "snippet": "..."}
+            ]
+          }
+        },
+        "gemini_grounding_path": "candidate.grounding_metadata.grounding_chunks → ContentPart(type=Ground)"
+      },
+      "testing": {
+        "manual_tests": [
+          "Enable Google Search for comparison with missing ETF",
+          "Verify google_search_ground chunk in response",
+          "Check sources array has URLs",
+          "Test with curl: POST /analyze with useGoogleSearch=true"
+        ]
+      }
+    },
+    {
+      "id": "phase_6",
+      "name": "Testing & Validation",
+      "status": "pending",
+      "priority": "high",
+      "blocked_by": ["phase_4", "phase_5"],
+      "description": "Comprehensive testing of ETF comparison feature with unit, integration, and end-to-end tests",
+      "files": {
+        "new": [
+          "tests/test_etf_comparison.py",
+          "tests/test_ticker_extractor.py"
+        ],
+        "reference": [
+          "tests/test_healthcheck.py (test patterns)"
+        ]
+      },
+      "requirements": [
+        "Unit tests for ticker extraction",
+        "Unit tests for comparison data fetching",
+        "Integration tests for comparison handler",
+        "End-to-end test for /analyze endpoint",
+        "Test all edge cases",
+        "Validate JSON table structure",
+        "Verify source citations",
+        "Test Google Search fallback"
+      ],
+      "success_criteria": [
+        "All unit tests pass",
+        "All integration tests pass",
+        "End-to-end test passes",
+        "Code coverage >80% for new code",
+        "healthcheck test still passes (no regressions)",
+        "Manual curl tests successful"
+      ],
+      "test_scenarios": [
+        {
+          "name": "Basic 2-ETF comparison (both in DB)",
+          "question": "Compare SXR8 vs SPYY",
+          "expected_tickers": ["SXR8", "SPYY"],
+          "expected_google_search": false,
+          "expected_chunks": ["comparison_table", "answer", "related_question"]
+        },
+        {
+          "name": "3-ETF comparison",
+          "question": "Compare SXR8 vs SPYY vs CSPX",
+          "expected_tickers": ["SXR8", "SPYY", "CSPX"],
+          "expected_google_search": false,
+          "expected_chunks": ["comparison_table", "answer"]
+        },
+        {
+          "name": "Comparison with 1 ETF missing (Google Search)",
+          "question": "Compare SXR8 vs NONEXISTENT",
+          "expected_tickers": ["SXR8", "NONEXISTENT"],
+          "expected_google_search": true,
+          "expected_chunks": ["thinking_status", "comparison_table", "google_search_ground"]
+        },
+        {
+          "name": "Complex phrasing",
+          "question": "Which is better for European exposure: CSPX or VUSA?",
+          "expected_tickers": ["CSPX", "VUSA"],
+          "expected_classification": "ETF_COMPARISON"
+        },
+        {
+          "name": "Edge case: Only 1 ticker",
+          "question": "Compare SXR8",
+          "expected_tickers": ["SXR8"],
+          "expected_fallback": "ETF_DETAILED_ANALYSIS"
+        },
+        {
+          "name": "Edge case: >3 tickers",
+          "question": "Compare A vs B vs C vs D vs E",
+          "expected_tickers": ["A", "B", "C"],
+          "expected_warning": "Limiting comparison to 3 ETFs"
+        }
+      ],
+      "testing": {
+        "verification_workflow": [
+          "Run unit tests: pytest tests/test_ticker_extractor.py -v",
+          "Run integration tests: pytest tests/test_etf_comparison.py -v",
+          "Run healthcheck: pytest tests/test_healthcheck.py -v",
+          "Manual curl test with real ETFs",
+          "Verify JSON structure matches schema",
+          "Check source citations present"
+        ]
+      }
+    },
+    {
+      "id": "phase_7",
+      "name": "Documentation",
+      "status": "pending",
+      "priority": "medium",
+      "blocked_by": ["phase_6"],
+      "description": "Create comprehensive documentation for ETF comparison feature",
+      "files": {
+        "new": ["services/etf_question_analyzer/ETF_COMPARISON_FLOW.md"],
+        "modified": ["README.md or project docs"]
+      },
+      "requirements": [
+        "Create flow diagram similar to COMPANY_SPECIFIC_HANDLER_FLOW.md",
+        "Document ticker extraction algorithm",
+        "Document comparison prompt template",
+        "Specify table format for frontend",
+        "Frontend integration guide",
+        "API usage examples"
+      ],
+      "success_criteria": [
+        "ETF_COMPARISON_FLOW.md created",
+        "Data flow diagrams included",
+        "Code examples provided",
+        "Frontend integration guide complete",
+        "API examples with curl/fetch",
+        "Update project README if needed"
+      ],
+      "deliverables": [
+        "Flow diagram: Question → Classification → Data Fetch → Handler → Response",
+        "Ticker extraction algorithm pseudocode",
+        "Comparison prompt template",
+        "Table format specification with examples",
+        "Frontend parsing guide (TypeScript/JavaScript)",
+        "curl examples for testing"
+      ]
+    }
+  ],
+  "global_patterns": {
+    "ticker_extraction": {
+      "method": "Regex + AI fallback",
+      "limit": "2-3 tickers (warn if >3, truncate)",
+      "patterns": ["vs", "compare", "or", "difference between"]
+    },
+    "data_fetching": {
+      "method": "Parallel asyncio.gather()",
+      "auto_google_search": "Enable if any ETF is None",
+      "truncation": "Top 5 holdings/sectors/countries per ETF"
+    },
+    "table_format": {
+      "type": "Structured JSON with dimension grouping",
+      "dimensions": ["Basic Info", "Costs & Size", "Top Holdings", "Sector Allocation", "Geographic Allocation"],
+      "row_structure": {"metric": "...", "TICKER1": "...", "TICKER2": "..."}
+    },
+    "ai_prompting": {
+      "strict_sourcing": "Only use provided data, no training data",
+      "missing_data_handling": "Use 'N/A' for missing fields",
+      "source_citation": "Mark each metric with source",
+      "output_format": "JSON schema with 5 fixed dimensions"
+    },
+    "error_handling": {
+      "invalid_json": "Fallback to answer chunk only",
+      "one_ticker": "Fallback to ETF_DETAILED_ANALYSIS",
+      "zero_tickers": "Yield error message",
+      "missing_etfs": "Auto-enable Google Search"
+    }
+  },
+  "verification_workflow": {
+    "before_commit": [
+      "pytest tests/test_healthcheck.py -v",
+      "pytest tests/test_etf_comparison.py -v",
+      "ruff check <modified_files>",
+      "python -m py_compile <modified_files>"
+    ],
+    "manual_testing": [
+      "curl -X POST http://localhost:8080/api/companies/SXR8/analyze -H 'Content-Type: application/json' -d '{\"question\": \"Compare SXR8 vs SPYY\"}'",
+      "Verify comparison_table chunk in response",
+      "Verify JSON structure matches schema",
+      "Test with missing ETF to trigger Google Search"
+    ]
+  },
+  "implementation_progress": [
+    {
+      "phase_id": "phase_0",
+      "phase_name": "Specs JSON Creation",
+      "completed_date": "2026-02-03",
+      "status": "COMPLETED",
+      "files_created": ["ETF_COMPARISON_SPECS.json"],
+      "files_modified": [],
+      "key_learnings": [
+        "Followed ETF_INTEGRATION_SPECS.json pattern for consistency",
+        "Documented all design decisions from user input",
+        "Created comprehensive phase breakdown (8 phases total)",
+        "Included detailed technical specifications for each phase",
+        "Added testing scenarios and verification workflow"
+      ],
+      "observations": [
+        "Similar structure to ETF_INTEGRATION_SPECS.json ensures consistency",
+        "Comprehensive specs enable independent implementation of each phase",
+        "Clear success criteria help validate phase completion",
+        "Design decisions documented for future reference"
+      ]
+    }
+  ]
+}
