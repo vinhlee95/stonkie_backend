@@ -89,3 +89,44 @@ class ETFPromptComponents:
             - Use the largest appropriate unit (e.g., "$1.5B" not "$1,500M")
             - Make every word count - avoid filler phrases
         """
+
+    @staticmethod
+    def section_structure_template() -> str:
+        """Build the standard section structure template for dynamic analysis."""
+        return """
+            **Structure:**
+            - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
+            - Follow with multiple focused sections, each covering a distinct key aspect or finding
+            - Each section should have a bold, descriptive heading: **Section Heading**
+            - Keep each section content under 50 words - be concise and to the point
+
+            **Section Guidelines:**
+            - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
+            - Add a new line after each section heading.
+            - Each section content should focus on ONE key finding or aspect
+            - Include specific numbers and metrics where relevant
+            - Highlight significant changes, trends, or anomalies
+            - Bold important figures and percentages
+            - Prioritize the most relevant information that directly answers the user's question
+            - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M")
+            - Make every word count - avoid filler phrases
+        """
+
+    @staticmethod
+    def example_structure() -> str:
+        """Build the example structure template for dynamic analysis."""
+        return """
+            **Example Structure:**
+
+            [Brief intro answering the question - under 50 words]
+
+            **Section Heading 1**
+
+            [Concise finding with key metrics - under 50 words]
+
+            **Section Heading 2**
+
+            [Another focused insight - under 50 words]
+
+            [Continue with additional sections as needed...]
+        """
