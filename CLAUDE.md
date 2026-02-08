@@ -1,14 +1,6 @@
-# CLAUDE.md
+# CLAUDE.md — Stonkie Backend
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-In all interactions and commit messages, be extremely concise. Sacrifice grammar for the sake of concision.
-
-## Plans
-At the end of each plan, give me a list of unresolved questions to answer, if any.
-Make the questions extremely concise. Sacrifice grammar for the sake of concision.
-If the questions are important, ask them explicitly and get my inputs before asking to proceed.
-When you are asked to generate JSON specs file or plan in markdown file, save it in .claude/ directory.
+See root `../CLAUDE.md` for shared conventions (communication style, plans, monorepo structure).
 
 ## Specs JSON Implementation Workflow
 

@@ -188,6 +188,66 @@ def _process_source_tags(
         yield {"type": "sources", "body": remaining_web}
 
 
+def _collect_paragraph_sources(
+    events: Generator[Dict[str, Any], None, None],
+) -> Generator[Dict[str, Any], None, None]:
+    """Pass all events through unchanged while collecting paragraph-source associations.
+
+    Tracks paragraph index via double-newline boundaries in answer text.
+    After stream ends, yields an additional sources_grouped event with all
+    sources mapped to their paragraph indices.
+
+    Sources arriving after a paragraph boundary (\\n\\n) are associated with
+    the paragraph that just ended, not the next one.
+    """
+    paragraph_index = 0
+    has_content_in_current = False
+    source_map: Dict[str, Dict] = {}  # url_or_name -> {name, url, paragraph_indices}
+
+    for event in events:
+        if event["type"] == "answer":
+            text = event["body"]
+            for char in text:
+                if char == "\n":
+                    continue
+                if not has_content_in_current:
+                    has_content_in_current = True
+            # Check for paragraph boundaries
+            if "\n\n" in text:
+                paragraph_index += text.count("\n\n")
+                has_content_in_current = not text.endswith("\n\n")
+            yield event
+
+        elif event["type"] == "sources":
+            # Pass through for inline rendering, also buffer for grouped event
+            yield event
+            # If no content yet in current paragraph, source belongs to previous one
+            src_para = paragraph_index if has_content_in_current else max(0, paragraph_index - 1)
+            for src in event.get("body", []):
+                key = src.get("url") or src.get("name", "")
+                if not key:
+                    continue
+                if key in source_map:
+                    if src_para not in source_map[key]["paragraph_indices"]:
+                        source_map[key]["paragraph_indices"].append(src_para)
+                else:
+                    source_map[key] = {
+                        "name": src.get("name", key),
+                        "url": src.get("url"),
+                        "paragraph_indices": [src_para],
+                    }
+        else:
+            yield event
+
+    if source_map:
+        yield {
+            "type": "sources_grouped",
+            "body": {
+                "sources": list(source_map.values()),
+            },
+        }
+
+
 class BaseQuestionHandler:
     """Base class for question handlers."""
 
@@ -477,7 +537,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 full_output = []
 
                 raw_chunks = agent.generate_content(prompt=prompt, use_google_search=use_google_search)
-                for event in _process_source_tags(raw_chunks):
+                for event in _collect_paragraph_sources(_process_source_tags(raw_chunks)):
                     if event["type"] == "answer":
                         if not first_chunk_received:
                             completion_start_time = datetime.now(timezone.utc)

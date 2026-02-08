@@ -1,8 +1,8 @@
-"""Tests for _process_source_tags stream processor."""
+"""Tests for _process_source_tags and _collect_paragraph_sources stream processors."""
 
 import json
 
-from services.question_analyzer.handlers import _process_source_tags
+from services.question_analyzer.handlers import _collect_paragraph_sources, _process_source_tags
 
 
 def _collect(chunks, **kwargs):
@@ -175,3 +175,79 @@ class TestEdgeCases:
         # Should not crash, incomplete content flushed as answer
         full_answer = "".join(_answers(events))
         assert "Text." in full_answer
+
+
+# --- Tests for _collect_paragraph_sources ---
+
+
+def _collect_with_paragraphs(events_list):
+    """Run _collect_paragraph_sources on a list of events."""
+    return list(_collect_paragraph_sources(iter(events_list)))
+
+
+def _grouped(events):
+    return [e for e in events if e["type"] == "sources_grouped"]
+
+
+class TestCollectParagraphSourcesBasic:
+    def test_sources_grouped_emitted_at_end(self):
+        events = [
+            {"type": "answer", "body": "Paragraph one.\n\n"},
+            {"type": "sources", "body": [{"name": "A", "url": "https://a.com"}]},
+            {"type": "answer", "body": "Paragraph two.\n\n"},
+            {"type": "sources", "body": [{"name": "B", "url": "https://b.com"}]},
+        ]
+        result = _collect_with_paragraphs(events)
+        grouped = _grouped(result)
+        assert len(grouped) == 1
+        sources = grouped[0]["body"]["sources"]
+        assert len(sources) == 2
+        assert sources[0]["paragraph_indices"] == [0]
+        assert sources[1]["paragraph_indices"] == [1]
+
+    def test_inline_sources_still_pass_through(self):
+        events = [
+            {"type": "answer", "body": "Text.\n\n"},
+            {"type": "sources", "body": [{"name": "A", "url": "https://a.com"}]},
+        ]
+        result = _collect_with_paragraphs(events)
+        inline = [e for e in result if e["type"] == "sources"]
+        assert len(inline) == 1
+
+    def test_same_source_multiple_paragraphs_merges(self):
+        events = [
+            {"type": "answer", "body": "Para 1.\n\n"},
+            {"type": "sources", "body": [{"name": "X", "url": "https://x.com"}]},
+            {"type": "answer", "body": "Para 2.\n\n"},
+            {"type": "sources", "body": [{"name": "X", "url": "https://x.com"}]},
+        ]
+        result = _collect_with_paragraphs(events)
+        grouped = _grouped(result)
+        assert grouped[0]["body"]["sources"][0]["paragraph_indices"] == [0, 1]
+
+    def test_no_sources_no_grouped_event(self):
+        events = [{"type": "answer", "body": "Just text."}]
+        result = _collect_with_paragraphs(events)
+        assert not any(e["type"] == "sources_grouped" for e in result)
+
+    def test_passthrough_other_events(self):
+        events = [
+            {"type": "thinking_status", "body": "Analyzing..."},
+            {"type": "answer", "body": "Text.\n\n"},
+            {"type": "sources", "body": [{"name": "Z", "url": "https://z.com"}]},
+        ]
+        result = _collect_with_paragraphs(events)
+        thinking = [e for e in result if e["type"] == "thinking_status"]
+        assert len(thinking) == 1
+
+    def test_source_without_url_keyed_by_name(self):
+        events = [
+            {"type": "answer", "body": "Text.\n\n"},
+            {"type": "sources", "body": [{"name": "SEC Filing 2024"}]},
+        ]
+        result = _collect_with_paragraphs(events)
+        grouped = _grouped(result)
+        assert len(grouped) == 1
+        src = grouped[0]["body"]["sources"][0]
+        assert src["name"] == "SEC Filing 2024"
+        assert src["url"] is None

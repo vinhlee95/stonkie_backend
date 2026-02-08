@@ -1,10 +1,13 @@
 import base64
+import logging
 import os
 from typing import Dict, Iterable, Union
 
 from openai import OpenAI
 
 from ai_models.model_name import ModelName
+
+logger = logging.getLogger(__name__)
 
 # OpenRouter-specific model name mappings
 # OpenRouter requires 'google/' prefix for Gemini models
@@ -64,19 +67,27 @@ class OpenRouterClient:
         chosen_model = self.model_name
 
         # OpenRouter enables web search by appending ':online' to the model name
+        # Strip existing variants (e.g. :nitro) first — can't chain variants
         if use_google_search and not chosen_model.endswith(":online"):
-            chosen_model = f"{chosen_model}:online"
+            base_model = chosen_model.split(":")[0] if ":" in chosen_model else chosen_model
+            chosen_model = f"{base_model}:online"
 
         extra_body = {}
         if use_google_search:
             extra_body["plugins"] = [{"id": "web", "max_results": 3}]
 
-        response = self.client.chat.completions.create(
-            model=chosen_model,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-            **({"extra_body": extra_body} if extra_body else {}),
-        )
+        logger.info(f"OpenRouter stream_chat: model={chosen_model}, google_search={use_google_search}")
+
+        try:
+            response = self.client.chat.completions.create(
+                model=chosen_model,
+                messages=[{"role": "user", "content": prompt}],
+                stream=True,
+                **({"extra_body": extra_body} if extra_body else {}),
+            )
+        except Exception as e:
+            logger.error(f"OpenRouter API error (model={chosen_model}): {e}")
+            raise
 
         for event in response:
             delta = event.choices[0].delta
