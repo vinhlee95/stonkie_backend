@@ -22,18 +22,23 @@ class DetailedContextBuilder(ContextBuilder):
         base_context = PromptComponents.base_context(input.ticker, input.question)
         section_structure = PromptComponents.section_structure_template()
         example_structure = PromptComponents.example_structure()
+        available_sources = PromptComponents.available_sources(
+            input.ticker, input.annual_statements, input.quarterly_statements
+        )
 
         return f"""
             {base_context}
-            
+
             Company Fundamental Data:
             {input.company_fundamental}
 
             Annual Financial Statements:
             {input.annual_statements}
-            
+
             Quarterly Financial Statements:
             {input.quarterly_statements}
+
+            {available_sources}
 
             **Instructions for your analysis:**
 
@@ -87,18 +92,24 @@ class DetailedContextBuilder(ContextBuilder):
                 sections_text += f"- {point}\n"
             sections_text += "\n"
 
+        available_sources = PromptComponents.available_sources(
+            input.ticker, input.annual_statements, input.quarterly_statements
+        )
+
         return f"""
             {base_context}
-            
+
             Company Fundamental Data:
             {input.company_fundamental}
 
             Annual Financial Statements:
             {input.annual_statements}
-            
+
             Quarterly Financial Statements:
             {input.quarterly_statements}
-            
+
+            {available_sources}
+
             **Instructions for your analysis:**
 
             Structure your response with EXACTLY 3 sections in this order:

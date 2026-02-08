@@ -1,5 +1,5 @@
 import re
-from typing import Iterable
+from typing import Iterable, Union
 
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
@@ -29,7 +29,7 @@ class MultiAgent:
         self,
         prompt: str,
         use_google_search: bool = False,
-    ) -> Iterable[str]:
+    ) -> Iterable[Union[str, dict]]:
         """
         Generate content using OpenRouter
 
@@ -39,7 +39,7 @@ class MultiAgent:
             use_google_search: If True, enables web search by appending ':online' to model name
 
         Returns:
-            Iterable of string chunks when streaming
+            Iterable of string chunks (str) and citation annotations (dict) when streaming
         """
         return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search)
 
@@ -126,8 +126,10 @@ class MultiAgent:
         buffer = ""
         lines_yielded = 0
 
-        # Stream chunks and accumulate in buffer
+        # Stream chunks and accumulate in buffer (skip citation dicts)
         for chunk in self.generate_content(prompt=prompt, use_google_search=use_google_search):
+            if isinstance(chunk, dict):
+                continue
             buffer += chunk
 
             # Process complete lines

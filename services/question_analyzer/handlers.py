@@ -1,9 +1,10 @@
 """Question handlers for different types of financial questions."""
 
+import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Generator, Iterable, List, Optional, Union
 
 from langfuse import get_client, observe
 
@@ -33,6 +34,158 @@ def get_openrouter_client() -> Optional[OpenRouterClient]:
         logger.warning(f"OpenRouter not available: {e}")
         _openrouter_client = None
     return _openrouter_client
+
+
+SOURCE_START_TAG = "[SOURCES_JSON]"
+SOURCE_END_TAG = "[/SOURCES_JSON]"
+
+
+def _process_source_tags(
+    chunks: Iterable[Union[str, dict]],
+    filing_lookup: Optional[Dict[str, str]] = None,
+) -> Generator[Dict[str, Any], None, None]:
+    """Process a stream of text chunks, extracting [SOURCES_JSON] blocks into sources events.
+
+    Handles tag splits across chunk boundaries and partial tag buffering.
+    Yields dicts with type "answer" or "sources".
+
+    Args:
+        chunks: Iterable of str text chunks and/or dict annotations from OpenRouter
+        filing_lookup: Optional name→URL mapping for enriching source citations
+    """
+    buffer = ""
+    buffering_sources = False
+    all_emitted_urls: set = set()
+    web_citations: list = []
+
+    def _parse_sources(raw_json: str):
+        try:
+            parsed = json.loads(raw_json)
+            sources = parsed.get("sources", [])
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning("Failed to parse SOURCES_JSON block")
+            return None
+        if filing_lookup:
+            for src in sources:
+                if not src.get("url") and src.get("name") in filing_lookup:
+                    src["url"] = filing_lookup[src["name"]]
+        deduped = []
+        for src in sources:
+            url = src.get("url")
+            if url and url in all_emitted_urls:
+                continue
+            if url:
+                all_emitted_urls.add(url)
+            deduped.append(src)
+        if deduped:
+            return {"type": "sources", "body": deduped}
+        return None
+
+    def _emit_completed_text(text: str):
+        """Yield answer/sources events from text that may contain complete source blocks."""
+        while SOURCE_START_TAG in text:
+            before, rest = text.split(SOURCE_START_TAG, 1)
+            if before.strip():
+                yield {"type": "answer", "body": before}
+            if SOURCE_END_TAG in rest:
+                json_str, text = rest.split(SOURCE_END_TAG, 1)
+                evt = _parse_sources(json_str)
+                if evt:
+                    yield evt
+            else:
+                # Incomplete block — shouldn't happen in completed text, emit as-is
+                if rest.strip():
+                    yield {"type": "answer", "body": SOURCE_START_TAG + rest}
+                return
+        if text.strip():
+            yield {"type": "answer", "body": text}
+
+    for chunk in chunks:
+        # Collect url_citation dicts from OpenRouter
+        if isinstance(chunk, dict) and chunk.get("type") == "url_citation":
+            web_citations.append(chunk)
+            continue
+
+        text_chunk = chunk
+        if not text_chunk:
+            continue
+
+        # --- State machine for [SOURCES_JSON]...[/SOURCES_JSON] ---
+        if buffering_sources:
+            buffer += text_chunk
+            # Strip start tag if partial match reassembled it
+            if SOURCE_START_TAG in buffer:
+                before_tag, buffer = buffer.split(SOURCE_START_TAG, 1)
+                if before_tag.strip():
+                    yield {"type": "answer", "body": before_tag}
+            if SOURCE_END_TAG in buffer:
+                buffering_sources = False
+                json_str, after = buffer.split(SOURCE_END_TAG, 1)
+                buffer = ""
+                evt = _parse_sources(json_str)
+                if evt:
+                    yield evt
+                # after may contain more source blocks
+                yield from _emit_completed_text(after)
+            continue
+
+        if SOURCE_START_TAG in text_chunk:
+            before, rest = text_chunk.split(SOURCE_START_TAG, 1)
+            if before.strip():
+                yield {"type": "answer", "body": before}
+            if SOURCE_END_TAG in rest:
+                json_str, after = rest.split(SOURCE_END_TAG, 1)
+                evt = _parse_sources(json_str)
+                if evt:
+                    yield evt
+                # after may contain more source blocks
+                yield from _emit_completed_text(after)
+            else:
+                buffering_sources = True
+                buffer = rest
+            continue
+
+        # Partial tag detection: hold back if chunk ends with prefix of start tag
+        partial_match = ""
+        for i in range(1, min(len(SOURCE_START_TAG), len(text_chunk)) + 1):
+            if SOURCE_START_TAG.startswith(text_chunk[-i:]):
+                partial_match = text_chunk[-i:]
+                break
+        if partial_match:
+            safe = text_chunk[: -len(partial_match)]
+            if safe:
+                yield {"type": "answer", "body": safe}
+            buffer = partial_match
+            buffering_sources = True
+            continue
+
+        yield {"type": "answer", "body": text_chunk}
+
+    # Flush remaining buffer
+    if buffering_sources:
+        # Strip start tag if present (from partial match that completed)
+        if SOURCE_START_TAG in buffer:
+            before_tag, buffer = buffer.split(SOURCE_START_TAG, 1)
+            if before_tag.strip():
+                yield {"type": "answer", "body": before_tag}
+        if SOURCE_END_TAG in buffer:
+            json_str, after = buffer.split(SOURCE_END_TAG, 1)
+            evt = _parse_sources(json_str)
+            if evt:
+                yield evt
+            yield from _emit_completed_text(after)
+        elif buffer.strip():
+            yield {"type": "answer", "body": buffer}
+
+    # Emit any web citations not already emitted inline
+    remaining_web = []
+    for cit in web_citations:
+        url = cit.get("url")
+        if url and url not in all_emitted_urls:
+            all_emitted_urls.add(url)
+            remaining_web.append({"name": cit.get("title") or url, "url": url})
+    if remaining_web:
+        yield {"type": "sources", "body": remaining_web}
 
 
 class BaseQuestionHandler:
@@ -194,18 +347,21 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 output_tokens = 0
                 full_output = []
 
-                for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
-                    if not first_chunk_received:
-                        completion_start_time = datetime.now(timezone.utc)
-                        t_first_chunk = time.perf_counter()
-                        ttft = t_first_chunk - t_model
-                        logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
-                        gen.update(completion_start_time=completion_start_time)
-                        first_chunk_received = True
+                raw_chunks = agent.generate_content(prompt=prompt, use_google_search=use_google_search)
+                for event in _process_source_tags(raw_chunks):
+                    if event["type"] == "answer":
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling GeneralFinanceHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
 
-                    yield {"type": "answer", "body": text_chunk}
-                    full_output.append(text_chunk)
-                    output_tokens += len(text_chunk.split())
+                        full_output.append(event["body"])
+                        output_tokens += len(event["body"].split())
+
+                    yield event
 
                 # Update generation with output and usage
                 gen.update(
@@ -320,18 +476,21 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 output_tokens = 0
                 full_output = []
 
-                for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
-                    if not first_chunk_received:
-                        completion_start_time = datetime.now(timezone.utc)
-                        t_first_chunk = time.perf_counter()
-                        ttft = t_first_chunk - t_model
-                        logger.info(f"Profiling CompanyGeneralHandler time_to_first_token: {ttft:.4f}s")
-                        gen.update(completion_start_time=completion_start_time)
-                        first_chunk_received = True
+                raw_chunks = agent.generate_content(prompt=prompt, use_google_search=use_google_search)
+                for event in _process_source_tags(raw_chunks):
+                    if event["type"] == "answer":
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling CompanyGeneralHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
 
-                    yield {"type": "answer", "body": text_chunk}
-                    full_output.append(text_chunk)
-                    output_tokens += len(text_chunk.split())
+                        full_output.append(event["body"])
+                        output_tokens += len(event["body"].split())
+
+                    yield event
 
                 # Update generation with output and usage
                 gen.update(

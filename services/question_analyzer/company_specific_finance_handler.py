@@ -20,7 +20,7 @@ from .classifier import QuestionClassifier
 from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
 from .context_builders.components import PromptComponents
 from .data_optimizer import FinancialDataOptimizer
-from .handlers import BaseQuestionHandler
+from .handlers import BaseQuestionHandler, _process_source_tags
 from .types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
@@ -474,21 +474,30 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 output_tokens = 0
                 full_output = []
 
-                for text_chunk in agent.generate_content(prompt=combined_prompt, use_google_search=search_enabled):
-                    if not first_chunk_received:
-                        completion_start_time = datetime.now(timezone.utc)
-                        t_first_chunk = time.perf_counter()
-                        ttft = t_first_chunk - t_model
-                        logger.info(f"Profiling CompanySpecificFinanceHandler time_to_first_token: {ttft:.4f}s")
-                        gen.update(completion_start_time=completion_start_time)
-                        first_chunk_received = True
+                # Build filing URL lookup once for enrichment
+                filing_lookup = PromptComponents.build_filing_url_lookup(
+                    ticker, annual_statements, quarterly_statements
+                )
 
-                    yield {
-                        "type": "answer",
-                        "body": text_chunk if text_chunk else "❌ No analysis generated from the model",
-                    }
-                    full_output.append(text_chunk if text_chunk else "")
-                    output_tokens += len(text_chunk.split())
+                raw_chunks = agent.generate_content(prompt=combined_prompt, use_google_search=search_enabled)
+                for event in _process_source_tags(raw_chunks, filing_lookup=filing_lookup):
+                    if event["type"] == "answer":
+                        text_chunk = event["body"]
+                        if not first_chunk_received:
+                            completion_start_time = datetime.now(timezone.utc)
+                            t_first_chunk = time.perf_counter()
+                            ttft = t_first_chunk - t_model
+                            logger.info(f"Profiling CompanySpecificFinanceHandler time_to_first_token: {ttft:.4f}s")
+                            gen.update(completion_start_time=completion_start_time)
+                            first_chunk_received = True
+
+                        full_output.append(text_chunk)
+                        output_tokens += len(text_chunk.split())
+
+                    yield event
+
+                if not first_chunk_received:
+                    yield {"type": "answer", "body": "❌ No analysis generated from the model"}
 
                 # Update generation with output and usage
                 gen.update(

@@ -1,6 +1,6 @@
 import base64
 import os
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Union
 
 from openai import OpenAI
 
@@ -48,14 +48,17 @@ class OpenRouterClient:
         self.model_name = get_openrouter_model_name(generic_name)
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def stream_chat(self, prompt: str, use_google_search: bool = False) -> Iterable[str]:
+    def stream_chat(self, prompt: str, use_google_search: bool = False) -> Iterable[Union[str, dict]]:
         """
-        Stream chat completions as plain text chunks.
+        Stream chat completions as plain text chunks and citation dicts.
 
         Args:
             prompt: The user prompt
             model: Model name (defaults to self.default_model)
             use_google_search: If True, appends ':online' to model name to enable web search
+
+        Yields:
+            str for text chunks, dict for url_citation annotations
         """
         # model_name is already in OpenRouter format from __init__
         chosen_model = self.model_name
@@ -64,16 +67,32 @@ class OpenRouterClient:
         if use_google_search and not chosen_model.endswith(":online"):
             chosen_model = f"{chosen_model}:online"
 
+        extra_body = {}
+        if use_google_search:
+            extra_body["plugins"] = [{"id": "web", "max_results": 3}]
+
         response = self.client.chat.completions.create(
             model=chosen_model,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
+            **({"extra_body": extra_body} if extra_body else {}),
         )
 
         for event in response:
-            delta = event.choices[0].delta.content
-            if delta:
-                yield delta
+            delta = event.choices[0].delta
+            if delta.content:
+                yield delta.content
+            # OpenRouter extension: url_citation annotations in model_extra
+            annotations = (delta.model_extra or {}).get("annotations", [])
+            for ann in annotations:
+                if ann.get("type") == "url_citation":
+                    citation = ann.get("url_citation", {})
+                    yield {
+                        "type": "url_citation",
+                        "url": citation.get("url", ""),
+                        "title": citation.get("title"),
+                        "content": citation.get("content"),
+                    }
 
     # Add this new method to the OpenRouterClient class
     def stream_chat_with_pdf(

@@ -302,7 +302,9 @@ async def analyze_financial_data(ticker: str, request: Request):
 
                     # Buffer answer chunks for persistence
                     if chunk.get("type") == "answer":
-                        assistant_output_buffer.append(chunk.get("body", ""))
+                        body = chunk.get("body", "")
+                        if isinstance(body, str):
+                            assistant_output_buffer.append(body)
 
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"

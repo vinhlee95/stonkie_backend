@@ -80,16 +80,22 @@ class PromptComponents:
     def source_instructions() -> str:
         """Build detailed source citation instructions."""
         return """
-            Make sure to specify the source and source link of the answer at the end of the analysis. The format should be:
-            Sources: [Source Name](Source Link), [Source Name](Source Link)
+            **Source Citation Rules (follow strictly):**
+            1. After EACH paragraph, emit a sources block on its own line for the sources used in THAT paragraph:
+               [SOURCES_JSON]{"sources": [{"name": "Source Name", "url": "https://full-url"}]}[/SOURCES_JSON]
+            2. Each paragraph MUST be followed by its own [SOURCES_JSON] block. Do NOT batch all sources at the end.
+            3. For SEC filings: use the EXACT URLs from the "Available Source URLs" section above.
+            4. For web sources: use the FULL URL with path from search results. NEVER use bare domains like "macrumors.com".
+            5. For financial statement data with no URL available: include only the name, omit the url field.
+            6. NEVER invent or guess URLs. Only cite URLs explicitly provided in context or search results.
+            7. Only include sources that were actually used to generate that specific paragraph.
 
-            If the source is official 10K or 10Q filings, mention SEC in the source, e.g. SEC Filing for 2025 Q1 and provide the link.
+            Example output:
+            Apple's revenue grew 6.4% to $416B in FY2024.
+            [SOURCES_JSON]{"sources": [{"name": "SEC 10-K Filing 2024", "url": "https://www.sec.gov/Archives/..."}]}[/SOURCES_JSON]
 
-            If the source is from the financial statements provided in the context, no need to link, but mention clearly which statement it is from and which year or quarter it pertains to.
-            MAKE SURE TO FOLLOW THIS FORMAT: 
-            Sources: Annual Report 2023, Quarterly Statement Q1 2024
-
-            Only include sources that were actually used to generate the analysis.
+            Services revenue hit a record $109B, up 13% year-over-year.
+            [SOURCES_JSON]{"sources": [{"name": "Apple Q4 2025 Press Release", "url": "https://www.apple.com/newsroom/..."}]}[/SOURCES_JSON]
         """
 
     @staticmethod
@@ -152,3 +158,86 @@ class PromptComponents:
 
             [Continue with additional sections as needed...]
         """
+
+    @staticmethod
+    def available_sources(
+        ticker: str,
+        annual_statements: List[Dict],
+        quarterly_statements: List[Dict],
+    ) -> str:
+        """Extract filing URLs from statement data into a reference block for the prompt."""
+        lines = []
+        for stmt in annual_statements:
+            url = stmt.get("filing_10k_url")
+            year = stmt.get("period_end_year", "unknown")
+            if url:
+                lines.append(f"- {ticker.upper()} Annual 10-K Filing ({year}): {url}")
+        for stmt in quarterly_statements:
+            url = stmt.get("filing_10q_url")
+            quarter = stmt.get("period_end_quarter", "unknown")
+            if url:
+                lines.append(f"- {ticker.upper()} Quarterly 10-Q Filing ({quarter}): {url}")
+        if not lines:
+            return ""
+        header = "**Available Source URLs (use these EXACT URLs when citing):**"
+        return f"{header}\n" + "\n".join(lines)
+
+    @staticmethod
+    def build_filing_url_lookup(
+        ticker: str,
+        annual_statements: List[Dict],
+        quarterly_statements: List[Dict],
+    ) -> Dict[str, str]:
+        """Build a name→URL lookup from statement filing URLs for source enrichment."""
+        lookup: Dict[str, str] = {}
+        for stmt in annual_statements:
+            url = stmt.get("filing_10k_url")
+            year = stmt.get("period_end_year", "unknown")
+            if url:
+                # Match the exact name format used in available_sources()
+                lookup[f"{ticker.upper()} Annual 10-K Filing ({year})"] = url
+                # Also add common AI-generated variants
+                lookup[f"SEC 10-K Filing {year}"] = url
+                lookup[f"SEC 10-K Filing ({year})"] = url
+                lookup[f"10-K Filing {year}"] = url
+                lookup[f"Annual Report {year}"] = url
+        for stmt in quarterly_statements:
+            url = stmt.get("filing_10q_url")
+            quarter = stmt.get("period_end_quarter", "unknown")
+            if url:
+                lookup[f"{ticker.upper()} Quarterly 10-Q Filing ({quarter})"] = url
+                lookup[f"SEC 10-Q Filing {quarter}"] = url
+                lookup[f"SEC 10-Q Filing ({quarter})"] = url
+                lookup[f"10-Q Filing {quarter}"] = url
+                lookup[f"Quarterly Statement {quarter}"] = url
+        return lookup
+
+    @staticmethod
+    def extract_sources_from_response(text: str) -> List[Dict]:
+        """Extract sources from [Sources: ...] blocks in response text.
+
+        Returns deduplicated list of {"name": str, "url": str|None}.
+        """
+        sources: List[Dict] = []
+        seen_keys: set = set()
+        # Match all [Sources: ...] blocks
+        for block_match in re.finditer(r"\[Sources?:\s*(.+?)\]", text):
+            block_content = block_match.group(1)
+            # Extract markdown links [Name](url)
+            for link_match in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", block_content):
+                name, url = link_match.group(1), link_match.group(2)
+                key = url
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    sources.append({"name": name, "url": url})
+            # Extract plain text sources (not inside markdown links)
+            # Remove markdown links first, then split by comma
+            plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", "", block_content)
+            for part in plain.split(","):
+                part = part.strip()
+                if part:
+                    key = part
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        sources.append({"name": part, "url": None})
+        return sources
