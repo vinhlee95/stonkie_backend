@@ -20,7 +20,7 @@ from .classifier import QuestionClassifier
 from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
 from .context_builders.components import PromptComponents
 from .data_optimizer import FinancialDataOptimizer
-from .handlers import BaseQuestionHandler, _process_source_tags
+from .handlers import BaseQuestionHandler, _collect_paragraph_sources, _process_source_tags
 from .types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
@@ -480,7 +480,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 )
 
                 raw_chunks = agent.generate_content(prompt=combined_prompt, use_google_search=search_enabled)
-                for event in _process_source_tags(raw_chunks, filing_lookup=filing_lookup):
+                for event in _collect_paragraph_sources(_process_source_tags(raw_chunks, filing_lookup=filing_lookup)):
                     if event["type"] == "answer":
                         text_chunk = event["body"]
                         if not first_chunk_received:
