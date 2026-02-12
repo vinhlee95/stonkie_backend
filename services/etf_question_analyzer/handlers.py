@@ -125,6 +125,8 @@ class GeneralETFHandler(BaseETFHandler):
                 full_output = []
 
                 for text_chunk in agent.generate_content(prompt=prompt, use_google_search=context.use_google_search):
+                    if not isinstance(text_chunk, str):
+                        continue
                     if not first_chunk_received:
                         gen.update(completion_start_time=datetime.now(timezone.utc))
                         first_chunk_received = True
@@ -205,6 +207,8 @@ class ETFOverviewHandler(BaseETFHandler):
                 for text_chunk in agent.generate_content(
                     prompt=prompt, use_google_search=context.use_google_search or not data_complete
                 ):
+                    if not isinstance(text_chunk, str):
+                        continue
                     if not first_chunk_received:
                         gen.update(completion_start_time=datetime.now(timezone.utc))
                         first_chunk_received = True
@@ -497,6 +501,8 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
                 for text_chunk in agent.generate_content(
                     prompt=prompt, use_google_search=context.use_google_search or arrays_empty
                 ):
+                    if not isinstance(text_chunk, str):
+                        continue
                     if not first_chunk_received:
                         gen.update(completion_start_time=datetime.now(timezone.utc))
                         first_chunk_received = True

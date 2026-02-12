@@ -270,8 +270,9 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
-            for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
-                yield {"type": "answer", "body": text_chunk}
+            raw_chunks = agent.generate_content(prompt=prompt, use_google_search=use_google_search)
+            for event in _process_source_tags(raw_chunks):
+                yield event
 
             yield {"type": "model_used", "body": model_used}
 
@@ -393,8 +394,9 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             agent = MultiAgent(model_name=preferred_model)
             model_used = agent.model_name
 
-            for text_chunk in agent.generate_content(prompt=prompt, use_google_search=use_google_search):
-                yield {"type": "answer", "body": text_chunk}
+            raw_chunks = agent.generate_content(prompt=prompt, use_google_search=use_google_search)
+            for event in _process_source_tags(raw_chunks):
+                yield event
 
             yield {"type": "model_used", "body": model_used}
 
