@@ -375,6 +375,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
 
                 {question}.
 
+                IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
                 Give a short answer in less than 150 words.
                 Break the answer into different paragraphs for better readability.
                 In the last paragraph, give an example of how this concept is used in a real-world situation
@@ -507,6 +508,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             prompt = f"""
                 You are an expert about a business. Answer the following question about {company_name} (ticker: {ticker}):
                 {question}.
+                IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
 {conversation_context}
                 Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.

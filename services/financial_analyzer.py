@@ -167,6 +167,17 @@ class FinancialAnalyzer:
                     "quarterly",
                     "annual",
                     "financial",
+                    # Vietnamese equivalents
+                    "doanh thu",
+                    "lợi nhuận",
+                    "biên lợi nhuận",
+                    "thu nhập",
+                    "dòng tiền",
+                    "nợ",
+                    "tài sản",
+                    "quý",
+                    "năm",
+                    "tài chính",
                 ]
             )
 
@@ -316,6 +327,7 @@ class FinancialAnalyzer:
                 **Sources:**
                 At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
 
+                IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
                 Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
             """.strip()
 

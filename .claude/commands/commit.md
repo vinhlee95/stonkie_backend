@@ -51,10 +51,10 @@ If tests fail, show output and stop.
 
 ### 7. Commit message
 If `$ARGUMENTS` is provided, use it as the commit message.
-If not provided, generate a concise conventional commit message based on the diff:
-- Format: `<type>(<scope>): <description>` where type is one of: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-- Keep under 72 chars
-- Be specific about what changed, not how
+If not provided, generate a conventional commit message based on the diff:
+- Subject line: `<type>(<scope>): <description>` — one of: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`; keep under 72 chars
+- Body (required): 2–4 lines explaining *what* changed and *why*; wrap at 72 chars
+- Be specific and meaningful — describe the actual behavior change, not just the file touched
 
 Show the message to the user and ask for confirmation before committing.
 

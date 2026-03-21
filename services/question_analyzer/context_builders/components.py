@@ -71,6 +71,7 @@ class PromptComponents:
         """Build the base context that's common to all prompts."""
         return f"""
             You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question.
+            IMPORTANT: You MUST respond in the same language as the CURRENT question below, regardless of the language used in previous conversation history.
 
             Question: {question}
             Company: {ticker.upper()}

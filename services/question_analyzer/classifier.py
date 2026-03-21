@@ -116,7 +116,9 @@ class QuestionClassifier:
         if not has_ticker:
             ticker_context_note = "\n\nNOTE: No valid ticker provided (ticker is empty/undefined). Do NOT force company-specific-finance classification. If the question is about general financial concepts or strategy, classify as general-finance even if it mentions 'reinvest' or similar terms."
 
-        prompt = f"""Classify the following question into one of these three categories:
+        prompt = f"""Classify the following question into one of these three categories.
+        NOTE: The question may be in any language. Classify based on the meaning regardless of language.
+
         1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, strategy questions, or questions about individuals that don't require specific company financial statements
         2. '{QuestionType.COMPANY_SPECIFIC_FINANCE.value}' - for questions that specifically require analyzing a company's financial statements, metrics, or performance (ONLY if a valid ticker is provided)
         3. '{QuestionType.COMPANY_GENERAL.value}' - for general questions about a company that don't require financial analysis
@@ -190,7 +192,9 @@ class QuestionClassifier:
             logger.info(f"Keyword pre-filter detected annual report question: {question[:50]}...")
             return FinancialDataRequirement.ANNUAL_SUMMARY
 
-        prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed:
+        prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed.
+            NOTE: The question may be in any language. Classify based on the meaning regardless of language.
+
             Question: "{question}"
 
             Classify into one of these categories:
@@ -264,7 +268,9 @@ class QuestionClassifier:
         """
         t_start = time.perf_counter()
 
-        prompt = f"""Analyze this question about {ticker.upper()} and determine which financial periods are needed:
+        prompt = f"""Analyze this question about {ticker.upper()} and determine which financial periods are needed.
+            NOTE: The question may be in any language. Classify based on the meaning regardless of language.
+
             Question: "{question}"
 
             Determine:

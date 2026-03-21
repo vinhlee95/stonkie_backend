@@ -265,6 +265,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
 Current question: {question}
 
+IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
 Provide a helpful, general answer that builds on what we discussed before. If this is about financial strategy or concepts, explain it in general terms without requiring specific company financial data."""
 
             agent = MultiAgent(model_name=preferred_model)
@@ -389,6 +390,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
 
 Current question: {question}
 
+IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
 Provide a helpful, general answer that builds on what we discussed before. If this is about financial strategy or concepts, explain it in general terms without requiring specific company financial data."""
 
             agent = MultiAgent(model_name=preferred_model)
