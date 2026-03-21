@@ -1,5 +1,6 @@
 import concurrent.futures
 import re
+import sys
 from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
@@ -743,16 +744,17 @@ def main():
     print(f"   Successfully processed: {filing_successful}")
     print(f"   Failed/No updates: {filing_failed}")
 
+    task_error_rate = total_failed / total_tasks if total_tasks > 0 else 0
+
     if fully_successful_tickers == len(tickers) and filing_successful == len(tickers):
         print(
             f"\n🎉🎉🎉 All {len(tickers)} tickers have been successfully processed for both financial statements and filing URLs!"
         )
-    elif fully_successful_tickers + partially_successful_tickers > 0:
-        print(
-            f"\n⚠️  Mixed results: {fully_successful_tickers + partially_successful_tickers}/{len(tickers)} tickers had some success"
-        )
+    elif task_error_rate >= 0.1:
+        print(f"\n💥💥💥 Task error rate {task_error_rate:.1%} >= 10% threshold ({total_failed}/{total_tasks} failed)")
+        sys.exit(1)
     else:
-        print("\n💥💥💥 Processing completed with errors")
+        print(f"\n⚠️  Mixed results (task error rate {task_error_rate:.1%} < 10%), exiting successfully")
 
 
 if __name__ == "__main__":
