@@ -4,17 +4,19 @@ from enum import StrEnum
 class ModelName(StrEnum):
     """Provider-agnostic model names for use across the application.
 
-    Services should use these generic names (e.g., ModelName.Gemini25FlashLite).
+    Services should use these generic names (e.g., ModelName.Gemini25Flash).
     Provider-specific clients (OpenRouter, Gemini, OpenAI) handle mapping to their
     specific naming conventions internally.
     """
 
     # Gemini Models (Generic format - provider clients will map to their specific format)
     # https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro
-    Gemini25FlashLite = "gemini-2.5-flash-lite"
     Gemini25Flash = "gemini-2.5-flash"
     Gemini30Flash = "gemini-3-flash-preview"
     Gemini30Pro = "gemini-3-pro-preview"
+
+    # Anthropic Models
+    Sonnet46 = "sonnet-4.6"
 
     # OpenRouter Auto Router (for "best" mode)
     # https://openrouter.ai/docs/guides/routing/auto-model-selection

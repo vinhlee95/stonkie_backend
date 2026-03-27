@@ -13,15 +13,16 @@ logger = logging.getLogger(__name__)
 # OpenRouter requires 'google/' prefix for Gemini models
 OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Map generic Gemini names to OpenRouter format
-    ModelName.Gemini25FlashLite: "google/gemini-2.5-flash-lite",
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
     ModelName.Gemini30Flash: "google/gemini-3-flash-preview",
+    # Anthropic Models
+    ModelName.Sonnet46: "anthropic/claude-sonnet-4.6",
     # OpenRouter Auto Router for automatic model selection
     ModelName.Auto: "openrouter/auto",
     # Fastest model with :nitro variant for high-speed inference
-    # Uses Gemini 2.5 Flash Lite (fastest model) with nitro variant
+    # Uses Gemini 2.5 Flash with nitro variant
     # See: https://openrouter.ai/docs/guides/routing/model-variants/nitro
-    ModelName.Fastest: "google/gemini-2.5-flash-lite:nitro",
+    ModelName.Fastest: "google/gemini-2.5-flash:nitro",
 }
 
 
@@ -29,10 +30,10 @@ def get_openrouter_model_name(model_name: ModelName) -> str:
     """Convert generic model name to OpenRouter-specific format.
 
     Args:
-        model_name: Generic model name (e.g., 'gemini-2.5-flash-lite')
+        model_name: Generic model name (e.g., 'gemini-2.5-flash')
 
     Returns:
-        OpenRouter-specific model name (e.g., 'google/gemini-2.5-flash-lite')
+        OpenRouter-specific model name (e.g., 'google/gemini-2.5-flash')
         Falls back to original name if no mapping exists.
     """
     return OPENROUTER_MODEL_MAP.get(model_name, model_name)
@@ -82,6 +83,7 @@ class OpenRouterClient:
             response = self.client.chat.completions.create(
                 model=chosen_model,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=8192,
                 stream=True,
                 **({"extra_body": extra_body} if extra_body else {}),
             )

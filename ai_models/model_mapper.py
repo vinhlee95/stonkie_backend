@@ -8,13 +8,12 @@ logger = logging.getLogger(__name__)
 # Frontend model name mapping (case-insensitive, normalized)
 # Maps user-friendly model names from frontend to internal ModelName enum values
 FRONTEND_MODEL_MAP: Dict[str, ModelName] = {
-    "fastest": ModelName.Fastest,  # "fastest" maps to Gemini 2.5 Flash Lite with :nitro variant for high-speed inference
+    "fastest": ModelName.Fastest,  # "fastest" maps to Gemini 2.5 Flash with :nitro variant for high-speed inference
     "best": ModelName.Auto,  # "best" also maps to Auto Router (backward compatibility)
     "auto": ModelName.Auto,
     "gemini-3.0-flash": ModelName.Gemini30Flash,
     "gemini-3-flash-preview": ModelName.Gemini30Flash,
-    "gemini-2.5-flash": ModelName.Gemini25Flash,
-    "gemini-2.5-flash-lite": ModelName.Gemini25FlashLite,
+    "sonnet-4.6": ModelName.Sonnet46,
 }
 
 

@@ -18,7 +18,7 @@ DEFAULT_QUESTIONS = [
 
 async def get_general_frequent_ask_questions():
     try:
-        agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+        agent = MultiAgent(model_name=ModelName.Gemini25Flash)
 
         prompt = """
             Generate exactly 3 questions that customers would ask about a particular financial concept such as revenue, net income, cash flow, etc.
@@ -64,7 +64,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         }
 
         try:
-            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            agent = MultiAgent(model_name=ModelName.Gemini25Flash)
 
             prompt = f"""
                 The ETF name is {etf_data.name}. Their ticker is {ticker}. Index tracked: {etf_data.index_tracked or 'N/A'}.
@@ -109,7 +109,7 @@ async def get_frequent_ask_questions_for_ticker_stream(ticker):
         }
 
         try:
-            agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            agent = MultiAgent(model_name=ModelName.Gemini25Flash)
 
             prompt = f"""
                 The company name is {company.name}. Their ticker name is {ticker}.

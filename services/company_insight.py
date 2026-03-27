@@ -30,7 +30,7 @@ logger = getLogger(__name__)
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
 company_connector = CompanyConnector()
-agent = Agent(model_type="gemini", model_name=ModelName.Gemini25FlashLite)
+agent = Agent(model_type="gemini", model_name=ModelName.Gemini25Flash)
 
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
@@ -94,7 +94,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        response = agent.generate_content(prompt, model_name=ModelName.Gemini25FlashLite, stream=False)
+        response = agent.generate_content(prompt, model_name=ModelName.Gemini25Flash, stream=False)
         query = response.text.strip()
 
         # Add the new query to cache
@@ -236,7 +236,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.Gemini25FlashLite,
+            model_name=ModelName.Gemini25Flash,
             stream=False,
             config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )
@@ -316,7 +316,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.Gemini25FlashLite,
+            model_name=ModelName.Gemini25Flash,
             stream=False,
             config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )
@@ -400,7 +400,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
 
         insights = agent.generate_content(
             prompt=prompt,
-            model_name=ModelName.Gemini25FlashLite,
+            model_name=ModelName.Gemini25Flash,
             stream=False,
             config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
         )

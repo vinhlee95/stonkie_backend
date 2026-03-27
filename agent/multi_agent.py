@@ -79,7 +79,7 @@ class MultiAgent:
 
         Example:
             >>> from ai_models.model_name import ModelName
-            >>> agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            >>> agent = MultiAgent(model_name=ModelName.Gemini25Flash)
             >>> url = "https://bitcoin.org/bitcoin.pdf"
             >>> prompt = "What are the main points in this document?"
             >>> for chunk in agent.generate_content_with_pdf_url(prompt, url):
@@ -118,7 +118,7 @@ class MultiAgent:
 
         Example:
             >>> from ai_models.model_name import ModelName
-            >>> agent = MultiAgent(model_name=ModelName.Gemini25FlashLite)
+            >>> agent = MultiAgent(model_name=ModelName.Gemini25Flash)
             >>> prompt = "Generate 3 questions about Python, one per line"
             >>> for question in agent.generate_content_by_lines(prompt, max_lines=3):
             ...     print(f"Question: {question}")
