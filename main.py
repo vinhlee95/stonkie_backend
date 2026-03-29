@@ -36,7 +36,9 @@ from services.etf_analyzer import ETFAnalyzer
 from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
+from services.search_decision_engine import SearchDecisionEngine
 from utils.logging import setup_local_logging, setup_production_logging
+from utils.url_helper import extract_first_url, is_sec_filing_url
 
 load_dotenv()
 
@@ -60,6 +62,9 @@ financial_analyzer = FinancialAnalyzer()
 
 # Initialize ETF analyzer
 etf_analyzer = ETFAnalyzer()
+
+# Initialize search decision engine
+search_decision_engine = SearchDecisionEngine()
 
 # FastAPI application instance
 app = FastAPI()
@@ -196,7 +201,6 @@ async def analyze_financial_data(ticker: str, request: Request):
     try:
         body = await request.json()
         question = body.get("question")
-        use_google_search = body.get("useGoogleSearch", False)
         use_url_context = body.get("useUrlContext", False)
         deep_analysis = body.get("deepAnalysis", False)
         preferred_model_str = body.get("preferredModel", "fastest")
@@ -269,21 +273,20 @@ async def analyze_financial_data(ticker: str, request: Request):
                 # Buffer assistant output for persistence
                 assistant_output_buffer = []
 
-                # Route to appropriate analyzer based on ticker type
-                if is_etf:
-                    analyzer_generator = etf_analyzer.analyze_question(
-                        normalized_ticker or ticker,
-                        question,
-                        use_google_search,
-                        use_url_context,
-                        deep_analysis,
-                        preferred_model,
-                        conversation_messages=conversation_messages,
-                        conversation_id=conversation_id,
-                        anon_user_id=anon_user_id,
-                    )
-                else:
-                    analyzer_generator = financial_analyzer.analyze_question(
+                def build_analyzer_generator(use_google_search: bool):
+                    if is_etf:
+                        return etf_analyzer.analyze_question(
+                            normalized_ticker or ticker,
+                            question,
+                            use_google_search,
+                            use_url_context,
+                            deep_analysis,
+                            preferred_model,
+                            conversation_messages=conversation_messages,
+                            conversation_id=conversation_id,
+                            anon_user_id=anon_user_id,
+                        )
+                    return financial_analyzer.analyze_question(
                         normalized_ticker or ticker,
                         question,
                         use_google_search,
@@ -295,7 +298,111 @@ async def analyze_financial_data(ticker: str, request: Request):
                         anon_user_id=anon_user_id,
                     )
 
-                async for chunk in analyzer_generator:
+                async def collect_attempt_chunks(use_google_search: bool) -> tuple[list[dict], bool]:
+                    collected: list[dict] = []
+                    has_sources = False
+                    analyzer_generator = build_analyzer_generator(use_google_search)
+                    async for chunk in analyzer_generator:
+                        collected.append(chunk)
+                        chunk_type = chunk.get("type")
+                        if chunk_type == "google_search_ground" and chunk.get("url"):
+                            has_sources = True
+                        elif chunk_type == "sources" and chunk.get("body"):
+                            has_sources = True
+                        elif chunk_type == "sources_grouped":
+                            grouped = (
+                                (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
+                            )
+                            if grouped:
+                                has_sources = True
+                    return collected, has_sources
+
+                extracted_url = extract_first_url(question)
+                force_reason = "sec_url" if extracted_url and is_sec_filing_url(extracted_url) else None
+                decision = await search_decision_engine.decide(
+                    question=question,
+                    ticker=normalized_ticker,
+                    is_etf=is_etf,
+                    force_google_search_reason=force_reason,
+                )
+                use_google_search = decision.use_google_search
+
+                yield (
+                    json.dumps(
+                        {
+                            "type": "search_decision_meta",
+                            "body": {
+                                "search_decision": "on" if use_google_search else "off",
+                                "reason_code": decision.reason_code,
+                                "decision_model": decision.decision_model,
+                                "decision_fallback": decision.decision_fallback,
+                                "confidence": decision.confidence,
+                            },
+                        }
+                    )
+                    + "\n\n"
+                )
+
+                if use_google_search:
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "thinking_status",
+                                "body": "Using Google Search for up-to-date information...",
+                            }
+                        )
+                        + "\n\n"
+                    )
+                else:
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "thinking_status",
+                                "body": "Using internal knowledge/context for fastest response...",
+                            }
+                        )
+                        + "\n\n"
+                    )
+
+                chunks_to_stream: list[dict]
+                if use_google_search:
+                    fallback_reason: str | None = None
+                    try:
+                        chunks_to_stream, has_sources = await asyncio.wait_for(
+                            collect_attempt_chunks(use_google_search=True),
+                            timeout=8.0,
+                        )
+                        if not has_sources:
+                            fallback_reason = "no_citations"
+                            logger.warning("Search attempt returned no sources/citations. Falling back to non-search.")
+                    except asyncio.TimeoutError:
+                        fallback_reason = "timeout"
+                        logger.warning("Search attempt timed out (8s). Falling back to non-search.")
+                    except Exception as e:
+                        fallback_reason = "error"
+                        logger.error(f"Search attempt failed. Falling back to non-search. Error: {e}")
+
+                    if fallback_reason:
+                        yield (
+                            json.dumps(
+                                {
+                                    "type": "thinking_status",
+                                    "body": "Google Search unavailable/timed out. Continuing without live search; data may be less current.",
+                                }
+                            )
+                            + "\n\n"
+                        )
+                        fallback_chunks, _ = await collect_attempt_chunks(use_google_search=False)
+                        chunks_to_stream = [
+                            {
+                                "type": "answer",
+                                "body": "Note: Google Search was unavailable, so this answer may be less current.\n\n",
+                            }
+                        ] + fallback_chunks
+                else:
+                    chunks_to_stream, _ = await collect_attempt_chunks(use_google_search=False)
+
+                for chunk in chunks_to_stream:
                     # Check if the client has disconnected
                     if await request.is_disconnected():
                         return

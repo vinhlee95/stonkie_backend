@@ -118,12 +118,6 @@ class ETFAnalyzer:
         t_data_end = time.perf_counter()
         logger.info(f"ETF data fetch: {t_data_end - t_data:.4f}s")
 
-        if use_google_search:
-            yield {
-                "type": "thinking_status",
-                "body": "Using Google Search for up-to-date information...",
-            }
-
         # Create analysis context
         context = ETFAnalysisContext(
             ticker=normalized_ticker,

@@ -227,12 +227,6 @@ class FinancialAnalyzer:
                 yield chunk
             return
 
-        if use_google_search:
-            yield {
-                "type": "thinking_status",
-                "body": "Using Google Search to get up-to-date information. This might take a bit longer, but it will help you get a better answer.",
-            }
-
         # Get the appropriate handler
         handler = self.handlers.get(classification)
         if not handler:

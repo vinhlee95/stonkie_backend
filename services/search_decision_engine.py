@@ -1,0 +1,131 @@
+"""LLM-based Google Search decision engine."""
+
+import asyncio
+import json
+import logging
+import re
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
+
+logger = logging.getLogger(__name__)
+
+_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class SearchDecision:
+    use_google_search: bool
+    reason_code: str
+    confidence: float
+    decision_model: str
+    decision_fallback: str  # "classifier_fail_safe_on" | "none"
+
+
+class SearchDecisionEngine:
+    """Decides whether live Google Search should be enabled for a question."""
+
+    def __init__(
+        self,
+        model_name: ModelName = ModelName.Sonnet46,
+        timeout_seconds: float = 5.0,
+        classifier: Optional[Callable[[str, str, bool], str]] = None,
+    ):
+        self.model_name = model_name
+        self.timeout_seconds = timeout_seconds
+        self._classifier = classifier
+
+    async def decide(
+        self,
+        question: str,
+        ticker: str,
+        is_etf: bool,
+        force_google_search_reason: str | None = None,
+    ) -> SearchDecision:
+        if force_google_search_reason:
+            return SearchDecision(
+                use_google_search=True,
+                reason_code=force_google_search_reason,
+                confidence=1.0,
+                decision_model=ModelName.Sonnet46.value,
+                decision_fallback="none",
+            )
+
+        try:
+            raw = await asyncio.wait_for(
+                asyncio.to_thread(self._classify_sync, question, ticker, is_etf),
+                timeout=self.timeout_seconds,
+            )
+            parsed = self._parse_decision(raw)
+            return SearchDecision(
+                use_google_search=parsed["use_google_search"],
+                reason_code=parsed["reason_code"],
+                confidence=parsed["confidence"],
+                decision_model=ModelName.Sonnet46.value,
+                decision_fallback="none",
+            )
+        except Exception as e:
+            logger.warning(f"SearchDecisionEngine fallback -> search ON (classifier failed): {e}")
+            return SearchDecision(
+                use_google_search=True,
+                reason_code="classifier_error",
+                confidence=0.0,
+                decision_model=ModelName.Sonnet46.value,
+                decision_fallback="classifier_fail_safe_on",
+            )
+
+    def _classify_sync(self, question: str, ticker: str, is_etf: bool) -> str:
+        if self._classifier:
+            return self._classifier(question, ticker, is_etf)
+
+        prompt = f"""
+You are a strict JSON classifier deciding if live web search is needed for a finance assistant answer.
+
+Question: {question}
+Ticker context: {ticker or "none"}
+Is ETF flow: {str(is_etf).lower()}
+
+Rules:
+- Return use_google_search=true for time-sensitive asks: latest/current/today/now/news/recent/events/regulatory changes/price-now/real-time.
+- Return false for stable educational concepts and timeless explanations.
+- If unsure, prefer true.
+- Output ONLY JSON (no markdown) with exact keys:
+  - use_google_search (boolean)
+  - reason_code (string snake_case)
+  - confidence (float between 0 and 1)
+
+Allowed reason_code values:
+time_sensitive, latest_info, stable_concept, ambiguous_default_on, other
+"""
+        agent = MultiAgent(model_name=self.model_name)
+        chunks = agent.generate_content(prompt=prompt, use_google_search=False)
+        text = "".join(chunk for chunk in chunks if isinstance(chunk, str))
+        return text.strip()
+
+    @staticmethod
+    def _parse_decision(raw: str) -> dict:
+        match = _JSON_BLOCK_RE.search(raw)
+        if not match:
+            raise ValueError("No JSON object in classifier output")
+        obj = json.loads(match.group(0))
+
+        if not isinstance(obj.get("use_google_search"), bool):
+            raise ValueError("Invalid use_google_search")
+        reason_code = obj.get("reason_code")
+        if not isinstance(reason_code, str) or not reason_code.strip():
+            raise ValueError("Invalid reason_code")
+
+        confidence = obj.get("confidence", 0.0)
+        if isinstance(confidence, int):
+            confidence = float(confidence)
+        if not isinstance(confidence, float):
+            raise ValueError("Invalid confidence type")
+        confidence = max(0.0, min(1.0, confidence))
+
+        return {
+            "use_google_search": obj["use_google_search"],
+            "reason_code": reason_code.strip(),
+            "confidence": confidence,
+        }
