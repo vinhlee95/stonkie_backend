@@ -1,5 +1,6 @@
 """Financial analyzer service - main entry point for question analysis."""
 
+import asyncio
 import logging
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -21,6 +22,7 @@ from services.question_analyzer.handlers import (
     GeneralFinanceHandler,
 )
 from services.question_analyzer.types import QuestionType
+from services.search_decision_engine import SearchDecisionEngine
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
 logger = logging.getLogger(__name__)
@@ -34,18 +36,12 @@ class FinancialAnalyzer:
         agent: Optional[Agent] = None,
         company_connector: Optional[CompanyConnector] = None,
         company_financial_connector: Optional[CompanyFinancialConnector] = None,
+        search_decision_engine: Optional[SearchDecisionEngine] = None,
     ):
-        """
-        Initialize the financial analyzer.
-
-        Args:
-            agent: AI agent for analysis
-            company_connector: Connector for company data
-            company_financial_connector: Connector for financial data
-        """
         self.agent = agent or Agent(model_type="gemini")
         self.company_connector = company_connector or CompanyConnector()
         self.company_financial_connector = company_financial_connector or CompanyFinancialConnector()
+        self.search_decision_engine = search_decision_engine or SearchDecisionEngine()
 
         # Initialize components
         self.classifier = QuestionClassifier()
@@ -75,7 +71,6 @@ class FinancialAnalyzer:
         self,
         ticker: str,
         question: str,
-        use_google_search: bool = False,
         use_url_context: bool = False,
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
@@ -83,81 +78,62 @@ class FinancialAnalyzer:
         conversation_id: Optional[str] = None,
         anon_user_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Analyze a financial question and generate insights.
-
-        Args:
-            ticker: Stock ticker symbol (e.g., 'AAPL', 'TSLA')
-            question: The question to answer
-            use_google_search: Whether to use Google Search for additional context
-            use_url_context: Whether to use URL context
-            deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
-            preferred_model: Preferred model to use (defaults to Auto for OpenRouter Auto Router)
-            conversation_messages: Optional list of previous conversation messages for context
-
-        Yields:
-            Dictionary chunks with analysis results containing:
-                - type: "thinking_status", "answer", "related_question", "google_search_ground"
-                - body: The content
-                - url: (optional) URL for google_search_ground type
-        """
         t_start = time.perf_counter()
 
         yield {"type": "thinking_status", "body": "Just a moment..."}
 
         # Check for PDF URL in question
         extracted_url = extract_first_url(question)
+        force_google_search_reason = None
         if extracted_url:
-            # Special handling for SEC filing URLs
-            # SEC.gov often returns 403 for automated requests, but content is accessible via Google Search
             if is_sec_filing_url(extracted_url):
                 logger.info(f"SEC filing URL detected: {extracted_url}. Using Google Search to access content.")
-                yield {
-                    "type": "attachment_url",
-                    "body": extracted_url,
-                }
+                yield {"type": "attachment_url", "body": extracted_url}
                 yield {"type": "thinking_status", "body": "Using Google Search to access SEC filing..."}
-                # Enable Google Search automatically for SEC URLs
-                use_google_search = True
-                # Continue with normal question processing instead of PDF URL handling
+                force_google_search_reason = "sec_url"
             else:
-                # Validate if URL points to a PDF
                 is_valid, error_message = validate_pdf_url(extracted_url)
-
                 if not is_valid:
                     yield {"type": "answer", "body": f"❌ {error_message}"}
                     return
-
-                yield {
-                    "type": "attachment_url",
-                    "body": extracted_url,
-                }
-
-                # Handle question with PDF URL
+                yield {"type": "attachment_url", "body": extracted_url}
                 yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
                 async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
                     yield chunk
                 return
 
-        # Normalize ticker for storage/retrieval
+        # Normalize ticker
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in ["UNDEFINED", "NULL", ""]:
             normalized_ticker = "none"
 
-        # Log conversation context usage
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
                 f"🔄 Passing {num_pairs} Q/A pair(s) of conversation context to handler "
                 f"(ticker: {normalized_ticker}, question: {question[:50]}...)"
             )
-        else:
-            logger.debug(f"🔄 No conversation context provided (ticker: {normalized_ticker})")
 
-        # Sticky routing: Check if this is an ambiguous follow-up and reuse last classification
+        # Fetch available DB periods for data-aware search decision
+        available_periods = None
+        if normalized_ticker and normalized_ticker != "none":
+            try:
+                available_periods = self.company_financial_connector.get_available_periods(normalized_ticker)
+            except Exception as e:
+                logger.warning(f"Failed to fetch available periods for {normalized_ticker}: {e}")
+
+        # Build search decision coroutine (always needed)
+        search_coro = self.search_decision_engine.decide(
+            question=question,
+            ticker=normalized_ticker,
+            is_etf=False,
+            force_google_search_reason=force_google_search_reason,
+            available_periods=available_periods,
+        )
+
+        # Sticky routing: reuse last classification for ambiguous follow-ups
         classification = None
         if conversation_messages and conversation_id and anon_user_id:
-            # Check if question is ambiguous (short, no explicit metrics, no company name)
             is_ambiguous = len(question.split()) < 10 and not any(
                 keyword in question.lower()
                 for keyword in [
@@ -171,7 +147,6 @@ class FinancialAnalyzer:
                     "quarterly",
                     "annual",
                     "financial",
-                    # Vietnamese equivalents
                     "doanh thu",
                     "lợi nhuận",
                     "biên lợi nhuận",
@@ -184,7 +159,6 @@ class FinancialAnalyzer:
                     "tài chính",
                 ]
             )
-
             if is_ambiguous:
                 meta = get_conversation_meta(anon_user_id, normalized_ticker, conversation_id)
                 last_question_type = meta.get("last_question_type")
@@ -195,25 +169,46 @@ class FinancialAnalyzer:
                         f"for ambiguous follow-up question"
                     )
 
-        # If not using sticky routing, classify normally
+        # Run search decision + question classification in parallel when possible
         comparison_tickers = None
         if not classification:
-            classification, comparison_tickers = await self.classifier.classify_question_type(
+            classify_coro = self.classifier.classify_question_type(
                 question, ticker, conversation_messages=conversation_messages
             )
+            decision, classify_result = await asyncio.gather(search_coro, classify_coro)
+            classification, comparison_tickers = classify_result
             logger.info(f"Question classified as: {classification}")
 
-            # Store classification in meta for future sticky routing
             if classification and conversation_id and anon_user_id:
                 set_conversation_meta(
                     anon_user_id, normalized_ticker, conversation_id, {"last_question_type": classification}
                 )
+        else:
+            decision = await search_coro
+
+        use_google_search = decision.use_google_search
+
+        # Yield search decision metadata
+        yield {
+            "type": "search_decision_meta",
+            "body": {
+                "search_decision": "on" if use_google_search else "off",
+                "reason_code": decision.reason_code,
+                "decision_model": decision.decision_model,
+                "decision_fallback": decision.decision_fallback,
+                "confidence": decision.confidence,
+            },
+        }
+        if use_google_search:
+            yield {"type": "thinking_status", "body": "Using Google Search for up-to-date information..."}
+        else:
+            yield {"type": "thinking_status", "body": "Using internal knowledge/context for fastest response..."}
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}
             return
 
-        # Handle comparison questions early (before single-ticker routing)
+        # Handle comparison questions
         if classification == QuestionType.COMPANY_COMPARISON.value and comparison_tickers:
             short_analysis = not deep_analysis
             async for chunk in self.comparison_handler.handle(
@@ -227,36 +222,34 @@ class FinancialAnalyzer:
                 yield chunk
             return
 
-        # Get the appropriate handler
         handler = self.handlers.get(classification)
         if not handler:
             yield {"type": "answer", "body": "❌ Unable to find handler for question type"}
             return
 
-        # Route to the appropriate handler
+        # Route to handler and track sources
         t_handler = time.perf_counter()
+        has_sources = False
 
         if classification == QuestionType.GENERAL_FINANCE.value:
-            async for chunk in handler.handle(
+            handler_gen = handler.handle(
                 question,
                 use_google_search,
                 use_url_context,
                 preferred_model,
                 conversation_messages=conversation_messages,
-            ):
-                yield chunk
+            )
         elif classification == QuestionType.COMPANY_GENERAL.value:
-            async for chunk in handler.handle(
+            handler_gen = handler.handle(
                 ticker,
                 question,
                 use_google_search,
                 use_url_context,
                 preferred_model,
                 conversation_messages=conversation_messages,
-            ):
-                yield chunk
+            )
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
-            async for chunk in handler.handle(
+            handler_gen = handler.handle(
                 ticker,
                 question,
                 use_google_search,
@@ -264,8 +257,28 @@ class FinancialAnalyzer:
                 deep_analysis,
                 preferred_model,
                 conversation_messages=conversation_messages,
-            ):
-                yield chunk
+            )
+        else:
+            return
+
+        async for chunk in handler_gen:
+            chunk_type = chunk.get("type")
+            if chunk_type == "google_search_ground" and chunk.get("url"):
+                has_sources = True
+            elif chunk_type == "sources" and chunk.get("body"):
+                has_sources = True
+            elif chunk_type == "sources_grouped":
+                grouped = (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
+                if grouped:
+                    has_sources = True
+            yield chunk
+
+        if use_google_search and not has_sources:
+            logger.warning("Search attempt completed with no sources/citations.")
+            yield {
+                "type": "thinking_status",
+                "body": "Live search returned no usable citations in this response. Information may be less current.",
+            }
 
         t_handler_end = time.perf_counter()
         logger.info(f"Profiling handler execution: {t_handler_end - t_handler:.4f}s")

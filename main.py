@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
-from connectors.company_financial import CompanyFinancialConnector
 from connectors.conversation_store import (
     append_assistant_message,
     append_user_message,
@@ -39,7 +38,6 @@ from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.search_decision_engine import SearchDecisionEngine
 from utils.logging import setup_local_logging, setup_production_logging
-from utils.url_helper import extract_first_url, is_sec_filing_url
 
 load_dotenv()
 
@@ -58,14 +56,12 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-# Initialize financial analyzer
-financial_analyzer = FinancialAnalyzer()
-
-# Initialize ETF analyzer
-etf_analyzer = ETFAnalyzer()
-
-# Initialize search decision engine
+# Shared search decision engine
 search_decision_engine = SearchDecisionEngine()
+
+# Initialize analyzers with shared search decision engine
+financial_analyzer = FinancialAnalyzer(search_decision_engine=search_decision_engine)
+etf_analyzer = ETFAnalyzer(search_decision_engine=search_decision_engine)
 
 # FastAPI application instance
 app = FastAPI()
@@ -268,135 +264,33 @@ async def analyze_financial_data(ticker: str, request: Request):
 
         async def generate_analysis():
             try:
-                # Emit conversation ID early in the stream
                 yield json.dumps({"type": "conversation", "body": {"conversationId": conversation_id}}) + "\n\n"
 
-                # Buffer assistant output for persistence
                 assistant_output_buffer = []
 
-                def build_analyzer_generator(use_google_search: bool):
-                    if is_etf:
-                        return etf_analyzer.analyze_question(
-                            normalized_ticker or ticker,
-                            question,
-                            use_google_search,
-                            use_url_context,
-                            deep_analysis,
-                            preferred_model,
-                            conversation_messages=conversation_messages,
-                            conversation_id=conversation_id,
-                            anon_user_id=anon_user_id,
-                        )
-                    return financial_analyzer.analyze_question(
-                        normalized_ticker or ticker,
-                        question,
-                        use_google_search,
-                        use_url_context,
-                        deep_analysis,
-                        preferred_model,
-                        conversation_messages=conversation_messages,
-                        conversation_id=conversation_id,
-                        anon_user_id=anon_user_id,
-                    )
-
-                extracted_url = extract_first_url(question)
-                force_reason = "sec_url" if extracted_url and is_sec_filing_url(extracted_url) else None
-
-                # Fetch available DB periods so classifier knows what data we already have
-                available_periods = None
-                if normalized_ticker and not is_etf:
-                    try:
-                        available_periods = CompanyFinancialConnector().get_available_periods(normalized_ticker)
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch available periods for {normalized_ticker}: {e}")
-
-                decision = await search_decision_engine.decide(
-                    question=question,
-                    ticker=normalized_ticker,
-                    is_etf=is_etf,
-                    force_google_search_reason=force_reason,
-                    available_periods=available_periods,
-                )
-                use_google_search = decision.use_google_search
-
-                yield (
-                    json.dumps(
-                        {
-                            "type": "search_decision_meta",
-                            "body": {
-                                "search_decision": "on" if use_google_search else "off",
-                                "reason_code": decision.reason_code,
-                                "decision_model": decision.decision_model,
-                                "decision_fallback": decision.decision_fallback,
-                                "confidence": decision.confidence,
-                            },
-                        }
-                    )
-                    + "\n\n"
+                analyzer = etf_analyzer if is_etf else financial_analyzer
+                analyzer_generator = analyzer.analyze_question(
+                    normalized_ticker or ticker,
+                    question,
+                    use_url_context=use_url_context,
+                    deep_analysis=deep_analysis,
+                    preferred_model=preferred_model,
+                    conversation_messages=conversation_messages,
+                    conversation_id=conversation_id,
+                    anon_user_id=anon_user_id,
                 )
 
-                if use_google_search:
-                    yield (
-                        json.dumps(
-                            {
-                                "type": "thinking_status",
-                                "body": "Using Google Search for up-to-date information...",
-                            }
-                        )
-                        + "\n\n"
-                    )
-                else:
-                    yield (
-                        json.dumps(
-                            {
-                                "type": "thinking_status",
-                                "body": "Using internal knowledge/context for fastest response...",
-                            }
-                        )
-                        + "\n\n"
-                    )
-
-                has_sources = False
-                analyzer_generator = build_analyzer_generator(use_google_search)
                 async for chunk in analyzer_generator:
-                    # Check if the client has disconnected
                     if await request.is_disconnected():
                         return
 
-                    chunk_type = chunk.get("type")
-                    if chunk_type == "google_search_ground" and chunk.get("url"):
-                        has_sources = True
-                    elif chunk_type == "sources" and chunk.get("body"):
-                        has_sources = True
-                    elif chunk_type == "sources_grouped":
-                        grouped = (
-                            (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
-                        )
-                        if grouped:
-                            has_sources = True
-
-                    # Buffer answer chunks for persistence
-                    if chunk_type == "answer":
+                    if chunk.get("type") == "answer":
                         body = chunk.get("body", "")
                         if isinstance(body, str):
                             assistant_output_buffer.append(body)
 
-                    # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
 
-                if use_google_search and not has_sources:
-                    logger.warning("Search attempt completed with no sources/citations.")
-                    yield (
-                        json.dumps(
-                            {
-                                "type": "thinking_status",
-                                "body": "Live search returned no usable citations in this response. Information may be less current.",
-                            }
-                        )
-                        + "\n\n"
-                    )
-
-                # After streaming completes, append assistant message to conversation
                 if assistant_output_buffer:
                     assistant_full_text = "".join(assistant_output_buffer)
                     append_assistant_message(anon_user_id, storage_ticker, conversation_id, assistant_full_text)
@@ -406,7 +300,6 @@ async def analyze_financial_data(ticker: str, request: Request):
                     )
 
             except asyncio.CancelledError:
-                # Handle cancellation
                 logger.info("Client cancelled request to analyze financial data", {"ticker": ticker})
                 return
 

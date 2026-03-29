@@ -1,5 +1,6 @@
 """ETF analyzer service - main entry point for ETF question analysis."""
 
+import asyncio
 import logging
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -7,6 +8,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from langfuse import observe
 
 from ai_models.model_name import ModelName
+from services.search_decision_engine import SearchDecisionEngine
 
 from .etf_question_analyzer.classifier import ETFQuestionClassifier
 from .etf_question_analyzer.comparison_handler import ETFComparisonHandler
@@ -24,13 +26,10 @@ logger = logging.getLogger(__name__)
 class ETFAnalyzer:
     """Main service for analyzing ETF questions and generating insights."""
 
-    def __init__(self):
-        """Initialize the ETF analyzer."""
-        # Initialize components
+    def __init__(self, search_decision_engine: Optional[SearchDecisionEngine] = None):
+        self.search_decision_engine = search_decision_engine or SearchDecisionEngine()
         self.classifier = ETFQuestionClassifier()
         self.data_optimizer = ETFDataOptimizer()
-
-        # Initialize handlers
         self.general_handler = GeneralETFHandler()
         self.overview_handler = ETFOverviewHandler()
         self.detailed_handler = ETFDetailedAnalysisHandler()
@@ -41,7 +40,6 @@ class ETFAnalyzer:
         self,
         ticker: str,
         question: str,
-        use_google_search: bool = False,
         use_url_context: bool = False,
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
@@ -49,33 +47,14 @@ class ETFAnalyzer:
         conversation_id: Optional[str] = None,
         anon_user_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Analyze an ETF question and generate insights.
-
-        Args:
-            ticker: ETF ticker symbol (e.g., 'SXR8', 'CSPX')
-            question: The question to answer
-            use_google_search: Whether to use Google Search
-            use_url_context: Whether to use URL context
-            deep_analysis: Whether to use detailed analysis (False = short mode for comparisons)
-            preferred_model: Preferred model to use
-            conversation_messages: Optional conversation history
-            conversation_id: Conversation ID for tracking
-            anon_user_id: Anonymous user ID
-
-        Yields:
-            Dictionary chunks with analysis results
-        """
         t_start = time.perf_counter()
 
         yield {"type": "thinking_status", "body": "Just a moment..."}
 
-        # Normalize ticker
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in ["UNDEFINED", "NULL", "NONE", ""]:
             normalized_ticker = ""
 
-        # Log conversation context
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
@@ -83,24 +62,45 @@ class ETFAnalyzer:
                 f"(ticker: {normalized_ticker or 'general'}, question: {question[:50]}...)"
             )
 
-        # Classify question
-        t_classify = time.perf_counter()
-        question_type, data_requirement, comparison_tickers = await self.classifier.classify_question(
-            normalized_ticker, question
+        # Run search decision + ETF classification in parallel
+        search_coro = self.search_decision_engine.decide(
+            question=question,
+            ticker=normalized_ticker,
+            is_etf=True,
         )
-        t_classify_end = time.perf_counter()
+        classify_coro = self.classifier.classify_question(normalized_ticker, question)
+
+        t_parallel = time.perf_counter()
+        decision, classify_result = await asyncio.gather(search_coro, classify_coro)
+        question_type, data_requirement, comparison_tickers = classify_result
+        t_parallel_end = time.perf_counter()
         logger.info(
-            f"ETF question classified: {question_type.value}, data: {data_requirement.value} "
-            f"({t_classify_end - t_classify:.4f}s)"
+            f"ETF parallel (search+classify): {t_parallel_end - t_parallel:.4f}s, "
+            f"type={question_type.value}, data={data_requirement.value}"
         )
+
+        use_google_search = decision.use_google_search
+
+        # Yield search decision metadata
+        yield {
+            "type": "search_decision_meta",
+            "body": {
+                "search_decision": "on" if use_google_search else "off",
+                "reason_code": decision.reason_code,
+                "decision_model": decision.decision_model,
+                "decision_fallback": decision.decision_fallback,
+                "confidence": decision.confidence,
+            },
+        }
+        if use_google_search:
+            yield {"type": "thinking_status", "body": "Using Google Search for up-to-date information..."}
+        else:
+            yield {"type": "thinking_status", "body": "Using internal knowledge/context for fastest response..."}
 
         # Handle comparison questions
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
-            # For comparisons: deep_analysis=False means short mode
             short_analysis = not deep_analysis
-            logger.info(
-                f"Routing to comparison handler for tickers: {comparison_tickers}, deep_analysis={deep_analysis}, short_analysis={short_analysis}"
-            )
+            logger.info(f"Routing to comparison handler for tickers: {comparison_tickers}")
             async for chunk in self.comparison_handler.handle(
                 tickers=comparison_tickers,
                 question=question,
@@ -118,7 +118,6 @@ class ETFAnalyzer:
         t_data_end = time.perf_counter()
         logger.info(f"ETF data fetch: {t_data_end - t_data:.4f}s")
 
-        # Create analysis context
         context = ETFAnalysisContext(
             ticker=normalized_ticker,
             question=question,
@@ -133,21 +132,38 @@ class ETFAnalyzer:
             source_url=None,
         )
 
-        # Route to appropriate handler
+        # Route to handler and track sources
         t_handler = time.perf_counter()
+        has_sources = False
 
         if question_type == ETFQuestionType.GENERAL_ETF:
-            async for chunk in self.general_handler.handle(context):
-                yield chunk
+            handler_gen = self.general_handler.handle(context)
         elif question_type == ETFQuestionType.ETF_OVERVIEW:
-            async for chunk in self.overview_handler.handle(context):
-                yield chunk
+            handler_gen = self.overview_handler.handle(context)
         elif question_type == ETFQuestionType.ETF_DETAILED_ANALYSIS:
-            async for chunk in self.detailed_handler.handle(context):
-                yield chunk
+            handler_gen = self.detailed_handler.handle(context)
         else:
             yield {"type": "answer", "body": "Unable to process question type"}
             return
+
+        async for chunk in handler_gen:
+            chunk_type = chunk.get("type")
+            if chunk_type == "google_search_ground" and chunk.get("url"):
+                has_sources = True
+            elif chunk_type == "sources" and chunk.get("body"):
+                has_sources = True
+            elif chunk_type == "sources_grouped":
+                grouped = (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
+                if grouped:
+                    has_sources = True
+            yield chunk
+
+        if use_google_search and not has_sources:
+            logger.warning("ETF search attempt completed with no sources/citations.")
+            yield {
+                "type": "thinking_status",
+                "body": "Live search returned no usable citations in this response. Information may be less current.",
+            }
 
         t_handler_end = time.perf_counter()
         logger.info(f"ETF handler execution: {t_handler_end - t_handler:.4f}s")
