@@ -14,6 +14,7 @@ from connectors.company_financial import CompanyFinancialConnector
 from connectors.conversation_store import get_conversation_meta, set_conversation_meta
 from services.question_analyzer import CompanySpecificFinanceHandler
 from services.question_analyzer.classifier import QuestionClassifier
+from services.question_analyzer.comparison_handler import CompanyComparisonHandler
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.handlers import (
     CompanyGeneralHandler,
@@ -49,6 +50,9 @@ class FinancialAnalyzer:
         # Initialize components
         self.classifier = QuestionClassifier()
         self.data_optimizer = FinancialDataOptimizer(self.company_financial_connector)
+
+        # Initialize comparison handler
+        self.comparison_handler = CompanyComparisonHandler()
 
         # Initialize handlers
         self.handlers = {
@@ -184,7 +188,7 @@ class FinancialAnalyzer:
             if is_ambiguous:
                 meta = get_conversation_meta(anon_user_id, normalized_ticker, conversation_id)
                 last_question_type = meta.get("last_question_type")
-                if last_question_type:
+                if last_question_type and last_question_type != QuestionType.COMPANY_COMPARISON.value:
                     classification = last_question_type
                     logger.info(
                         f"📌 Sticky routing: Reusing last classification '{classification}' "
@@ -192,8 +196,9 @@ class FinancialAnalyzer:
                     )
 
         # If not using sticky routing, classify normally
+        comparison_tickers = None
         if not classification:
-            classification = await self.classifier.classify_question_type(
+            classification, comparison_tickers = await self.classifier.classify_question_type(
                 question, ticker, conversation_messages=conversation_messages
             )
             logger.info(f"Question classified as: {classification}")
@@ -206,6 +211,20 @@ class FinancialAnalyzer:
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}
+            return
+
+        # Handle comparison questions early (before single-ticker routing)
+        if classification == QuestionType.COMPANY_COMPARISON.value and comparison_tickers:
+            short_analysis = not deep_analysis
+            async for chunk in self.comparison_handler.handle(
+                tickers=comparison_tickers,
+                question=question,
+                use_google_search=use_google_search,
+                short_analysis=short_analysis,
+                preferred_model=preferred_model,
+                conversation_messages=conversation_messages,
+            ):
+                yield chunk
             return
 
         if use_google_search:

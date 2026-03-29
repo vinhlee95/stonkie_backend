@@ -11,6 +11,7 @@ class QuestionType(Enum):
     GENERAL_FINANCE = "general-finance"
     COMPANY_GENERAL = "company-general"
     COMPANY_SPECIFIC_FINANCE = "company-specific-finance"
+    COMPANY_COMPARISON = "company-comparison"
 
 
 class FinancialDataRequirement(StrEnum):

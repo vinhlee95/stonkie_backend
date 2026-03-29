@@ -11,6 +11,7 @@ from langfuse import observe
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 
+from .ticker_extractor import StockTickerExtractor
 from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class QuestionClassifier:
             agent: AI agent for classification. Creates default if not provided.
         """
         self.agent = agent or MultiAgent(model_name=ModelName.Gemini30Flash)
+        self.ticker_extractor = StockTickerExtractor()
 
     def _detect_quarterly_report_keywords(self, question: str) -> bool:
         """
@@ -77,19 +79,25 @@ class QuestionClassifier:
     @observe(name="classify_question_type")
     async def classify_question_type(
         self, question: str, ticker: str, conversation_messages: Optional[List[Dict[str, str]]] = None
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[list[str]]]:
         """
-        Classify question as general finance, company general, or company-specific finance.
-
-        Args:
-            question: The question to classify
-            ticker: Company ticker symbol (may be empty/undefined for general questions)
-            conversation_messages: Optional list of previous conversation messages for context
+        Classify question type with optional comparison ticker detection.
 
         Returns:
-            QuestionType value or None if classification fails
+            Tuple of (QuestionType value or None, comparison tickers list or None)
         """
         t_start = time.perf_counter()
+
+        # Check for comparison intent FIRST (before LLM classification)
+        try:
+            comparison_tickers = await self.ticker_extractor.extract_tickers(question, current_ticker=ticker)
+            if len(comparison_tickers) >= 2:
+                logger.info(f"Detected comparison with {len(comparison_tickers)} tickers: {comparison_tickers}")
+                t_end = time.perf_counter()
+                logger.info(f"Profiling classify_question_type (comparison fast path): {t_end - t_start:.4f}s")
+                return QuestionType.COMPANY_COMPARISON.value, comparison_tickers
+        except Exception as e:
+            logger.error(f"Error in ticker extraction, continuing with normal classification: {e}")
 
         # Normalize ticker: treat empty/undefined as no ticker
         has_ticker = ticker and ticker.strip() and ticker.upper() not in ["UNDEFINED", "NULL", "NONE"]
@@ -153,17 +161,17 @@ class QuestionClassifier:
                 response_text += chunk
 
             if QuestionType.COMPANY_SPECIFIC_FINANCE.value in response_text:
-                return QuestionType.COMPANY_SPECIFIC_FINANCE.value
+                return QuestionType.COMPANY_SPECIFIC_FINANCE.value, None
             elif QuestionType.COMPANY_GENERAL.value in response_text:
-                return QuestionType.COMPANY_GENERAL.value
+                return QuestionType.COMPANY_GENERAL.value, None
             elif QuestionType.GENERAL_FINANCE.value in response_text:
-                return QuestionType.GENERAL_FINANCE.value
+                return QuestionType.GENERAL_FINANCE.value, None
             else:
                 raise ValueError(f"Unknown question type: {response_text}")
 
         except Exception as e:
             logger.error(f"Error classifying question type: {e}")
-            return None
+            return None, None
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_question_type: {t_end - t_start:.4f}s")
