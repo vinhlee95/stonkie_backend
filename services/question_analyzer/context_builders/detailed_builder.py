@@ -42,8 +42,8 @@ class DetailedContextBuilder(ContextBuilder):
 
             **Instructions for your analysis:**
 
-            Analyze the financial data and organize your findings into multiple focused sections.
-            You decide how many sections are needed to thoroughly cover the key aspects that answer the user's question. Try to keep the number of sections as small as possible.
+            Analyze the financial data and provide a clear, direct answer to the user's question.
+            Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
 
             {section_structure}
 
@@ -51,7 +51,7 @@ class DetailedContextBuilder(ContextBuilder):
 
             {PromptComponents.source_instructions()}
 
-            Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
+            Answer in a professional, informative tone. Prioritize clarity and directness.
         """
 
     def _build_deep_analysis(self, input: ContextBuilderInput) -> str:

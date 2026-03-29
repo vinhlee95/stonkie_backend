@@ -92,41 +92,35 @@ class ETFPromptComponents:
 
     @staticmethod
     def section_structure_template() -> str:
-        """Build the standard section structure template for dynamic analysis."""
+        """Build the adaptive response format template for dynamic analysis."""
         return """
-            **Structure:**
-            - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
-            - Follow with multiple focused sections, each covering a distinct key aspect or finding
-            - Each section should have a bold, descriptive heading: **Section Heading**
-            - Keep each section content under 50 words - be concise and to the point
-
-            **Section Guidelines:**
-            - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
-            - Add a new line after each section heading.
-            - Each section content should focus on ONE key finding or aspect
-            - Include specific numbers and metrics where relevant
-            - Highlight significant changes, trends, or anomalies
-            - Bold important figures and percentages
-            - Prioritize the most relevant information that directly answers the user's question
-            - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M")
-            - Make every word count - avoid filler phrases
+            **Response Format — match length to the question's complexity:**
+            - For single-fact questions (e.g. "what is X", "how much did Y earn"): answer in 1-2 sentences. State the fact and stop. Do NOT add extra context, related metrics, or explanation unless asked.
+            - For simple comparison or trend questions: answer in 1-3 short paragraphs. No section headings. State the facts clearly and add a brief "why" if relevant.
+            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first.
+            - In ALL cases: be concise, make every word count, avoid filler phrases.
+            - Bold important figures and percentages.
+            - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M").
+            - If using section headings: keep them specific and catchy (3-5 words max), on separate bolded lines with a blank line after each heading.
         """
 
     @staticmethod
     def example_structure() -> str:
-        """Build the example structure template for dynamic analysis."""
+        """Build the example structure template showing both formats."""
         return """
-            **Example Structure:**
+            **Example A — Direct answer (for simple/comparison questions):**
 
-            [Brief intro answering the question - under 50 words]
+            VOO returned **28.4%** in 2024 vs QQQ's **26.8%**, narrowing the typical gap. VOO's broader diversification across **500 stocks** provided steadier gains, while QQQ's tech concentration added volatility. Both significantly outperformed the bond market's **2.1%** return.
+
+            **Example B — Sectioned answer (for complex multi-topic analysis):**
+
+            [Brief intro answering the question]
 
             **Section Heading 1**
 
-            [Concise finding with key metrics - under 50 words]
+            [Concise finding with key metrics]
 
             **Section Heading 2**
 
-            [Another focused insight - under 50 words]
-
-            [Continue with additional sections as needed...]
+            [Another focused insight]
         """

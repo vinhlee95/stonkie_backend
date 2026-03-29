@@ -31,10 +31,10 @@ class UrlContextBuilder(ContextBuilder):
 
             **Instructions for your analysis:**
 
-            Analyze the document available at the URL provided above and organize your findings into multiple focused sections. 
+            Analyze the document available at the URL provided above and provide a clear, direct answer to the user's question.
             If the URL is accessible, use it as your ONLY source of information. Do not search for additional data sources. This is critical.
 
-            You decide how many sections are needed to thoroughly cover the key aspects of the document that answer the user's question.
+            Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
 
             {section_structure}
 
@@ -45,7 +45,7 @@ class UrlContextBuilder(ContextBuilder):
 
             {PromptComponents.source_instructions()}
 
-            Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
+            Answer in a professional, informative tone. Prioritize clarity and directness.
         """
 
     def _build_deep_analysis(self, input: ContextBuilderInput) -> str:

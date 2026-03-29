@@ -121,43 +121,37 @@ class PromptComponents:
 
     @staticmethod
     def section_structure_template() -> str:
-        """Build the standard section structure template."""
+        """Build the adaptive response format template."""
         return """
-            **Structure:**
-            - Start with a brief introductory paragraph (under 50 words) that directly answers the user's question
-            - Follow with multiple focused sections, each covering a distinct key aspect or finding
-            - Each section should have a bold, descriptive heading: **Section Heading**
-            - Keep each section content under 30 words - be concise and to the point
-
-            **Section Guidelines:**
-            - Each section heading should be specific, descriptive, and catchy (3-5 words max). The section headings must be in separate lines and bolded.
-            - Add a new line after each section heading.
-            - Each section content should focus on ONE key finding or aspect
-            - Include specific numbers and metrics where relevant
-            - Highlight significant changes, trends, or anomalies
-            - Bold important figures and percentages
-            - Prioritize the most relevant information that directly answers the user's question
-            - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
-            - Make every word count - avoid filler phrases
+            **Response Format — match length to the question's complexity:**
+            - For single-fact questions (e.g. "what is X", "how much did Y earn"): answer in 1-2 sentences. State the fact and stop. Do NOT add extra context, related metrics, or explanation unless asked.
+            - For simple comparison or trend questions: answer in 1-3 short paragraphs. No section headings. State the facts clearly and add a brief "why" if relevant.
+            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first.
+            - In ALL cases: be concise, make every word count, avoid filler phrases.
+            - Bold important figures and percentages.
+            - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million").
+            - If using section headings: keep them specific and catchy (3-5 words max), on separate bolded lines with a blank line after each heading.
         """
 
     @staticmethod
     def example_structure() -> str:
-        """Build the example structure template."""
+        """Build the example structure template showing both formats."""
         return """
-            **Example Structure:**
+            **Example A — Direct answer (for simple/comparison questions):**
 
-            [Brief intro answering the question - under 50 words]
+            Apple's revenue grew 6.4% to **$416B** in FY2024, while Samsung reported **$211B** in the same period. Apple's growth was driven primarily by Services, which hit a record **$109B** (+13% YoY). Samsung's semiconductor recovery pushed operating profit up **$21B**, though mobile revenue remained flat.
+
+            **Example B — Sectioned answer (for complex multi-topic analysis):**
+
+            [Brief intro answering the question]
 
             **Section Heading 1**
 
-            [Concise finding with key metrics - under 30 words]
+            [Concise finding with key metrics]
 
             **Section Heading 2**
 
-            [Another focused insight - under 30 words]
-
-            [Continue with additional sections as needed...]
+            [Another focused insight]
         """
 
     @staticmethod
