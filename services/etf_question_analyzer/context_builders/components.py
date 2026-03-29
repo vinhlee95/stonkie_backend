@@ -1,15 +1,24 @@
 """Shared prompt components for ETF context builders."""
 
+from datetime import date
+
 
 class ETFPromptComponents:
     """Reusable prompt fragments for ETF analysis."""
 
     @staticmethod
+    def current_date() -> str:
+        """Return current date context for prompt grounding."""
+        formatted = date.today().strftime("%B %d, %Y")
+        return f"Today's date is {formatted}. Always use the most recent available data."
+
+    @staticmethod
     def base_context(ticker: str, question: str) -> str:
         """Build the base context for ETF analysis."""
+        date_context = ETFPromptComponents.current_date()
         ticker_display = ticker.upper() if ticker and ticker.upper() not in ["UNDEFINED", "NULL", "NONE"] else "the ETF"
         return f"""
-            You are an ETF analyst specializing in exchange-traded funds.
+            You are an ETF analyst specializing in exchange-traded funds. {date_context}
 
             Question: {question}
             ETF: {ticker_display}

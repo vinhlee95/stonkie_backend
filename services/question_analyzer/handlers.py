@@ -370,7 +370,9 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                         f"💬 Injected {num_pairs} Q/A pair(s) of conversation context into GeneralFinanceHandler prompt"
                     )
 
+            date_context = PromptComponents.current_date()
             prompt = f"""
+                {date_context}
                 Please explain this financial concept or answer this question:
 
                 {question}.
@@ -505,8 +507,10 @@ class CompanyGeneralHandler(BaseQuestionHandler):
             else:
                 logger.debug(f"💬 No conversation context to inject (CompanyGeneralHandler, ticker: {ticker.upper()})")
 
+            date_context = PromptComponents.current_date()
             prompt = f"""
-                You are an expert about a business. Answer the following question about {company_name} (ticker: {ticker}):
+                You are an expert about a business. {date_context}
+                Answer the following question about {company_name} (ticker: {ticker}):
                 {question}.
                 IMPORTANT: Always respond in the same language as the CURRENT question above, regardless of the language used in previous conversation history.
 {conversation_context}

@@ -2,6 +2,7 @@
 
 import logging
 import re
+from datetime import date
 from typing import Dict, List
 
 logger = logging.getLogger(__name__)
@@ -67,10 +68,18 @@ class PromptComponents:
     """Reusable prompt fragments for financial context building."""
 
     @staticmethod
+    def current_date() -> str:
+        """Return current date context for prompt grounding."""
+        formatted = date.today().strftime("%B %d, %Y")
+        return f"Today's date is {formatted}. Always use the most recent available data."
+
+    @staticmethod
     def base_context(ticker: str, question: str) -> str:
         """Build the base context that's common to all prompts."""
+        date_context = PromptComponents.current_date()
         return f"""
-            You are a seasoned financial analyst. Your task is to provide an insightful, non-repetitive analysis for the following question.
+            You are a seasoned financial analyst. {date_context}
+            Your task is to provide an insightful, non-repetitive analysis for the following question.
             IMPORTANT: You MUST respond in the same language as the CURRENT question below, regardless of the language used in previous conversation history.
 
             Question: {question}
