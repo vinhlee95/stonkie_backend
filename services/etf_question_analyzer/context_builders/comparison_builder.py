@@ -104,7 +104,9 @@ class ComparisonETFBuilder:
 
         source_instructions = ETFPromptComponents.source_instructions()
 
+        date_context = ETFPromptComponents.current_date()
         return f"""
+            {date_context}
             # ETF Comparison Analysis
 
             ## ETFs to Compare
@@ -150,7 +152,9 @@ class ComparisonETFBuilder:
 
         source_instructions = ETFPromptComponents.source_instructions()
 
+        date_context = ETFPromptComponents.current_date()
         return f"""
+            {date_context}
             # ETF Comparison Analysis
 
             ## ETFs to Compare
