@@ -298,25 +298,6 @@ async def analyze_financial_data(ticker: str, request: Request):
                         anon_user_id=anon_user_id,
                     )
 
-                async def collect_attempt_chunks(use_google_search: bool) -> tuple[list[dict], bool]:
-                    collected: list[dict] = []
-                    has_sources = False
-                    analyzer_generator = build_analyzer_generator(use_google_search)
-                    async for chunk in analyzer_generator:
-                        collected.append(chunk)
-                        chunk_type = chunk.get("type")
-                        if chunk_type == "google_search_ground" and chunk.get("url"):
-                            has_sources = True
-                        elif chunk_type == "sources" and chunk.get("body"):
-                            has_sources = True
-                        elif chunk_type == "sources_grouped":
-                            grouped = (
-                                (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
-                            )
-                            if grouped:
-                                has_sources = True
-                    return collected, has_sources
-
                 extracted_url = extract_first_url(question)
                 force_reason = "sec_url" if extracted_url and is_sec_filing_url(extracted_url) else None
                 decision = await search_decision_engine.decide(
@@ -364,51 +345,45 @@ async def analyze_financial_data(ticker: str, request: Request):
                         + "\n\n"
                     )
 
-                chunks_to_stream: list[dict]
-                if use_google_search:
-                    fallback_reason: str | None = None
-                    try:
-                        chunks_to_stream, has_sources = await collect_attempt_chunks(use_google_search=True)
-                        if not has_sources:
-                            fallback_reason = "no_citations"
-                            logger.warning("Search attempt returned no sources/citations. Falling back to non-search.")
-                    except Exception as e:
-                        fallback_reason = "error"
-                        logger.error(f"Search attempt failed. Falling back to non-search. Error: {e}")
-
-                    if fallback_reason:
-                        yield (
-                            json.dumps(
-                                {
-                                    "type": "thinking_status",
-                                    "body": "Live search failed or returned no usable citations. Continuing without live search; data may be less current.",
-                                }
-                            )
-                            + "\n\n"
-                        )
-                        fallback_chunks, _ = await collect_attempt_chunks(use_google_search=False)
-                        chunks_to_stream = [
-                            {
-                                "type": "answer",
-                                "body": "Note: Google Search was unavailable, so this answer may be less current.\n\n",
-                            }
-                        ] + fallback_chunks
-                else:
-                    chunks_to_stream, _ = await collect_attempt_chunks(use_google_search=False)
-
-                for chunk in chunks_to_stream:
+                has_sources = False
+                analyzer_generator = build_analyzer_generator(use_google_search)
+                async for chunk in analyzer_generator:
                     # Check if the client has disconnected
                     if await request.is_disconnected():
                         return
 
+                    chunk_type = chunk.get("type")
+                    if chunk_type == "google_search_ground" and chunk.get("url"):
+                        has_sources = True
+                    elif chunk_type == "sources" and chunk.get("body"):
+                        has_sources = True
+                    elif chunk_type == "sources_grouped":
+                        grouped = (
+                            (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
+                        )
+                        if grouped:
+                            has_sources = True
+
                     # Buffer answer chunks for persistence
-                    if chunk.get("type") == "answer":
+                    if chunk_type == "answer":
                         body = chunk.get("body", "")
                         if isinstance(body, str):
                             assistant_output_buffer.append(body)
 
                     # Each chunk is now a JSON object with type and body
                     yield json.dumps(chunk) + "\n\n"
+
+                if use_google_search and not has_sources:
+                    logger.warning("Search attempt completed with no sources/citations.")
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "thinking_status",
+                                "body": "Live search returned no usable citations in this response. Information may be less current.",
+                            }
+                        )
+                        + "\n\n"
+                    )
 
                 # After streaming completes, append assistant message to conversation
                 if assistant_output_buffer:
