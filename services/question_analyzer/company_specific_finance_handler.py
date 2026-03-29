@@ -372,7 +372,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             and len(annual_statements) == 0
             and len(quarterly_statements) == 0
         )
-        if has_no_data and conversation_messages:
+        if has_no_data and conversation_messages and data_requirement != FinancialDataRequirement.NONE:
             logger.info(
                 "⚠️  Fallback: No financial data available but conversation context exists. "
                 "Answering question generally based on conversation context."
