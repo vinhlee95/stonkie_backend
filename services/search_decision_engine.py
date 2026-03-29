@@ -43,6 +43,7 @@ class SearchDecisionEngine:
         ticker: str,
         is_etf: bool,
         force_google_search_reason: str | None = None,
+        available_periods: dict[str, list] | None = None,
     ) -> SearchDecision:
         if force_google_search_reason:
             return SearchDecision(
@@ -55,7 +56,7 @@ class SearchDecisionEngine:
 
         try:
             raw = await asyncio.wait_for(
-                asyncio.to_thread(self._classify_sync, question, ticker, is_etf),
+                asyncio.to_thread(self._classify_sync, question, ticker, is_etf, available_periods),
                 timeout=self.timeout_seconds,
             )
             parsed = self._parse_decision(raw)
@@ -76,9 +77,23 @@ class SearchDecisionEngine:
                 decision_fallback="classifier_fail_safe_on",
             )
 
-    def _classify_sync(self, question: str, ticker: str, is_etf: bool) -> str:
+    def _classify_sync(
+        self, question: str, ticker: str, is_etf: bool, available_periods: dict[str, list] | None = None
+    ) -> str:
         if self._classifier:
             return self._classifier(question, ticker, is_etf)
+
+        db_context = ""
+        if available_periods and (available_periods.get("annual") or available_periods.get("quarterly")):
+            annual = available_periods.get("annual", [])
+            quarterly = available_periods.get("quarterly", [])
+            db_context = f"""
+Financial data already available in our database for {ticker}:
+- Annual statements: {annual if annual else "none"}
+- Quarterly statements: {quarterly[:8] if quarterly else "none"}
+
+IMPORTANT: If the question asks about financial metrics (revenue, profit, earnings, etc.) for periods covered by the database, return false — database data is sufficient. Only return true when the question needs information the database CANNOT provide (e.g., news, real-time price, regulatory changes, events, analyst opinions).
+"""
 
         prompt = f"""
 You are a strict JSON classifier deciding if live web search is needed for a finance assistant answer.
@@ -86,10 +101,11 @@ You are a strict JSON classifier deciding if live web search is needed for a fin
 Question: {question}
 Ticker context: {ticker or "none"}
 Is ETF flow: {str(is_etf).lower()}
-
+{db_context}
 Rules:
 - Return use_google_search=true for time-sensitive asks: latest/current/today/now/news/recent/events/regulatory changes/price-now/real-time.
 - Return false for stable educational concepts and timeless explanations.
+- Return false when the database already has financial data covering the requested periods.
 - If unsure, prefer true.
 - Output ONLY JSON (no markdown) with exact keys:
   - use_google_search (boolean)
@@ -97,7 +113,7 @@ Rules:
   - confidence (float between 0 and 1)
 
 Allowed reason_code values:
-time_sensitive, latest_info, stable_concept, ambiguous_default_on, other
+time_sensitive, latest_info, stable_concept, db_data_sufficient, ambiguous_default_on, other
 """
         agent = MultiAgent(model_name=self.model_name)
         chunks = agent.generate_content(prompt=prompt, use_google_search=False)

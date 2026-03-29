@@ -128,6 +128,26 @@ class CompanyFinancialConnector:
                 .all()
             )
 
+    def get_available_periods(self, ticker: str) -> dict[str, list]:
+        """Return available annual years and quarterly periods for a ticker. Fast (<10ms)."""
+        with SessionLocal() as db:
+            annual_rows = (
+                db.query(CompanyFinancialStatement.period_end_year)
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
+                .distinct()
+                .all()
+            )
+            quarterly_rows = (
+                db.query(CompanyQuarterlyFinancialStatement.period_end_quarter)
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                .distinct()
+                .all()
+            )
+            return {
+                "annual": sorted([r[0] for r in annual_rows], reverse=True),
+                "quarterly": sorted([r[0] for r in quarterly_rows], reverse=True),
+            }
+
     def get_annual_income_statements(self, ticker: str) -> list[dict[str, Any]]:
         annual_financial_statements = self.get_company_financial_statements(ticker)
         results = []

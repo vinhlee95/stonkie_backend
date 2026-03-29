@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
+from connectors.company_financial import CompanyFinancialConnector
 from connectors.conversation_store import (
     append_assistant_message,
     append_user_message,
@@ -300,11 +301,21 @@ async def analyze_financial_data(ticker: str, request: Request):
 
                 extracted_url = extract_first_url(question)
                 force_reason = "sec_url" if extracted_url and is_sec_filing_url(extracted_url) else None
+
+                # Fetch available DB periods so classifier knows what data we already have
+                available_periods = None
+                if normalized_ticker and not is_etf:
+                    try:
+                        available_periods = CompanyFinancialConnector().get_available_periods(normalized_ticker)
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch available periods for {normalized_ticker}: {e}")
+
                 decision = await search_decision_engine.decide(
                     question=question,
                     ticker=normalized_ticker,
                     is_etf=is_etf,
                     force_google_search_reason=force_reason,
+                    available_periods=available_periods,
                 )
                 use_google_search = decision.use_google_search
 
