@@ -70,8 +70,15 @@ class PromptComponents:
     @staticmethod
     def current_date() -> str:
         """Return current date context for prompt grounding."""
-        formatted = date.today().strftime("%B %d, %Y")
-        return f"Today's date is {formatted}. Always use the most recent available data."
+        today = date.today()
+        formatted = today.strftime("%B %d, %Y")
+        current_year = today.year
+        prior_year = current_year - 1
+        return (
+            f"Today's date is {formatted}. Current year is {current_year}. "
+            f"Unless the user explicitly asks for historical periods, only use data from {current_year} or {prior_year}. "
+            "If newer numeric data cannot be verified, provide a qualitative best-effort answer and state the limitation."
+        )
 
     @staticmethod
     def base_context(ticker: str, question: str) -> str:
@@ -91,6 +98,7 @@ class PromptComponents:
         """Build detailed source citation instructions."""
         return """
             **Source Citation Rules (follow strictly):**
+            0. Freshness rule: unless the user explicitly asks for historical periods, avoid citing years older than current year - 1.
             1. After EACH paragraph, emit a sources block on its own line for the sources used in THAT paragraph:
                [SOURCES_JSON]{"sources": [{"name": "Source Name", "url": "https://full-url"}]}[/SOURCES_JSON]
             2. Each paragraph MUST be followed by its own [SOURCES_JSON] block. Do NOT batch all sources at the end.

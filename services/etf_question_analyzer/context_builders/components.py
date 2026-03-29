@@ -9,8 +9,15 @@ class ETFPromptComponents:
     @staticmethod
     def current_date() -> str:
         """Return current date context for prompt grounding."""
-        formatted = date.today().strftime("%B %d, %Y")
-        return f"Today's date is {formatted}. Always use the most recent available data."
+        today = date.today()
+        formatted = today.strftime("%B %d, %Y")
+        current_year = today.year
+        prior_year = current_year - 1
+        return (
+            f"Today's date is {formatted}. Current year is {current_year}. "
+            f"Unless the user explicitly asks for historical periods, only use data from {current_year} or {prior_year}. "
+            "If fresh numeric ETF data cannot be verified, provide a qualitative best-effort answer and state the limitation."
+        )
 
     @staticmethod
     def base_context(ticker: str, question: str) -> str:
@@ -29,6 +36,7 @@ class ETFPromptComponents:
         """Build source citation requirements."""
         return """
             **CRITICAL - Source Citation:**
+            - Freshness rule: unless user explicitly asks historical data, avoid citing years older than current year - 1
             - ALWAYS cite sources at the end: Sources: [Name](URL)
             - For database ETF data: "Sources: ETF Fundamental Data"
             - For Google Search results: cite specific URLs
