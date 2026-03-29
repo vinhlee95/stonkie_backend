@@ -69,15 +69,23 @@ class CompanyComparisonHandler:
                 }
                 return
 
-            # Warn about missing companies
-            training_tickers = [c.ticker for c in companies_data if c.data_source == "training_data"]
-            if training_tickers:
-                yield {
-                    "type": "thinking_status",
-                    "body": f"No database data for: {', '.join(training_tickers)}. Using training data...",
-                }
+            # Emit a single transparent status showing where each ticker's data comes from
+            source_labels = {
+                "database": "internal database",
+                "training_data": "model training data (may not be current)",
+                "google_search": "Google Search (live)",
+            }
+            data_origin_parts = [
+                f"{c.ticker} from {source_labels.get(c.data_source, c.data_source)}" for c in companies_data
+            ]
+            yield {"type": "thinking_status", "body": f"Building comparison — {', '.join(data_origin_parts)}"}
 
-            yield {"type": "thinking_status", "body": "Building comparison analysis..."}
+            google_search_tickers = [c.ticker for c in companies_data if c.data_source == "google_search"]
+            if google_search_tickers:
+                use_google_search = True
+                logger.info(
+                    f"[comparison_handler] Auto-enabling Google Search for non-DB tickers: {google_search_tickers}"
+                )
 
             # Build comparison context
             builder_input = ComparisonCompanyBuilderInput(
@@ -150,6 +158,12 @@ class CompanyComparisonHandler:
         async def fetch_single(ticker: str) -> CompanyComparisonData:
             """Fetch data for a single ticker."""
             try:
+                # Check if company exists in DB at all
+                company = await asyncio.to_thread(self.company_connector.get_by_ticker, ticker)
+                if not company:
+                    logger.warning(f"Ticker {ticker} not in database, marking as google_search")
+                    return CompanyComparisonData(ticker=ticker, data_source="google_search")
+
                 fundamental = await asyncio.to_thread(self.company_connector.get_fundamental_data, ticker)
 
                 if not fundamental:
@@ -175,6 +189,8 @@ class CompanyComparisonHandler:
                 return CompanyComparisonData(ticker=ticker, data_source="training_data")
 
         results = await asyncio.gather(*[fetch_single(t) for t in tickers])
+        for r in results:
+            logger.info(f"[comparison_handler] {r.ticker}: data_source={r.data_source}")
         return list(results)
 
     @observe(name="generate_company_comparison_related_questions")

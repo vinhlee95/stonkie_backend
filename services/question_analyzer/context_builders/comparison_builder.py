@@ -15,7 +15,7 @@ class CompanyComparisonData:
     ticker: str
     fundamental: CompanyFundamentalDto | None = None
     quarterly_statements: list[dict[str, Any]] = field(default_factory=list)
-    data_source: str = "database"  # "database" or "training_data"
+    data_source: str = "database"  # "database", "training_data", or "google_search"
 
 
 @dataclass
@@ -118,23 +118,41 @@ class ComparisonCompanyBuilder:
 
             {training_data_warning}
 
-            Do NOT include [SOURCES_JSON] blocks. The data is from our database and has no URLs to cite.
+            {self._build_source_instructions(input)}
 
             REMINDER: Your response language MUST match the User Question language.
         """
 
+    def _build_source_instructions(self, input: ComparisonCompanyBuilderInput) -> str:
+        has_google_search = any(c.data_source == "google_search" for c in input.companies_data)
+        if has_google_search:
+            return PromptComponents.source_instructions()
+        return "Do NOT include [SOURCES_JSON] blocks. The data is from our database and has no URLs to cite."
+
     def _build_training_data_warning(self, input: ComparisonCompanyBuilderInput) -> str:
         training_data_tickers = [c.ticker for c in input.companies_data if c.data_source == "training_data"]
-        if not training_data_tickers:
+        google_search_tickers = [c.ticker for c in input.companies_data if c.data_source == "google_search"]
+
+        if not training_data_tickers and not google_search_tickers:
             return ""
-        tickers_str = ", ".join(training_data_tickers)
-        return f"""
-            **IMPORTANT — Data Source Warning:**
-            The following tickers have NO financial data in our database: {tickers_str}.
-            For these tickers, you are using your training data. You MUST explicitly state in your response
-            that the information for {tickers_str} comes from training data and may not be current or accurate.
-            Clearly distinguish between data-backed analysis and training-data-based analysis.
-        """
+
+        parts = []
+        if training_data_tickers:
+            tickers_str = ", ".join(training_data_tickers)
+            parts.append(
+                f"The following tickers have NO financial data in our database: {tickers_str}. "
+                f"For these tickers, you are using your training data. You MUST explicitly state "
+                f"that the information for {tickers_str} comes from training data and may not be current or accurate."
+            )
+        if google_search_tickers:
+            tickers_str = ", ".join(google_search_tickers)
+            parts.append(
+                f"The following tickers are NOT in our database: {tickers_str}. "
+                f"Use Google Search results to find current financial data for these tickers. "
+                f"Cite your sources using [SOURCES_JSON] blocks."
+            )
+
+        return "**IMPORTANT — Data Source Warning:**\n" + "\n".join(parts)
 
     def _build_company_summaries(self, input: ComparisonCompanyBuilderInput, short_analysis: bool) -> str:
         summaries = []
@@ -145,6 +163,11 @@ class ComparisonCompanyBuilder:
 
     def _build_company_summary(self, number: int, data: CompanyComparisonData, short_analysis: bool) -> str:
         lines = []
+
+        if data.data_source == "google_search":
+            lines.append(f"### {number}. **{data.ticker}** [GOOGLE_SEARCH]")
+            lines.append("- **Data Source:** Google Search (no database records — use web search results)")
+            return "\n".join(lines)
 
         if data.data_source == "training_data":
             lines.append(f"### {number}. **{data.ticker}** [TRAINING_DATA]")

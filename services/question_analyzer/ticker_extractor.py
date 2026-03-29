@@ -63,7 +63,7 @@ class StockTickerExtractor:
 
     def __init__(self):
         self.connector = CompanyConnector()
-        self.agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        self.agent = MultiAgent(model_name=ModelName.Sonnet46)
 
     async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
         """
@@ -128,17 +128,18 @@ Return ONLY the rewritten question, no explanation."""
         # Stage 1: Try regex extraction (fast, free)
         regex_tickers = self._extract_via_regex(processed_question)
         if len(regex_tickers) >= 2:
-            logger.info(f"Extracted {len(regex_tickers)} tickers via regex: {regex_tickers}")
+            logger.info(f"[ticker_extractor] Stage 1 (regex): extracted {regex_tickers}")
             return regex_tickers
 
+        logger.info(f"[ticker_extractor] Stage 1 (regex): found {regex_tickers}, need 2+ — falling back to AI")
+
         # Stage 2: Fall back to AI extraction (handles company names)
-        logger.info("Regex found < 2 tickers, falling back to AI extraction")
         ai_tickers = await self._extract_via_ai(processed_question)
         if len(ai_tickers) >= 2:
-            logger.info(f"Extracted {len(ai_tickers)} tickers via AI: {ai_tickers}")
+            logger.info(f"[ticker_extractor] Stage 2 (AI): extracted {ai_tickers}")
             return ai_tickers
 
-        logger.info("No comparison detected (< 2 valid tickers)")
+        logger.info(f"[ticker_extractor] Stage 2 (AI): found {ai_tickers} — no comparison detected (< 2 tickers)")
         return []
 
     def _extract_via_regex(self, question: str) -> list[str]:
@@ -177,25 +178,28 @@ Return ONLY the rewritten question, no explanation."""
         - "How does Nvidia compare to AMD?"
         - Mixed: "Compare AAPL to Microsoft"
         """
-        prompt = f"""Extract stock tickers or company names from this comparison question.
+        prompt = f"""Extract stock ticker symbols from this comparison question.
 
 Question: "{question}"
 
-Return a JSON object with a "tickers" array containing 2-4 stock identifiers (tickers or company names).
-Only extract if the question is comparing companies.
+Return a JSON object with a "tickers" array of 2-4 stock ticker symbols.
+- Prefer the official ticker symbol (e.g. "AAPL" not "Apple", "MSFT" not "Microsoft")
+- For non-US companies, use their most widely known ticker (e.g. "SSNLF" for Samsung, "XIACY" for Xiaomi)
+- Only extract if the question is comparing companies — otherwise return empty array
+- Return only the JSON object, no other text
 
 Examples:
 - "Compare AAPL vs MSFT" → {{"tickers": ["AAPL", "MSFT"]}}
-- "Apple vs Microsoft margins" → {{"tickers": ["Apple", "Microsoft"]}}
-- "Compare AAPL to Google" → {{"tickers": ["AAPL", "Google"]}}
-- "What is Apple's revenue?" → {{"tickers": []}}
-
-Return only the JSON object, no other text."""
+- "Apple vs Microsoft margins" → {{"tickers": ["AAPL", "MSFT"]}}
+- "Compare Apple and Samsung profit" → {{"tickers": ["AAPL", "SSNLF"]}}
+- "compare apple vs xiaomi" → {{"tickers": ["AAPL", "XIACY"]}}
+- "What is Apple's revenue?" → {{"tickers": []}}"""
 
         try:
             response = ""
             for chunk in self.agent.generate_content(prompt):
-                response += chunk
+                if isinstance(chunk, str):
+                    response += chunk
 
             response = response.strip()
             if response.startswith("```"):
@@ -204,13 +208,17 @@ Return only the JSON object, no other text."""
                     response = response[4:]
                 response = response.strip()
 
+            if not response:
+                logger.warning("AI extraction returned empty response")
+                return []
+
             data = json.loads(response)
             identifiers = data.get("tickers", [])
 
             # Resolve each identifier to ticker
             resolved_tickers = []
             for identifier in identifiers:
-                ticker = self._resolve_identifier(identifier)
+                ticker = self._resolve_identifier(identifier, allow_unresolved=True)
                 if ticker:
                     resolved_tickers.append(ticker)
 
@@ -220,9 +228,12 @@ Return only the JSON object, no other text."""
             logger.error(f"AI extraction failed: {e}")
             return []
 
-    def _resolve_identifier(self, identifier: str) -> Optional[str]:
+    def _resolve_identifier(self, identifier: str, allow_unresolved: bool = False) -> Optional[str]:
         """
         Resolve an identifier (ticker or company name) to a valid ticker.
+
+        When allow_unresolved=True, returns the identifier as-is if it matches
+        ticker format but isn't in our DB (for Google Search fallback).
         """
         identifier_upper = identifier.strip().upper()
         identifier_lower = identifier.strip().lower()
@@ -278,6 +289,10 @@ Return only the JSON object, no other text."""
                 f"with score {best_score:.2f}"
             )
             return best_match.ticker
+
+        if allow_unresolved and len(identifier_upper) >= 2 and identifier_upper not in TICKER_STOPWORDS:
+            logger.info(f"Allowing unresolved identifier as google_search target: {identifier_upper}")
+            return identifier_upper
 
         logger.warning(f"Could not resolve identifier: {identifier}")
         return None
