@@ -368,16 +368,10 @@ async def analyze_financial_data(ticker: str, request: Request):
                 if use_google_search:
                     fallback_reason: str | None = None
                     try:
-                        chunks_to_stream, has_sources = await asyncio.wait_for(
-                            collect_attempt_chunks(use_google_search=True),
-                            timeout=8.0,
-                        )
+                        chunks_to_stream, has_sources = await collect_attempt_chunks(use_google_search=True)
                         if not has_sources:
                             fallback_reason = "no_citations"
                             logger.warning("Search attempt returned no sources/citations. Falling back to non-search.")
-                    except asyncio.TimeoutError:
-                        fallback_reason = "timeout"
-                        logger.warning("Search attempt timed out (8s). Falling back to non-search.")
                     except Exception as e:
                         fallback_reason = "error"
                         logger.error(f"Search attempt failed. Falling back to non-search. Error: {e}")
@@ -387,7 +381,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                             json.dumps(
                                 {
                                     "type": "thinking_status",
-                                    "body": "Google Search unavailable/timed out. Continuing without live search; data may be less current.",
+                                    "body": "Live search failed or returned no usable citations. Continuing without live search; data may be less current.",
                                 }
                             )
                             + "\n\n"
