@@ -143,11 +143,12 @@ class PromptComponents:
             **Response Format — match length to the question's complexity:**
             - For single-fact questions (e.g. "what is X", "how much did Y earn"): answer in 1-2 sentences. State the fact and stop. Do NOT add extra context, related metrics, or explanation unless asked.
             - For simple comparison or trend questions: answer in 1-3 short paragraphs. No section headings. State the facts clearly and add a brief "why" if relevant.
-            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first.
+            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first. Limit to 1-2 sections.
             - In ALL cases: be concise, make every word count, avoid filler phrases.
             - Bold important figures and percentages.
             - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million").
             - If using section headings: keep them specific and catchy (3-5 words max), on separate bolded lines with a blank line after each heading.
+            - Keep each section to 2-3 sentences MAX (under 60 words). Tell the story behind the numbers, not every detail.
         """
 
     @staticmethod

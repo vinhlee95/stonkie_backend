@@ -44,9 +44,9 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             **Instructions for your analysis:**
 
-            Analyze the ETF data and organize your findings into multiple focused sections.
-            You decide how many sections are needed to thoroughly cover the key aspects that answer the user's question.
-            Aim for around 3 sections, but use fewer if the question is narrow or more if it requires broader coverage.
+            Analyze the ETF data and organize your findings into focused sections.
+            Limit to 1-2 sections maximum. Each section must be 2-3 sentences MAX (under 60 words).
+            Tell the story behind the numbers — don't list every detail.
 
             {section_structure}
 
