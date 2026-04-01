@@ -14,6 +14,16 @@ logger = logging.getLogger(__name__)
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+# Patterns for historical/static company facts that never need search
+_STATIC_FACT_PATTERNS = [
+    re.compile(r"\b(who|whom)\b.*(found|establish|start|creat|incorporat)", re.IGNORECASE),
+    re.compile(r"\bwhen\b.*(found|establish|start|creat|incorporat)", re.IGNORECASE),
+    re.compile(r"\b(where)\b.*(headquarter|based|located|hq)", re.IGNORECASE),
+    re.compile(r"\b(what|where|when)\b.*(ipo date|went public|go public|listed)", re.IGNORECASE),
+    re.compile(r"\bnamed after\b|\bname (come|origin|meaning|etymol)", re.IGNORECASE),
+    re.compile(r"\boriginal(ly)? (name|called)\b", re.IGNORECASE),
+]
+
 
 @dataclass(frozen=True)
 class SearchDecision:
@@ -54,6 +64,17 @@ class SearchDecisionEngine:
                 decision_fallback="none",
             )
 
+        # Fast path: skip search for obvious historical/static facts
+        if self._is_static_fact(question):
+            logger.info(f"SearchDecisionEngine fast path -> search OFF (static fact): {question[:80]}")
+            return SearchDecision(
+                use_google_search=False,
+                reason_code="stable_concept",
+                confidence=0.95,
+                decision_model="keyword_prefilter",
+                decision_fallback="none",
+            )
+
         try:
             raw = await asyncio.wait_for(
                 asyncio.to_thread(self._classify_sync, question, ticker, is_etf, available_periods),
@@ -76,6 +97,11 @@ class SearchDecisionEngine:
                 decision_model=ModelName.Sonnet46.value,
                 decision_fallback="classifier_fail_safe_on",
             )
+
+    @staticmethod
+    def _is_static_fact(question: str) -> bool:
+        """Check if question matches known historical/static fact patterns."""
+        return any(p.search(question) for p in _STATIC_FACT_PATTERNS)
 
     def _classify_sync(
         self, question: str, ticker: str, is_etf: bool, available_periods: dict[str, list] | None = None
@@ -103,14 +129,23 @@ Ticker context: {ticker or "none"}
 Is ETF flow: {str(is_etf).lower()}
 {db_context}
 Rules:
-- Return use_google_search=true for time-sensitive asks: latest/current/today/now/news/recent/events/regulatory changes/price-now/real-time.
+- Return false for well-known historical facts about companies: founding date, founders, company origin, headquarters location, name etymology, IPO date, historical milestones — these don't change and are reliably in training data.
 - Return false for stable educational concepts and timeless explanations.
 - Return false when the database already has financial data covering the requested periods.
+- Return true for time-sensitive asks: latest/current/today/now/news/recent/events/regulatory changes/price-now/real-time/current CEO/current leadership.
 - If unsure, prefer true.
 - Output ONLY JSON (no markdown) with exact keys:
   - use_google_search (boolean)
   - reason_code (string snake_case)
   - confidence (float between 0 and 1)
+
+Examples:
+- "Who founded Nike?" -> {{"use_google_search": false, "reason_code": "stable_concept", "confidence": 0.95}}
+- "When was Apple established?" -> {{"use_google_search": false, "reason_code": "stable_concept", "confidence": 0.95}}
+- "What is Tesla's IPO date?" -> {{"use_google_search": false, "reason_code": "stable_concept", "confidence": 0.9}}
+- "Where is Microsoft headquartered?" -> {{"use_google_search": false, "reason_code": "stable_concept", "confidence": 0.95}}
+- "Who is the current CEO of Nike?" -> {{"use_google_search": true, "reason_code": "time_sensitive", "confidence": 0.85}}
+- "What is Nike's latest earnings?" -> {{"use_google_search": true, "reason_code": "latest_info", "confidence": 0.95}}
 
 Allowed reason_code values:
 time_sensitive, latest_info, stable_concept, db_data_sufficient, ambiguous_default_on, other
