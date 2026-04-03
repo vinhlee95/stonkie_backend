@@ -5,6 +5,8 @@ import re
 from datetime import date
 from typing import Dict, List
 
+from services.shared.prompt_utils import visual_output_instructions
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,8 +177,6 @@ class PromptComponents:
     @staticmethod
     def visual_output_instructions() -> str:
         """Instructions for emitting inline SVG/HTML visuals via fenced code blocks."""
-        from services.shared.prompt_utils import visual_output_instructions
-
         return visual_output_instructions()
 
     @staticmethod

@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from services.shared.prompt_utils import visual_output_instructions
+
 
 class ETFPromptComponents:
     """Reusable prompt fragments for ETF analysis."""
@@ -146,6 +148,4 @@ class ETFPromptComponents:
     @staticmethod
     def visual_output_instructions() -> str:
         """Instructions for emitting inline SVG/HTML visuals via fenced code blocks."""
-        from services.shared.prompt_utils import visual_output_instructions
-
         return visual_output_instructions()
