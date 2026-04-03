@@ -9,6 +9,7 @@ from langfuse import observe
 
 from ai_models.model_name import ModelName
 from services.search_decision_engine import SearchDecisionEngine
+from utils.visual_stream import VisualAnswerStreamSplitter
 
 from .etf_question_analyzer.classifier import ETFQuestionClassifier
 from .etf_question_analyzer.comparison_handler import ETFComparisonHandler
@@ -101,6 +102,7 @@ class ETFAnalyzer:
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
             short_analysis = not deep_analysis
             logger.info(f"Routing to comparison handler for tickers: {comparison_tickers}")
+            comparison_splitter = VisualAnswerStreamSplitter()
             async for chunk in self.comparison_handler.handle(
                 tickers=comparison_tickers,
                 question=question,
@@ -109,7 +111,13 @@ class ETFAnalyzer:
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
             ):
-                yield chunk
+                if chunk.get("type") == "answer" and isinstance(chunk.get("body"), str):
+                    for visual_event in comparison_splitter.process_text(chunk["body"]):
+                        yield visual_event
+                else:
+                    yield chunk
+            for visual_event in comparison_splitter.finalize():
+                yield visual_event
             return
 
         # Fetch optimized data
@@ -135,6 +143,7 @@ class ETFAnalyzer:
         # Route to handler and track sources
         t_handler = time.perf_counter()
         has_sources = False
+        visual_splitter = VisualAnswerStreamSplitter()
 
         if question_type == ETFQuestionType.GENERAL_ETF:
             handler_gen = self.general_handler.handle(context)
@@ -156,7 +165,14 @@ class ETFAnalyzer:
                 grouped = (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
                 if grouped:
                     has_sources = True
-            yield chunk
+            if chunk_type == "answer" and isinstance(chunk.get("body"), str):
+                for visual_event in visual_splitter.process_text(chunk.get("body")):
+                    yield visual_event
+            else:
+                yield chunk
+
+        for visual_event in visual_splitter.finalize():
+            yield visual_event
 
         if use_google_search and not has_sources:
             logger.warning("ETF search attempt completed with no sources/citations.")
