@@ -159,6 +159,17 @@ def test_close_token_split_across_chunks():
     assert any(e == {"type": "answer", "body": " after"} for e in events)
 
 
+def test_fenced_close_token_split_across_chunks():
+    splitter = VisualAnswerStreamSplitter()
+    events = collect(splitter, ["```html\n<div>x</div>\n``", "`\nAfter"])
+
+    assert any(e["type"] == "answer_visual_done" for e in events)
+    assert not any(e["type"] == "answer_visual_error" for e in events)
+    done = next(e for e in events if e["type"] == "answer_visual_done")
+    assert done["body"]["content"] == "<div>x</div>\n"
+    assert any("After" in e.get("body", "") for e in events if e["type"] == "answer")
+
+
 def test_unclosed_html_tag_falls_back_with_error():
     splitter = VisualAnswerStreamSplitter()
     events = collect(splitter, ["<html><body>no close tag"])
