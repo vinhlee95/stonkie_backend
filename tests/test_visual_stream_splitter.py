@@ -118,3 +118,36 @@ def test_fenced_visual_done_does_not_include_closing_fence():
     done = [e for e in events if e["type"] == "answer_visual_done"][0]
     assert done["body"]["content"] == "<div>chart</div>\n"
     assert "```" not in done["body"]["content"]
+
+
+def test_multiple_sequential_visual_blocks():
+    splitter = VisualAnswerStreamSplitter()
+    events = collect(
+        splitter,
+        ["Before\n```html\n<div>A</div>\n```\nMiddle\n```svg\n<svg/>\n```\nAfter"],
+    )
+
+    starts = [e for e in events if e["type"] == "answer_visual_start"]
+    dones = [e for e in events if e["type"] == "answer_visual_done"]
+    assert len(starts) == 2
+    assert starts[0]["body"]["lang"] == "html"
+    assert starts[1]["body"]["lang"] == "svg"
+    assert len(dones) == 2
+    assert dones[0]["body"]["content"] == "<div>A</div>\n"
+    assert dones[1]["body"]["content"] == "<svg/>\n"
+    answer_bodies = [e["body"] for e in events if e["type"] == "answer"]
+    assert "Before\n" in answer_bodies
+    assert any("After" in b for b in answer_bodies)
+
+
+def test_unclosed_html_tag_falls_back_with_error():
+    splitter = VisualAnswerStreamSplitter()
+    events = collect(splitter, ["<html><body>no close tag"])
+
+    assert events[0]["type"] == "answer_visual_start"
+    assert events[0]["body"]["lang"] == "html"
+    error = next(e for e in events if e["type"] == "answer_visual_error")
+    assert error["body"]["lang"] == "html"
+    fallback = next(e for e in events if e["type"] == "answer")
+    # html_tag fallback is raw content (no fence prefix)
+    assert "<html><body>no close tag" in fallback["body"]

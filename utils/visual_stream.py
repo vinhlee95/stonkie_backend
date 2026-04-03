@@ -15,7 +15,13 @@ class _VisualState:
 
 
 class VisualAnswerStreamSplitter:
-    """Stateful splitter for ```html / ```svg fenced blocks in streamed answer text."""
+    """Stateful splitter for ```html / ```svg fenced blocks in streamed answer text.
+
+    Limitations:
+    - Nested backtick fences inside a visual block are not supported. A ``` sequence
+      inside HTML/SVG content (e.g. an embedded code example) will prematurely close
+      the block. Fenced openers use case-sensitive matching; <html> uses case-insensitive.
+    """
 
     OPENERS = ("```html\n", "```svg\n")
     CLOSER = "```"
@@ -132,7 +138,11 @@ class VisualAnswerStreamSplitter:
             message = f"Incomplete visual block for {self._visual.lang}; falling back to plain text."
             yield {
                 "type": "answer_visual_error",
-                "body": {"block_id": self._visual.block_id, "message": message},
+                "body": {
+                    "block_id": self._visual.block_id,
+                    "lang": self._visual.lang,
+                    "message": message,
+                },
             }
             if self._visual.close_token == self.HTML_TAG_CLOSER:
                 fallback = self._visual.full_content + self._visual.content

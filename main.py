@@ -38,7 +38,6 @@ from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.search_decision_engine import SearchDecisionEngine
 from utils.logging import setup_local_logging, setup_production_logging
-from utils.visual_stream import VisualAnswerStreamSplitter
 
 load_dotenv()
 
@@ -268,7 +267,6 @@ async def analyze_financial_data(ticker: str, request: Request):
                 yield json.dumps({"type": "conversation", "body": {"conversationId": conversation_id}}) + "\n\n"
 
                 assistant_output_buffer = []
-                splitter = VisualAnswerStreamSplitter()
 
                 def append_assistant_output(event: dict):
                     event_type = event.get("type")
@@ -283,6 +281,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                         content = body.get("content")
                         if isinstance(lang, str) and isinstance(content, str):
                             assistant_output_buffer.append(f"```{lang}\n{content}```")
+                        return
 
                 analyzer = etf_analyzer if is_etf else financial_analyzer
                 analyzer_generator = analyzer.analyze_question(
@@ -300,20 +299,8 @@ async def analyze_financial_data(ticker: str, request: Request):
                     if await request.is_disconnected():
                         return
 
-                    if chunk.get("type") == "answer":
-                        body = chunk.get("body", "")
-                        if isinstance(body, str):
-                            for visual_event in splitter.process_text(body):
-                                append_assistant_output(visual_event)
-                                yield json.dumps(visual_event) + "\n\n"
-                            continue
-
                     append_assistant_output(chunk)
                     yield json.dumps(chunk) + "\n\n"
-
-                for visual_event in splitter.finalize():
-                    append_assistant_output(visual_event)
-                    yield json.dumps(visual_event) + "\n\n"
 
                 if assistant_output_buffer:
                     assistant_full_text = "".join(assistant_output_buffer)
