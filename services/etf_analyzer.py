@@ -102,6 +102,7 @@ class ETFAnalyzer:
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
             short_analysis = not deep_analysis
             logger.info(f"Routing to comparison handler for tickers: {comparison_tickers}")
+            comparison_splitter = VisualAnswerStreamSplitter()
             async for chunk in self.comparison_handler.handle(
                 tickers=comparison_tickers,
                 question=question,
@@ -110,7 +111,13 @@ class ETFAnalyzer:
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
             ):
-                yield chunk
+                if chunk.get("type") == "answer" and isinstance(chunk.get("body"), str):
+                    for visual_event in comparison_splitter.process_text(chunk["body"]):
+                        yield visual_event
+                else:
+                    yield chunk
+            for visual_event in comparison_splitter.finalize():
+                yield visual_event
             return
 
         # Fetch optimized data

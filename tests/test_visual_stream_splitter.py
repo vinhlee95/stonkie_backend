@@ -137,6 +137,7 @@ def test_multiple_sequential_visual_blocks():
     assert dones[1]["body"]["content"] == "<svg/>\n"
     answer_bodies = [e["body"] for e in events if e["type"] == "answer"]
     assert "Before\n" in answer_bodies
+    assert any("\nMiddle\n" in b for b in answer_bodies)
     assert any("After" in b for b in answer_bodies)
 
 
@@ -151,3 +152,4 @@ def test_unclosed_html_tag_falls_back_with_error():
     fallback = next(e for e in events if e["type"] == "answer")
     # html_tag fallback is raw content (no fence prefix)
     assert "<html><body>no close tag" in fallback["body"]
+    assert not any(e["type"] == "answer_visual_done" for e in events)
