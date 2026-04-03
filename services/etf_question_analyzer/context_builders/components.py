@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from services.shared.prompt_utils import visual_output_instructions
+
 
 class ETFPromptComponents:
     """Reusable prompt fragments for ETF analysis."""
@@ -92,9 +94,9 @@ class ETFPromptComponents:
         """Build section structure template specifically for ETF comparisons."""
         return """
             **Structure:**
-            - Follow up with 2-3 focused comparison sections, each covering a distinct aspect
-            - Each section should have a bold, descriptive heading: **Section Heading**
-            - Keep each section content under 50 words - concise but comprehensive enough for meaningful comparison
+            - Follow up with 1-2 focused comparison sections, each covering a distinct aspect
+            - Each section should have a bold, descriptive heading: **Section Heading**, followed by a blank line before the content
+            - Keep each section to 2-3 sentences MAX (under 60 words) - concise but tell the story behind the numbers
 
             **Section Guidelines:**
             - Each section heading should be specific and descriptive (3-6 words). Section headings must be in separate lines and bolded.
@@ -114,11 +116,12 @@ class ETFPromptComponents:
             **Response Format — match length to the question's complexity:**
             - For single-fact questions (e.g. "what is X", "how much did Y earn"): answer in 1-2 sentences. State the fact and stop. Do NOT add extra context, related metrics, or explanation unless asked.
             - For simple comparison or trend questions: answer in 1-3 short paragraphs. No section headings. State the facts clearly and add a brief "why" if relevant.
-            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first.
+            - For multi-faceted analytical questions covering 3+ distinct topics: use bold section headings (**Heading**) to organize, with a brief intro paragraph first. Limit to 1-2 sections.
             - In ALL cases: be concise, make every word count, avoid filler phrases.
             - Bold important figures and percentages.
             - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M").
             - If using section headings: keep them specific and catchy (3-5 words max), on separate bolded lines with a blank line after each heading.
+            - Keep each section to 2-3 sentences MAX (under 60 words). Tell the story behind the numbers, not every detail.
         """
 
     @staticmethod
@@ -141,3 +144,8 @@ class ETFPromptComponents:
 
             [Another focused insight]
         """
+
+    @staticmethod
+    def visual_output_instructions() -> str:
+        """Instructions for emitting inline SVG/HTML visuals via fenced code blocks."""
+        return visual_output_instructions()

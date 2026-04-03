@@ -18,6 +18,7 @@ from .context_builders.comparison_builder import (
     ComparisonCompanyBuilder,
     ComparisonCompanyBuilderInput,
 )
+from .context_builders.components import PromptComponents
 from .handlers import _collect_paragraph_sources, _process_source_tags
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class CompanyComparisonHandler:
                 short_analysis=short_analysis,
             )
             prompt = self.builder.build(builder_input)
+            prompt += "\n\n" + PromptComponents.visual_output_instructions()
 
             # Generate comparison with LLM
             agent = MultiAgent(model_name=preferred_model)

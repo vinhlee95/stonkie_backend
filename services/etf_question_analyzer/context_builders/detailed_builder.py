@@ -27,6 +27,7 @@ class DetailedETFBuilder(ETFContextBuilder):
         example_structure = ETFPromptComponents.example_structure()
         etf_formatting = ETFPromptComponents.etf_data_formatting()
         source_instructions = ETFPromptComponents.source_instructions()
+        visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
@@ -44,9 +45,9 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             **Instructions for your analysis:**
 
-            Analyze the ETF data and organize your findings into multiple focused sections.
-            You decide how many sections are needed to thoroughly cover the key aspects that answer the user's question.
-            Aim for around 3 sections, but use fewer if the question is narrow or more if it requires broader coverage.
+            Analyze the ETF data and organize your findings into focused sections.
+            Limit to 1-2 sections maximum. Each section must be 2-3 sentences MAX (under 60 words).
+            Tell the story behind the numbers — don't list every detail.
 
             {section_structure}
 
@@ -56,6 +57,8 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             {source_instructions}
 
+            {visual_instructions}
+
             Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
         """
 
@@ -64,6 +67,7 @@ class DetailedETFBuilder(ETFContextBuilder):
         base_context = ETFPromptComponents.base_context(input.ticker, input.question)
         etf_formatting = ETFPromptComponents.etf_data_formatting()
         source_instructions = ETFPromptComponents.source_instructions()
+        visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
@@ -140,6 +144,8 @@ class DetailedETFBuilder(ETFContextBuilder):
             {etf_formatting}
 
             {source_instructions}
+
+            {visual_instructions}
         """
 
     def _serialize_etf_data(self, etf_data) -> Dict:

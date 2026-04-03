@@ -39,13 +39,13 @@ class QuarterlyContextBuilder(ContextBuilder):
 
             **Structure:**
             - Start with a brief introductory paragraph (under 80 words) that directly answers the user's question
-            - Follow with 2-3 focused sections maximum, each covering the most important distinct key aspect or finding
-            - Each section should have a bold, descriptive heading: **Section Heading**
-            - Each section should be 50-80 words total: include key metrics and 1-2 sentences explaining the "why" behind the figures
-            - Maximum 3 sections - focus on the most critical insights only
+            - Follow with 1-2 focused sections maximum, each covering the most important distinct key aspect or finding
+            - Each section should have a bold, descriptive heading: **Section Heading**, followed by a blank line before the content
+            - Each section should be 2-3 sentences MAX (under 60 words): include key metrics and 1-2 sentences explaining the "why" behind the figures
+            - Maximum 2 sections - focus on the most critical insights only
 
             **Section Guidelines:**
-            - Select only the 2-3 most important aspects that directly answer the user's question - quality over quantity
+            - Select only the 1-2 most important aspects that directly answer the user's question - quality over quantity
             - Each section heading should be specific, descriptive, and informative (3-5 words max). The section headings must be in separate lines and bolded.
             - Add a new line after each section heading.
             - Each section should: (1) state key figures and metrics, (2) include 1-2 sentences explaining WHY they changed or WHAT drives them
@@ -73,10 +73,6 @@ class QuarterlyContextBuilder(ContextBuilder):
             **Section Heading 2**
 
             [Another key finding with metrics. 1-2 sentences explaining the "why" behind the figures.]
-
-            **Section Heading 3** (optional - only if a third aspect is critical)
-
-            [Third key insight with metrics. 1-2 sentences explaining the underlying reason or implication.]
 
             **Sources:**
             At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"

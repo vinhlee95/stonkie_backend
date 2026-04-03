@@ -79,9 +79,9 @@ class ComparisonCompanyBuilder:
 
             Then show a vertical comparison table with the most relevant metrics for the question. Choose which metrics to include based on what the user is asking about.
 
-            Then write 2-3 focused sections analyzing the most relevant comparison aspects (valuation, profitability, growth, dividends, industry position).
+            Then write 1-2 focused sections analyzing the most relevant comparison aspects (valuation, profitability, growth, dividends, industry position).
 
-            Each section must have a **bold markdown heading** (e.g. **Profitability**) on its own line. Use specific numbers. Don't just state facts — explain WHY the differences exist (e.g. business model, revenue mix, market dynamics, competitive position, strategic decisions). Connect the numbers to the underlying drivers.
+            Each section must have a **bold markdown heading** (e.g. **Profitability**) on its own line, followed by a blank line before the content. Keep each section to 2-3 sentences MAX (under 60 words). Use specific numbers. Don't just state facts — explain WHY the differences exist (e.g. business model, revenue mix, market dynamics). Be concise — tell the story behind the numbers, not every detail.
 
             {training_data_warning}
 

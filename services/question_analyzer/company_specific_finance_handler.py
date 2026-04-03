@@ -452,7 +452,10 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             model_used = agent.model_name
 
             # Combine prompts for OpenRouter (which expects a single string)
-            combined_prompt = f"{financial_context}{conversation_context}\n\n{analysis_prompt}\n\n{source_prompt}"
+            visual_prompt = PromptComponents.visual_output_instructions()
+            combined_prompt = (
+                f"{financial_context}{conversation_context}\n\n{analysis_prompt}\n\n{source_prompt}\n\n{visual_prompt}"
+            )
 
             # Enable Google Search for quarterly and annual summary questions to read filing URLs
             search_enabled = use_google_search or (
