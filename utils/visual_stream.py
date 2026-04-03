@@ -93,10 +93,14 @@ class VisualAnswerStreamSplitter:
             if self._visual is not None:
                 close_idx = self._visual.content.lower().find(self._visual.close_token.lower())
                 if close_idx == -1:
-                    if self._visual.content:
-                        delta = self._visual.content
+                    # Hold back len(close_token)-1 bytes so a partial close token
+                    # split across process_text calls is not flushed prematurely.
+                    hold = len(self._visual.close_token) - 1
+                    flush_upto = len(self._visual.content) - hold
+                    if flush_upto > 0:
+                        delta = self._visual.content[:flush_upto]
                         self._visual.full_content += delta
-                        self._visual.content = ""
+                        self._visual.content = self._visual.content[flush_upto:]
                         yield {
                             "type": "answer_visual_delta",
                             "body": {"block_id": self._visual.block_id, "delta": delta},

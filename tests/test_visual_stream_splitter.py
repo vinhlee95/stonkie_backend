@@ -141,6 +141,24 @@ def test_multiple_sequential_visual_blocks():
     assert any("After" in b for b in answer_bodies)
 
 
+def test_close_token_split_across_chunks():
+    """Close token arriving in a separate chunk must still be detected (not fall back to error)."""
+    splitter = VisualAnswerStreamSplitter()
+    events = collect(
+        splitter,
+        [
+            "<html><body>content</body></htm",
+            "l> after",
+        ],
+    )
+
+    assert any(e["type"] == "answer_visual_done" for e in events), "block should close cleanly"
+    assert not any(e["type"] == "answer_visual_error" for e in events)
+    done = next(e for e in events if e["type"] == "answer_visual_done")
+    assert done["body"]["content"].endswith("</html>")
+    assert any(e == {"type": "answer", "body": " after"} for e in events)
+
+
 def test_unclosed_html_tag_falls_back_with_error():
     splitter = VisualAnswerStreamSplitter()
     events = collect(splitter, ["<html><body>no close tag"])
