@@ -371,6 +371,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     )
 
             date_context = PromptComponents.current_date()
+            visual_instructions = PromptComponents.visual_output_instructions()
             prompt = f"""
                 {date_context}
                 Please explain this financial concept or answer this question:
@@ -388,6 +389,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 - If the previous conversation does not contain enough information to compute something, ask ONE clarifying question.
 
                 {conversation_context}
+                {visual_instructions}
             """
 
             t_model = time.perf_counter()
@@ -508,6 +510,7 @@ class CompanyGeneralHandler(BaseQuestionHandler):
                 logger.debug(f"💬 No conversation context to inject (CompanyGeneralHandler, ticker: {ticker.upper()})")
 
             date_context = PromptComponents.current_date()
+            visual_instructions = PromptComponents.visual_output_instructions()
             prompt = f"""
                 You are an expert about a business. {date_context}
                 Answer the following question about {company_name} (ticker: {ticker}):
@@ -516,8 +519,9 @@ class CompanyGeneralHandler(BaseQuestionHandler):
 {conversation_context}
                 Keep the response concise in under 200 words. Do not repeat points or facts. Connect the facts to a compelling story.
                 Break the answer into different paragraphs and bullet points for better readability.
-                
+
                 {source_instructions}
+                {visual_instructions}
             """
 
             t_model = time.perf_counter()

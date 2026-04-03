@@ -142,3 +142,10 @@ class ETFPromptComponents:
 
             [Another focused insight]
         """
+
+    @staticmethod
+    def visual_output_instructions() -> str:
+        """Reuse visual output instructions from the main PromptComponents."""
+        from services.question_analyzer.context_builders.components import PromptComponents
+
+        return PromptComponents.visual_output_instructions()

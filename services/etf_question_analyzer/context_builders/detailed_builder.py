@@ -27,6 +27,7 @@ class DetailedETFBuilder(ETFContextBuilder):
         example_structure = ETFPromptComponents.example_structure()
         etf_formatting = ETFPromptComponents.etf_data_formatting()
         source_instructions = ETFPromptComponents.source_instructions()
+        visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
@@ -55,6 +56,8 @@ class DetailedETFBuilder(ETFContextBuilder):
             {etf_formatting}
 
             {source_instructions}
+
+            {visual_instructions}
 
             Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
         """
@@ -140,6 +143,8 @@ class DetailedETFBuilder(ETFContextBuilder):
             {etf_formatting}
 
             {source_instructions}
+
+            {ETFPromptComponents.visual_output_instructions()}
         """
 
     def _serialize_etf_data(self, etf_data) -> Dict:
