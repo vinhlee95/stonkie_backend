@@ -145,7 +145,7 @@ class ETFPromptComponents:
 
     @staticmethod
     def visual_output_instructions() -> str:
-        """Reuse visual output instructions from the main PromptComponents."""
-        from services.question_analyzer.context_builders.components import PromptComponents
+        """Instructions for emitting inline SVG/HTML visuals via fenced code blocks."""
+        from services.shared.prompt_utils import visual_output_instructions
 
-        return PromptComponents.visual_output_instructions()
+        return visual_output_instructions()

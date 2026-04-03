@@ -371,7 +371,6 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                     )
 
             date_context = PromptComponents.current_date()
-            visual_instructions = PromptComponents.visual_output_instructions()
             prompt = f"""
                 {date_context}
                 Please explain this financial concept or answer this question:
@@ -389,7 +388,6 @@ class GeneralFinanceHandler(BaseQuestionHandler):
                 - If the previous conversation does not contain enough information to compute something, ask ONE clarifying question.
 
                 {conversation_context}
-                {visual_instructions}
             """
 
             t_model = time.perf_counter()

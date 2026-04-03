@@ -67,6 +67,7 @@ class DetailedETFBuilder(ETFContextBuilder):
         base_context = ETFPromptComponents.base_context(input.ticker, input.question)
         etf_formatting = ETFPromptComponents.etf_data_formatting()
         source_instructions = ETFPromptComponents.source_instructions()
+        visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
@@ -144,7 +145,7 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             {source_instructions}
 
-            {ETFPromptComponents.visual_output_instructions()}
+            {visual_instructions}
         """
 
     def _serialize_etf_data(self, etf_data) -> Dict:
