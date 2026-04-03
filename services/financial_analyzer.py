@@ -24,6 +24,7 @@ from services.question_analyzer.handlers import (
 from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecisionEngine
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
+from utils.visual_stream import VisualAnswerStreamSplitter
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,7 @@ class FinancialAnalyzer:
         # Route to handler and track sources
         t_handler = time.perf_counter()
         has_sources = False
+        visual_splitter = VisualAnswerStreamSplitter()
 
         if classification == QuestionType.GENERAL_FINANCE.value:
             handler_gen = handler.handle(
@@ -271,7 +273,14 @@ class FinancialAnalyzer:
                 grouped = (chunk.get("body") or {}).get("sources") if isinstance(chunk.get("body"), dict) else []
                 if grouped:
                     has_sources = True
-            yield chunk
+            if chunk_type == "answer" and isinstance(chunk.get("body"), str):
+                for visual_event in visual_splitter.process_text(chunk.get("body")):
+                    yield visual_event
+            else:
+                yield chunk
+
+        for visual_event in visual_splitter.finalize():
+            yield visual_event
 
         if use_google_search and not has_sources:
             logger.warning("Search attempt completed with no sources/citations.")
