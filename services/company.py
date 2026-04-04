@@ -16,7 +16,7 @@ from connectors.vector_store import (
     search_similar_content_and_format_to_texts,
 )
 from models.company_financial import CompanyFinancials
-from tasks.financial_crawler import crawl_annual_financial_data_task
+from tasks.financial_crawler import crawl_annual_financial_data_task, crawl_quarterly_financial_data_task
 
 COMPANY_DOCUMENT_INDEX_NAME = "company10k"
 
@@ -314,7 +314,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             else company_financial_connector.get_company_financial_statements(ticker)
         )
 
-        # If no statements found, dispatch crawling tasks for all report types, do annual first
+        # If no statements found, dispatch crawling tasks for all report types
         if len(statements) == 0 and period_type in [PeriodType.ANNUALLY, None]:
             logger.info(f"No financial data found for {ticker}, checking task states")
 
@@ -338,10 +338,36 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                     ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="annually"
                 )
 
-            # Return empty list for now, client will poll later to check if data is available
-            return []
+        # Dispatch quarterly crawling tasks if no quarterly data exists
+        if period_type in [PeriodType.QUARTERLY, None]:
+            quarterly_statements = (
+                statements
+                if period_type == PeriodType.QUARTERLY
+                else company_financial_connector.get_company_quarterly_financial_statements(ticker)
+            )
+            if len(quarterly_statements) == 0:
+                logger.info(f"No quarterly financial data found for {ticker}, dispatching quarterly crawl tasks")
 
-        # TODO: dispatch quarterly crawling task
+                for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
+                    decision = can_dispatch_task(ticker, rpt_type, "quarterly")
+
+                    if not decision.can_dispatch:
+                        logger.info(
+                            f"Skipping quarterly task dispatch for {ticker} - {rpt_type}: {decision.reason}"
+                            + (f", existing task_id: {decision.existing_task_id}" if decision.existing_task_id else "")
+                        )
+                        continue
+
+                    task = crawl_quarterly_financial_data_task.delay(ticker, rpt_type)
+                    logger.info(f"Quarterly crawl task queued for {ticker} - {rpt_type}, task_id: {task.id}")
+
+                    set_task_state(
+                        ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="quarterly"
+                    )
+
+        # Return empty if no annual/quarterly data was found
+        if len(statements) == 0:
+            return []
 
         if not report_type:
             return statements
@@ -375,16 +401,37 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             if period_type == PeriodType.ANNUALLY:
                 logger.info(f"No annual financial data found for {ticker} - {report_type}, dispatching crawl task")
 
-                # Queue Celery task for background crawling
-                task = crawl_annual_financial_data_task.delay(ticker, report_type)
+                decision = can_dispatch_task(ticker, report_type, "annually")
+                if decision.can_dispatch:
+                    task = crawl_annual_financial_data_task.delay(ticker, report_type)
+                    logger.info(f"Crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
 
-                logger.info(f"Crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
+                    set_task_state(
+                        ticker=ticker,
+                        report_type=report_type,
+                        status="pending",
+                        task_id=task.id,
+                        period_type="annually",
+                    )
 
-                # Return empty list for now, client will poll later to check if data is available
                 return []
 
             if period_type == PeriodType.QUARTERLY:
-                # TODO: dispatch quarterly crawling task
+                logger.info(f"No quarterly {report_type} data found for {ticker}, dispatching crawl task")
+
+                decision = can_dispatch_task(ticker, report_type, "quarterly")
+                if decision.can_dispatch:
+                    task = crawl_quarterly_financial_data_task.delay(ticker, report_type)
+                    logger.info(f"Quarterly crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
+
+                    set_task_state(
+                        ticker=ticker,
+                        report_type=report_type,
+                        status="pending",
+                        task_id=task.id,
+                        period_type="quarterly",
+                    )
+
                 return filtered_statements
 
         return filtered_statements
