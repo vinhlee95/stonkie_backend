@@ -25,6 +25,7 @@ class DetailedContextBuilder(ContextBuilder):
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements
         )
+        data_coverage = PromptComponents.data_coverage_notice(input.annual_statements, input.quarterly_statements)
 
         return f"""
             {base_context}
@@ -38,12 +39,16 @@ class DetailedContextBuilder(ContextBuilder):
             Quarterly Financial Statements:
             {input.quarterly_statements}
 
+            {data_coverage}
+
             {available_sources}
 
             **Instructions for your analysis:**
 
             Analyze the financial data and provide a clear, direct answer to the user's question.
             Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
+
+            {PromptComponents.data_grounding_rules()}
 
             {section_structure}
 
@@ -95,6 +100,7 @@ class DetailedContextBuilder(ContextBuilder):
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements
         )
+        data_coverage = PromptComponents.data_coverage_notice(input.annual_statements, input.quarterly_statements)
 
         return f"""
             {base_context}
@@ -108,9 +114,13 @@ class DetailedContextBuilder(ContextBuilder):
             Quarterly Financial Statements:
             {input.quarterly_statements}
 
+            {data_coverage}
+
             {available_sources}
 
             **Instructions for your analysis:**
+
+            {PromptComponents.data_grounding_rules()}
 
             Structure your response with EXACTLY 3 sections in this order:
             
