@@ -120,15 +120,15 @@ class SearchDecisionEngine:
             annual = available_periods.get("annual", [])
             quarterly = available_periods.get("quarterly", [])
             metrics_line = ""
+            metrics_instruction = "\nIMPORTANT: If the question asks about financial metrics (revenue, profit, earnings, etc.) for periods covered by the database, return false — database data is sufficient. Only return true when the question needs information the database CANNOT provide (e.g., news, real-time price, regulatory changes, events, analyst opinions)."
             if available_metrics:
                 metrics_line = f"\n- Available metrics: {', '.join(available_metrics)}"
+                metrics_instruction = "\nIMPORTANT: The database ONLY contains the metrics listed above. If the question asks about a metric NOT in the available metrics list (e.g., dividend per share, buyback amount, insider ownership), return true — the database does NOT have that data and web search is needed.\nIf the question asks about metrics that ARE in the list for periods covered by the database, return false — database data is sufficient."
             db_context = f"""
 Financial data already available in our database for {ticker}:
 - Annual statements: {annual if annual else "none"}
 - Quarterly statements: {quarterly[:8] if quarterly else "none"}{metrics_line}
-
-IMPORTANT: The database ONLY contains the metrics listed above. If the question asks about a metric NOT in the available metrics list (e.g., dividend per share, buyback amount, insider ownership), return true — the database does NOT have that data and web search is needed.
-If the question asks about metrics that ARE in the list for periods covered by the database, return false — database data is sufficient.
+{metrics_instruction}
 """
 
         prompt = f"""
@@ -156,6 +156,7 @@ Examples:
 - "Where is Microsoft headquartered?" -> {{"use_google_search": false, "reason_code": "stable_concept", "confidence": 0.95}}
 - "Who is the current CEO of Nike?" -> {{"use_google_search": true, "reason_code": "time_sensitive", "confidence": 0.85}}
 - "What is Nike's latest earnings?" -> {{"use_google_search": true, "reason_code": "latest_info", "confidence": 0.95}}
+- "What is FORTUM.HE's dividend per share?" (DB has revenue, net income but NOT dividend per share) -> {{"use_google_search": true, "reason_code": "db_metric_missing", "confidence": 0.9}}
 
 Allowed reason_code values:
 time_sensitive, latest_info, stable_concept, db_data_sufficient, db_metric_missing, ambiguous_default_on, other

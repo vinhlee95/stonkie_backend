@@ -183,9 +183,9 @@ class PromptComponents:
     def data_grounding_rules() -> str:
         return """
             CRITICAL DATA GROUNDING RULES:
-            - You may ONLY cite numbers and facts that are explicitly present in the financial data provided above.
-            - If the requested metric (e.g., dividend per share, buyback amount, insider ownership) does not appear in the provided data, you MUST explicitly state: "This specific metric is not available in the financial data I have access to."
-            - Do NOT extrapolate, calculate, or infer metrics that are not explicitly present in the data.
+            - You may ONLY cite numbers and facts that are explicitly present in the financial data provided above. Calculations derived solely from provided figures (e.g., margins, growth rates, ratios) are allowed.
+            - If the requested metric (e.g., dividend per share, buyback amount, insider ownership) does not appear in the provided data and cannot be derived from it, you MUST explicitly state: "This specific metric is not available in the financial data I have access to."
+            - Do NOT present figures that would require data not present in the statements above.
             - Do NOT cite any source URL unless it was explicitly provided in the context above or returned by Google Search results.
             - If you cannot fully answer the question with the provided data, suggest the user check the company's investor relations page for this specific information.
         """
