@@ -38,11 +38,12 @@ def check_alpha_vantage(ticker: str) -> None:
     url = f"https://www.alphavantage.co/query" f"?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_API_KEY}"
     data = requests.get(url, timeout=15).json()
 
-    name = data.get("Name")
-    market_cap = data.get("MarketCapitalization")
     if not data:
         print("FAIL — empty response")
-    elif not name or not market_cap:
+        return
+    name = data.get("Name")
+    market_cap = data.get("MarketCapitalization")
+    if not name or not market_cap:
         print("FAIL — missing Name or MarketCapitalization")
         print(f"  Keys:         {list(data.keys())}")
         print(f"  Raw response: {json.dumps(data, indent=2)[:400]}")
@@ -66,11 +67,12 @@ def check_finnhub_profile(ticker: str) -> None:
     url = f"https://finnhub.io/api/v1/stock/profile2?symbol={ticker}&token={FINNHUB_API_KEY}"
     data = requests.get(url, timeout=15).json()
 
-    name = data.get("name")
-    market_cap = data.get("marketCapitalization")
     if not data:
         print("FAIL — empty response")
-    elif not name or not market_cap:
+        return
+    name = data.get("name")
+    market_cap = data.get("marketCapitalization")
+    if not name or not market_cap:
         print("FAIL — missing name or marketCapitalization")
         print(f"  Keys:         {list(data.keys())}")
         print(f"  Raw response: {json.dumps(data, indent=2)[:400]}")

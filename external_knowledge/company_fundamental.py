@@ -1,7 +1,6 @@
 import os
 
 import requests
-import yfinance as yf
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,12 +17,12 @@ _company_fundamental_cache = {}
 def _get_from_alpha_vantage(ticker: str) -> dict | None:
     try:
         url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_API_KEY}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
 
         if not data or not data.get("Name") or not data.get("MarketCapitalization"):
-            logger.warning("Alpha Vantage returned no data", extra={"ticker": ticker, "data": data})
+            logger.warning("Alpha Vantage returned no data", extra={"ticker": ticker, "keys": list(data.keys())})
             return None
 
         return data
@@ -34,25 +33,31 @@ def _get_from_alpha_vantage(ticker: str) -> dict | None:
 
 def _get_from_yfinance(ticker: str) -> dict | None:
     try:
+        import yfinance as yf  # lazy import — only pays cost when needed
+
         info = yf.Ticker(ticker).info
         name = info.get("longName") or info.get("shortName")
         market_cap = info.get("marketCap")
 
         if not name or not market_cap:
-            logger.warning("yfinance returned no data", extra={"ticker": ticker})
+            logger.warning(
+                "yfinance returned incomplete data",
+                extra={"ticker": ticker, "has_name": bool(name), "has_market_cap": bool(market_cap)},
+            )
             return None
 
-        shares_outstanding = info.get("sharesOutstanding", 0)
+        shares_outstanding = info.get("sharesOutstanding") or 0
         eps = info.get("trailingEps", 0) or 0
         # Normalise to Alpha Vantage key names so callers need no changes
         return {
             "Name": name,
             "MarketCapitalization": str(market_cap),
-            "PERatio": str(info.get("trailingPE") or ""),
+            "PERatio": str(info.get("trailingPE") or "None"),
             "RevenueTTM": str(info.get("totalRevenue") or 0),
             "EPS": str(eps),
             "SharesOutstanding": str(shares_outstanding),
             "DividendYield": str(info.get("dividendYield") or 0),
+            "Currency": info.get("currency") or "",
             "Sector": info.get("sector") or "",
             "Industry": info.get("industry") or "",
             "Description": info.get("longBusinessSummary") or "",
