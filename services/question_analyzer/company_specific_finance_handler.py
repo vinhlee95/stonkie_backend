@@ -368,7 +368,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
 
         # Fallback: If no data available and we have conversation context, answer generally
         has_no_data = (
-            (not company_fundamental or not company_fundamental.get("name"))
+            (not company_fundamental or not company_fundamental.get("Name"))
             and len(annual_statements) == 0
             and len(quarterly_statements) == 0
         )
@@ -380,7 +380,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             yield {"type": "thinking_status", "body": "Answering based on our previous discussion..."}
 
             # Use conversation context to answer generally
-            company_name = company_fundamental.get("name", "") if company_fundamental else ""
+            company_name = company_fundamental.get("Name", "") if company_fundamental else ""
             conversation_context = format_conversation_context(
                 conversation_messages, ticker or "the company", company_name
             )
@@ -434,7 +434,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             if conversation_messages:
                 company_name = ""
                 if company_fundamental:
-                    company_name = company_fundamental.get("name", "")
+                    company_name = company_fundamental.get("Name", "")
                 num_pairs = len(conversation_messages) // 2
                 conversation_context = format_conversation_context(conversation_messages, ticker, company_name)
                 conversation_context = f"\n\n{conversation_context}\n"
