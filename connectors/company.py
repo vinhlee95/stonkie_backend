@@ -37,6 +37,7 @@ class CompanyFundamentalDto:
     exchange: str
     dividend_yield: float
     logo_url: str | None
+    currency: str = "USD"
 
 
 def safe_int(value, default=0):
@@ -82,8 +83,7 @@ class CompanyConnector:
         pe_ratio = safe_float(company_fundamental.get("PERatio"))
         revenue = safe_int(company_fundamental.get("RevenueTTM"))
         eps = safe_float(company_fundamental.get("EPS"))
-        shares_outstanding = safe_float(company_fundamental.get("SharesOutstanding"))
-        net_income = safe_int(eps * shares_outstanding)
+        net_income = safe_int(company_fundamental.get("NetIncomeTTM"))
         company_name = company_fundamental.get("Name", "")
 
         return CompanyFundamentalDto(
@@ -100,6 +100,7 @@ class CompanyConnector:
             exchange=company_fundamental.get("Exchange", ""),
             dividend_yield=dividend_yield,
             logo_url=self.get_company_logo_url_from_ticker(ticker),
+            currency=company_fundamental.get("Currency", "USD"),
         )
 
     def get_all(self) -> list[Company]:
@@ -120,7 +121,12 @@ class CompanyConnector:
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker).first()
-            if not data or data.data.get("name") == "" or data.data.get("market_cap") == 0:
+            if (
+                not data
+                or data.data.get("name") == ""
+                or data.data.get("market_cap") == 0
+                or not data.data.get("currency")
+            ):
                 # Fetch the data from API and persist to DB
                 return self.persist_fundamental_data(ticker)
 
