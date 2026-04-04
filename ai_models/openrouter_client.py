@@ -50,7 +50,7 @@ class OpenRouterClient:
         DEFAULT_MODEL_NAME = ModelName.Gemini30Flash
         generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 
     def stream_chat(self, prompt: str, use_google_search: bool = False) -> Iterable[Union[str, dict]]:
         """

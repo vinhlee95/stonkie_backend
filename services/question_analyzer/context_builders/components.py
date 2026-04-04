@@ -180,6 +180,36 @@ class PromptComponents:
         return visual_output_instructions()
 
     @staticmethod
+    def data_grounding_rules() -> str:
+        return """
+            CRITICAL DATA GROUNDING RULES:
+            - You may ONLY cite numbers and facts that are explicitly present in the financial data provided above.
+            - If the requested metric (e.g., dividend per share, buyback amount, insider ownership) does not appear in the provided data, you MUST explicitly state: "This specific metric is not available in the financial data I have access to."
+            - Do NOT extrapolate, calculate, or infer metrics that are not explicitly present in the data.
+            - Do NOT cite any source URL unless it was explicitly provided in the context above or returned by Google Search results.
+            - If you cannot fully answer the question with the provided data, suggest the user check the company's investor relations page for this specific information.
+        """
+
+    @staticmethod
+    def data_coverage_notice(annual_statements: List[Dict], quarterly_statements: List[Dict]) -> str:
+        metric_names: set = set()
+        for stmt in annual_statements + quarterly_statements:
+            for key in ("income_statement", "balance_sheet", "cash_flow"):
+                section = stmt.get(key)
+                if isinstance(section, dict):
+                    metric_names.update(section.keys())
+        if not metric_names:
+            return ""
+        sorted_metrics = ", ".join(sorted(metric_names))
+        return (
+            f"**Available Financial Metrics in Provided Data:**\n"
+            f"The following metrics are available: {sorted_metrics}\n\n"
+            f"IMPORTANT: If the user's question asks about a metric NOT in the above list, "
+            f"you MUST state that this specific data is not available. "
+            f"Do NOT fabricate or estimate values for metrics not listed above."
+        )
+
+    @staticmethod
     def available_sources(
         ticker: str,
         annual_statements: List[Dict],
