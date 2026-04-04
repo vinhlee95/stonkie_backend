@@ -115,13 +115,15 @@ class FinancialAnalyzer:
                 f"(ticker: {normalized_ticker}, question: {question[:50]}...)"
             )
 
-        # Fetch available DB periods for data-aware search decision
+        # Fetch available DB periods and metrics for data-aware search decision
         available_periods = None
+        available_metrics = None
         if normalized_ticker and normalized_ticker != "none":
             try:
                 available_periods = self.company_financial_connector.get_available_periods(normalized_ticker)
+                available_metrics = self.company_financial_connector.get_available_metrics(normalized_ticker)
             except Exception as e:
-                logger.warning(f"Failed to fetch available periods for {normalized_ticker}: {e}")
+                logger.warning(f"Failed to fetch available periods/metrics for {normalized_ticker}: {e}")
 
         # Build search decision coroutine (always needed)
         search_coro = self.search_decision_engine.decide(
@@ -130,6 +132,7 @@ class FinancialAnalyzer:
             is_etf=False,
             force_google_search_reason=force_google_search_reason,
             available_periods=available_periods,
+            available_metrics=available_metrics,
         )
 
         # Sticky routing: reuse last classification for ambiguous follow-ups

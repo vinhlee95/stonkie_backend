@@ -54,6 +54,7 @@ class SearchDecisionEngine:
         is_etf: bool,
         force_google_search_reason: str | None = None,
         available_periods: dict[str, list] | None = None,
+        available_metrics: list[str] | None = None,
     ) -> SearchDecision:
         if force_google_search_reason:
             return SearchDecision(
@@ -77,7 +78,7 @@ class SearchDecisionEngine:
 
         try:
             raw = await asyncio.wait_for(
-                asyncio.to_thread(self._classify_sync, question, ticker, is_etf, available_periods),
+                asyncio.to_thread(self._classify_sync, question, ticker, is_etf, available_periods, available_metrics),
                 timeout=self.timeout_seconds,
             )
             parsed = self._parse_decision(raw)
@@ -104,7 +105,12 @@ class SearchDecisionEngine:
         return any(p.search(question) for p in _STATIC_FACT_PATTERNS)
 
     def _classify_sync(
-        self, question: str, ticker: str, is_etf: bool, available_periods: dict[str, list] | None = None
+        self,
+        question: str,
+        ticker: str,
+        is_etf: bool,
+        available_periods: dict[str, list] | None = None,
+        available_metrics: list[str] | None = None,
     ) -> str:
         if self._classifier:
             return self._classifier(question, ticker, is_etf)
@@ -113,12 +119,16 @@ class SearchDecisionEngine:
         if available_periods and (available_periods.get("annual") or available_periods.get("quarterly")):
             annual = available_periods.get("annual", [])
             quarterly = available_periods.get("quarterly", [])
+            metrics_line = ""
+            if available_metrics:
+                metrics_line = f"\n- Available metrics: {', '.join(available_metrics)}"
             db_context = f"""
 Financial data already available in our database for {ticker}:
 - Annual statements: {annual if annual else "none"}
-- Quarterly statements: {quarterly[:8] if quarterly else "none"}
+- Quarterly statements: {quarterly[:8] if quarterly else "none"}{metrics_line}
 
-IMPORTANT: If the question asks about financial metrics (revenue, profit, earnings, etc.) for periods covered by the database, return false — database data is sufficient. Only return true when the question needs information the database CANNOT provide (e.g., news, real-time price, regulatory changes, events, analyst opinions).
+IMPORTANT: The database ONLY contains the metrics listed above. If the question asks about a metric NOT in the available metrics list (e.g., dividend per share, buyback amount, insider ownership), return true — the database does NOT have that data and web search is needed.
+If the question asks about metrics that ARE in the list for periods covered by the database, return false — database data is sufficient.
 """
 
         prompt = f"""
@@ -148,7 +158,7 @@ Examples:
 - "What is Nike's latest earnings?" -> {{"use_google_search": true, "reason_code": "latest_info", "confidence": 0.95}}
 
 Allowed reason_code values:
-time_sensitive, latest_info, stable_concept, db_data_sufficient, ambiguous_default_on, other
+time_sensitive, latest_info, stable_concept, db_data_sufficient, db_metric_missing, ambiguous_default_on, other
 """
         agent = MultiAgent(model_name=self.model_name)
         chunks = agent.generate_content(prompt=prompt, use_google_search=False)

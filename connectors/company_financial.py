@@ -148,6 +148,24 @@ class CompanyFinancialConnector:
                 "quarterly": sorted([r[0] for r in quarterly_rows], reverse=True),
             }
 
+    def get_available_metrics(self, ticker: str) -> list[str]:
+        """Return sorted list of unique metric names from the most recent annual statement."""
+        with SessionLocal() as db:
+            row = (
+                db.query(CompanyFinancialStatement)
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
+                .order_by(CompanyFinancialStatement.period_end_year.desc())
+                .first()
+            )
+            if not row:
+                return []
+            metrics: set = set()
+            for key in ("income_statement", "balance_sheet", "cash_flow"):
+                section = getattr(row, key, None)
+                if isinstance(section, dict):
+                    metrics.update(section.keys())
+            return sorted(metrics)
+
     def get_annual_income_statements(self, ticker: str) -> list[dict[str, Any]]:
         annual_financial_statements = self.get_company_financial_statements(ticker)
         results = []
