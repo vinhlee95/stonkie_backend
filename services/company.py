@@ -401,12 +401,19 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             if period_type == PeriodType.ANNUALLY:
                 logger.info(f"No annual financial data found for {ticker} - {report_type}, dispatching crawl task")
 
-                # Queue Celery task for background crawling
-                task = crawl_annual_financial_data_task.delay(ticker, report_type)
+                decision = can_dispatch_task(ticker, report_type, "annually")
+                if decision.can_dispatch:
+                    task = crawl_annual_financial_data_task.delay(ticker, report_type)
+                    logger.info(f"Crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
 
-                logger.info(f"Crawl task queued for {ticker} - {report_type}, task_id: {task.id}")
+                    set_task_state(
+                        ticker=ticker,
+                        report_type=report_type,
+                        status="pending",
+                        task_id=task.id,
+                        period_type="annually",
+                    )
 
-                # Return empty list for now, client will poll later to check if data is available
                 return []
 
             if period_type == PeriodType.QUARTERLY:

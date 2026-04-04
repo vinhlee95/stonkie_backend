@@ -13,8 +13,9 @@ from sqlalchemy.exc import IntegrityError
 from agent.agent import Agent
 from celery_app import celery_app
 from connectors.cache import set_task_state
-from connectors.database import get_db
+from connectors.database import SessionLocal, get_db
 from models.company_financial_statement import CompanyFinancialStatement
+from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +244,13 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
         return False
 
 
-def _extract_financial_data_from_page(url: str) -> Optional[Tuple[str, list]]:
+def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Optional[Tuple[str, list]]:
     """
     Extract financial data from Yahoo Finance page using Playwright.
 
     Args:
         url: Yahoo Finance URL to scrape
+        quarterly: If True, click the quarterly tab before extracting
 
     Returns:
         Tuple of (body_html, periods) or None if failed
@@ -308,6 +310,42 @@ def _extract_financial_data_from_page(url: str) -> Optional[Tuple[str, list]]:
                     logger.info("Financial table structure is ready")
                 except Exception as e:
                     logger.warning(f"Financial table structure not fully loaded, proceeding anyway... {str(e)}")
+
+                # Click quarterly tab if needed
+                if quarterly:
+                    tab_quarterly = page.locator("button#tab-quarterly")
+                    tab_quarterly.wait_for(state="visible", timeout=10000)
+                    tab_quarterly.scroll_into_view_if_needed()
+
+                    quarterly_selected = False
+                    aria_selected = tab_quarterly.get_attribute("aria-selected")
+                    if aria_selected == "true":
+                        quarterly_selected = True
+                    else:
+                        for attempt in range(3):
+                            try:
+                                if attempt == 0:
+                                    tab_quarterly.click(force=True)
+                                elif attempt == 1:
+                                    page.evaluate('document.querySelector("#tab-quarterly").click()')
+                                else:
+                                    tab_quarterly.dispatch_event("click")
+                                page.wait_for_timeout(3000)
+                                if tab_quarterly.get_attribute("aria-selected") == "true":
+                                    quarterly_selected = True
+                                    break
+                            except Exception:
+                                if attempt < 2:
+                                    page.wait_for_timeout(2000)
+
+                    if not quarterly_selected:
+                        logger.error(f"Failed to select quarterly tab on browser attempt {browser_attempt + 1}")
+                        browser.close()
+                        if browser_attempt < max_browser_restarts:
+                            continue
+                        return None
+
+                    page.wait_for_timeout(5000)
 
                 # Click expand button
                 logger.info("Clicking expand button...")
@@ -526,233 +564,101 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
 
-def _extract_quarterly_financial_data_from_page(url: str) -> Optional[Tuple[str, list]]:
-    """
-    Extract quarterly financial data from Yahoo Finance page using Playwright.
-    Clicks the "Quarterly" tab before extracting.
-
-    Returns:
-        Tuple of (body_html, periods) or None if failed
-    """
-    max_browser_restarts = 2
-
-    for browser_attempt in range(max_browser_restarts + 1):
-        try:
-            if browser_attempt > 0:
-                logger.info(f"Browser restart attempt {browser_attempt}/{max_browser_restarts} for URL: {url}")
-
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    java_script_enabled=True,
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    ignore_https_errors=True,
-                    locale="en-US",
-                    storage_state=None,
-                )
-                page = context.new_page()
-
-                logger.info(f"Navigating to: {url}")
-                page.goto(url, timeout=10000)
-                page.wait_for_load_state("networkidle", timeout=10000)
-                page.wait_for_timeout(5000)
-
-                # Handle cookie banner
-                try:
-                    page.wait_for_selector(".accept-all", timeout=5000)
-                    page.click(".accept-all")
-                    logger.info("Accepted cookies")
-                    page.wait_for_timeout(2000)
-                except Exception:
-                    logger.info("No cookie banner found or already accepted")
-
-                # Wait for financial table + quarterly tab
-                try:
-                    page.wait_for_function(
-                        """
-                        () => {
-                            const tableHeader = document.querySelector('div[class*="tableHeader"]');
-                            const tableBody = document.querySelector('div[class*="tableBody"]');
-                            const tabs = document.querySelector('button#tab-quarterly');
-                            return tableHeader && tableBody && tabs;
-                        }
-                        """,
-                        timeout=10000,
-                    )
-                except Exception:
-                    logger.warning("Financial table structure not fully loaded, proceeding anyway...")
-
-                # Click quarterly tab
-                tab_quarterly = page.locator("button#tab-quarterly")
-                tab_quarterly.wait_for(state="visible", timeout=10000)
-                tab_quarterly.scroll_into_view_if_needed()
-
-                quarterly_selected = False
-                aria_selected = tab_quarterly.get_attribute("aria-selected")
-                if aria_selected == "true":
-                    quarterly_selected = True
-                else:
-                    for attempt in range(3):
-                        try:
-                            if attempt == 0:
-                                tab_quarterly.click(force=True)
-                            elif attempt == 1:
-                                page.evaluate('document.querySelector("#tab-quarterly").click()')
-                            else:
-                                tab_quarterly.dispatch_event("click")
-                            page.wait_for_timeout(3000)
-                            if tab_quarterly.get_attribute("aria-selected") == "true":
-                                quarterly_selected = True
-                                break
-                        except Exception:
-                            if attempt < 2:
-                                page.wait_for_timeout(2000)
-
-                if not quarterly_selected:
-                    logger.error(f"Failed to select quarterly tab on browser attempt {browser_attempt + 1}")
-                    browser.close()
-                    if browser_attempt < max_browser_restarts:
-                        continue
-                    return None
-
-                # Wait for quarterly content to load
-                page.wait_for_timeout(5000)
-
-                # Click expand button if present
-                try:
-                    expand_button = page.locator("span.expand")
-                    if expand_button.count() > 0:
-                        expand_button.wait_for(state="visible", timeout=5000)
-                        expand_button.scroll_into_view_if_needed()
-                        expand_button.click(force=True)
-                        page.wait_for_timeout(3000)
-                except Exception:
-                    logger.info("No expand button found or already expanded")
-
-                # Extract table data
-                table_header = page.locator('div[class*="tableHeader"]')
-                table_body = page.locator('div[class*="tableBody"]')
-
-                header_html = table_header.inner_html(timeout=15000)
-                body_html = table_body.inner_html(timeout=15000)
-
-                periods = re.findall(r">([^<]+)<\/div>", header_html)
-                periods = [p.strip() for p in periods]
-                periods = [p for p in periods if p != "Breakdown" and p != ""]
-                logger.info(f"Extracted quarterly periods: {periods}")
-
-                browser.close()
-                return (body_html, periods)
-
-        except Exception as e:
-            logger.error(f"Error on browser attempt {browser_attempt + 1}: {e}")
-            if "browser" in locals():
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-            if browser_attempt < max_browser_restarts:
-                continue
-            return None
-
-    return None
-
-
 def _save_quarterly_to_database(ticker: str, statement_type: str, data: list) -> bool:
     """Save quarterly financial data to the database."""
-    from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
-
     try:
-        db = next(get_db())
+        with SessionLocal() as db:
+            for item in data:
+                period_end_quarter = item["period_end_quarter"]
 
-        for item in data:
-            period_end_quarter = item["period_end_quarter"]
-
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    existing_record = (
-                        db.query(CompanyQuarterlyFinancialStatement)
-                        .filter(
-                            CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper(),
-                            CompanyQuarterlyFinancialStatement.period_end_quarter == period_end_quarter,
-                        )
-                        .with_for_update(nowait=False)
-                        .first()
-                    )
-
-                    if existing_record:
-                        field_already_populated = False
-                        if statement_type == "income_statement" and existing_record.income_statement is not None:
-                            field_already_populated = True
-                        elif statement_type == "balance_sheet" and existing_record.balance_sheet is not None:
-                            field_already_populated = True
-                        elif statement_type == "cash_flow" and existing_record.cash_flow is not None:
-                            field_already_populated = True
-
-                        if field_already_populated:
-                            logger.info(
-                                f"Skipping existing quarterly record for {ticker} {statement_type} {period_end_quarter}"
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        existing_record = (
+                            db.query(CompanyQuarterlyFinancialStatement)
+                            .filter(
+                                CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper(),
+                                CompanyQuarterlyFinancialStatement.period_end_quarter == period_end_quarter,
                             )
-                            break
-
-                        logger.info(
-                            f"Updating existing quarterly record for {ticker} {statement_type} {period_end_quarter}"
+                            .with_for_update(nowait=False)
+                            .first()
                         )
-                        if statement_type == "income_statement":
-                            existing_record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            existing_record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            existing_record.cash_flow = item["metrics"]
-                    else:
-                        logger.info(f"Creating new quarterly record for {ticker} {statement_type} {period_end_quarter}")
-                        record = CompanyQuarterlyFinancialStatement(
-                            company_symbol=ticker.upper(),
-                            period_end_quarter=period_end_quarter,
-                        )
-                        if statement_type == "income_statement":
-                            record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            record.cash_flow = item["metrics"]
-                        db.add(record)
 
-                    db.commit()
-                    break
+                        if existing_record:
+                            field_already_populated = False
+                            if statement_type == "income_statement" and existing_record.income_statement is not None:
+                                field_already_populated = True
+                            elif statement_type == "balance_sheet" and existing_record.balance_sheet is not None:
+                                field_already_populated = True
+                            elif statement_type == "cash_flow" and existing_record.cash_flow is not None:
+                                field_already_populated = True
 
-                except IntegrityError as e:
-                    db.rollback()
-                    if attempt < max_retries - 1:
-                        logger.warning(f"Integrity error on attempt {attempt + 1}, retrying... {e}")
-                        continue
-                    else:
-                        logger.error(f"Failed after {max_retries} attempts due to integrity error: {e}")
+                            if field_already_populated:
+                                logger.info(
+                                    f"Skipping existing quarterly record for "
+                                    f"{ticker} {statement_type} {period_end_quarter}"
+                                )
+                                break
+
+                            logger.info(
+                                f"Updating existing quarterly record for "
+                                f"{ticker} {statement_type} {period_end_quarter}"
+                            )
+                            if statement_type == "income_statement":
+                                existing_record.income_statement = item["metrics"]
+                            elif statement_type == "balance_sheet":
+                                existing_record.balance_sheet = item["metrics"]
+                            elif statement_type == "cash_flow":
+                                existing_record.cash_flow = item["metrics"]
+                        else:
+                            logger.info(
+                                f"Creating new quarterly record for " f"{ticker} {statement_type} {period_end_quarter}"
+                            )
+                            record = CompanyQuarterlyFinancialStatement(
+                                company_symbol=ticker.upper(),
+                                period_end_quarter=period_end_quarter,
+                            )
+                            if statement_type == "income_statement":
+                                record.income_statement = item["metrics"]
+                            elif statement_type == "balance_sheet":
+                                record.balance_sheet = item["metrics"]
+                            elif statement_type == "cash_flow":
+                                record.cash_flow = item["metrics"]
+                            db.add(record)
+
+                        db.commit()
                         break
-                except Exception as e:
-                    db.rollback()
-                    if attempt < max_retries - 1:
-                        logger.warning(f"Database error on attempt {attempt + 1}, retrying... {e}")
-                        continue
-                    else:
-                        raise e
 
-        logger.info(f"Quarterly financial data for {ticker} {statement_type} saved to database")
-        db.close()
-        return True
+                    except IntegrityError as e:
+                        db.rollback()
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Integrity error on attempt {attempt + 1}, retrying... {e}")
+                            continue
+                        else:
+                            logger.error(f"Failed after {max_retries} attempts due to integrity error: {e}")
+                            break
+                    except Exception as e:
+                        db.rollback()
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Database error on attempt {attempt + 1}, retrying... {e}")
+                            continue
+                        else:
+                            raise e
+
+            logger.info(f"Quarterly financial data for {ticker} {statement_type} saved to database")
+            return True
 
     except Exception as e:
         logger.error(f"Failed to save quarterly financial data to database: {e}")
-        if "db" in locals():
-            db.rollback()
-            db.close()
         return False
 
 
 @celery_app.task(
-    base=CallbackTask, bind=True, name="tasks.crawl_quarterly_financial_data", max_retries=3, default_retry_delay=300
+    base=CallbackTask,
+    bind=True,
+    name="tasks.crawl_quarterly_financial_data",
+    max_retries=3,
+    default_retry_delay=300,
 )
 def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) -> dict:
     """
@@ -787,7 +693,7 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
         if not url:
             raise ValueError(f"Invalid statement_type: {statement_type}")
 
-        result = _extract_quarterly_financial_data_from_page(url)
+        result = _extract_financial_data_from_page(url, quarterly=True)
         if result is None:
             raise Exception(f"Failed to extract quarterly data from {url}")
 

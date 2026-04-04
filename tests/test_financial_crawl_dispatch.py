@@ -131,3 +131,37 @@ class TestExplicitQuarterlyRequest:
         get_company_financial_statements("AAPL", period_type=PeriodType.QUARTERLY)
 
         assert mock_crawl_quarterly.delay.call_count == 0
+
+
+class TestMixedState:
+    """When annual data exists but quarterly does not, only quarterly tasks should dispatch."""
+
+    @patch("services.company.company_financial_connector")
+    def test_only_quarterly_dispatched_when_annual_exists(
+        self, mock_connector, mock_crawl_annual, mock_crawl_quarterly, mock_set_task_state, mock_can_dispatch
+    ):
+        mock_connector.get_company_financial_statements.return_value = [MagicMock()]
+        mock_connector.get_company_quarterly_financial_statements.return_value = []
+
+        get_company_financial_statements("AAPL", period_type=None)
+
+        # Annual should NOT be dispatched (data exists)
+        assert mock_crawl_annual.delay.call_count == 0
+
+        # Quarterly SHOULD be dispatched (no data)
+        quarterly_calls = mock_crawl_quarterly.delay.call_args_list
+        assert len(quarterly_calls) == 3
+        for rpt in REPORT_TYPES:
+            assert call("AAPL", rpt) in quarterly_calls
+
+    @patch("services.company.company_financial_connector")
+    def test_no_dispatch_when_both_exist(
+        self, mock_connector, mock_crawl_annual, mock_crawl_quarterly, mock_set_task_state, mock_can_dispatch
+    ):
+        mock_connector.get_company_financial_statements.return_value = [MagicMock()]
+        mock_connector.get_company_quarterly_financial_statements.return_value = [MagicMock()]
+
+        get_company_financial_statements("AAPL", period_type=None)
+
+        assert mock_crawl_annual.delay.call_count == 0
+        assert mock_crawl_quarterly.delay.call_count == 0
