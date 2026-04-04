@@ -46,17 +46,21 @@ def _get_from_yfinance(ticker: str) -> dict | None:
             )
             return None
 
+        def _r(val, decimals=2):
+            return round(val, decimals) if val is not None else None
+
         shares_outstanding = info.get("sharesOutstanding") or 0
-        eps = info.get("trailingEps", 0) or 0
+        eps = _r(info.get("trailingEps", 0) or 0)
         # Normalise to Alpha Vantage key names so callers need no changes
         return {
             "Name": name,
-            "MarketCapitalization": str(market_cap),
-            "PERatio": str(info.get("trailingPE") or "None"),
-            "RevenueTTM": str(info.get("totalRevenue") or 0),
+            "MarketCapitalization": str(_r(market_cap)),
+            "PERatio": str(_r(info["trailingPE"])) if info.get("trailingPE") else "None",
+            "RevenueTTM": str(_r(info.get("totalRevenue") or 0)),
+            "NetIncomeTTM": str(_r(info.get("netIncomeToCommon") or 0)),
             "EPS": str(eps),
-            "SharesOutstanding": str(shares_outstanding),
-            "DividendYield": str(info.get("dividendYield") or 0),
+            "SharesOutstanding": str(_r(shares_outstanding)),
+            "DividendYield": str(_r(info.get("dividendYield") or 0)),
             "Currency": info.get("currency") or "",
             "Sector": info.get("sector") or "",
             "Industry": info.get("industry") or "",
