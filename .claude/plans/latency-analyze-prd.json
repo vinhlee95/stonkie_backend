@@ -1,0 +1,557 @@
+{
+  "prd_meta": {
+    "title": "Latency reduction PRD: POST /analyze (company-specific finance path)",
+    "description": "Product requirements derived from latency_audit_results.md (AAPL, COMPANY_SPECIFIC_FINANCE handler). Optimize server-side and perceived latency by addressing bottlenecks in order of impact.",
+    "source_documents": [
+      ".claude/plans/latency_audit_results.md (audit 2026-04-05; originally produced in worktree crystalline-swinging-lamport)"
+    ],
+    "scope_endpoint": "POST /analyze (SSE)",
+    "sorting_rule": "milestones are ordered by impact_level (HIGH before MEDIUM), then by sort_order descending estimated_effect within the same level",
+    "baseline_policy": "Do not use frozen baseline numbers from the audit. Before each milestone is measured, record fresh before_* values using the shared measurement context. After implementation, record after_* on the same procedure. seconds_saved = step_metric.duration_before_seconds - step_metric.duration_after_seconds (or null until both recorded).",
+    "release_and_measurement_policy": "Ship exactly one milestone (one user-visible optimization) per release cycle for latency work. Each release contains a single merged PR for that milestone so manual SSE before/after measures only that change. Do not combine multiple milestones from this PRD in one production deploy if the goal is clean per-step seconds_saved attribution. Branches and prep work for the next milestone may proceed in parallel, but merge and measure one at a time.",
+    "default_measurement_context": {
+      "method": "manual_analyze_sse",
+      "ticker": "AAPL",
+      "question": "What is Apple's revenue trend over the last 3 years?",
+      "model_profile": "fastest (google/gemini-2.5-flash:nitro)",
+      "handler": "COMPANY_SPECIFIC_FINANCE",
+      "notes": "Keep ticker, question, and model selection identical between before and after runs for comparable step and total timings. If env flags differ, document them in measurement notes."
+    },
+    "allowed_states": ["not-started", "inprogress", "complete"],
+    "dependency_terminology": {
+      "technical_must_complete_before": "Milestone B cannot be implemented or safely shipped until A is done because of code/API contract.",
+      "measurement_order_note": "If two milestones touch the same timer span, they must not ship in the same release—see release_and_measurement_policy. That replaces ad-hoc feature flags for attribution unless a flag is used to dark-launch a single change.",
+      "parallelizable": "No technical code-order constraint; different people may work on different milestones in parallel on separate branches. Shipping/measurement still follows one milestone per release for clear gain measurement."
+    }
+  },
+  "milestones": [
+    {
+      "id": "search-decision-model-gemini-flash",
+      "sort_order": 1,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Run search decision on a fast classifier model (e.g. Gemini 3.0 Flash) instead of Sonnet 4.6",
+      "estimated_effect_from_audit": "4s+ wall-clock reduction on search_decision_engine.decide; avoids 5s timeout path described in audit",
+      "source_audit_sections": [
+        "Top Bottlenecks §3 search_decision_engine.decide",
+        "Optimization Impact Matrix: Switch search decision to Gemini Flash",
+        "Quick Wins #2"
+      ],
+      "definition": "Replace or reconfigure the search decision LLM so the decide step completes quickly enough that the asyncio.gather parallel block is not dominated by a Sonnet call timing out at 5s.",
+      "explanation_for_agents": "The audit shows search_decision_engine.decide ran ~5.25s and hit the 5s timeout while classify_question_type ran in parallel. Implementers should locate the OpenRouter/Sonnet usage for search decision, choose a faster model appropriate for binary/small classification, preserve behavior tests for search on/off, and add timing logs or reuse existing trace points. Work can span sessions: leave TODOs where integration points need confirmation. Other search-decision milestones ship in separate releases per release_and_measurement_policy—do not merge overlapping edits into one deploy.",
+      "optimized_pipeline_step": "search_decision_engine.decide (wall-clock within PARALLEL: classify + search decision)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with search-decision-offline-when-db-sufficient (same search/TTFT surface). Per release_and_measurement_policy.",
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Search decision no longer relies on Sonnet 4.6 for the default path (or documented exception with rationale).",
+          "Behavior for forcing search on/off remains correct for fixtures or manual spot-checks used by the team."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "search_decision span",
+            "description": "Duration attributable to search_decision_engine.decide for this request (prefer server-side instrumentation or trace line matching the audit; if unavailable, use wall-clock of parallel block minus classify-only estimate only with documented method).",
+            "how_to_record_before_after": "Run default_measurement_context. Capture step_metric.duration_before_seconds before merge. Deploy change. Capture step_metric.duration_after_seconds with same context. Compute seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional: total server or HTTP time for the same manual run (helps sanity-check).",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "search-decision-offline-when-db-sufficient",
+      "sort_order": 2,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "When DB already has sufficient data, avoid Google Search / :online generation path (fix reliability + fast-path)",
+      "estimated_effect_from_audit": "3-5s TTFT reduction if :online is skipped when DB-backed context suffices; depends on current routing",
+      "source_audit_sections": [
+        "Top Bottlenecks §1 LLM Generation TTFT (Skip Google Search bullet)",
+        "Top Bottlenecks §3 (keyword fast-path, reduce timeout bullets)",
+        "Optimization Impact Matrix: Fix search decision → skip Google Search when DB sufficient",
+        "Quick Wins #3"
+      ],
+      "definition": "Ensure the pipeline does not enable the Gemini :online / Google Search-backed generation path when persisted financial data already covers the question, and that search decision does not fall back to search=ON solely due to timeout if DB coverage is adequate. Includes expanding deterministic keyword/heuristic fast-paths and tuning timeout/fail-safe behavior as described in the audit.",
+      "explanation_for_agents": "The audit hypothesized search=ON because Sonnet timed out, inflating TTFT for :online. This milestone is about correct routing logic, not only model speed. Implementation may touch search_decision_engine, handler wiring for online vs offline model IDs, and guards keyed on available periods/metrics. Keyword fast-path and timeout tuning belong here if they serve the same goal: correct OFFLINE answer when DB is enough. Multi-session safe: document invariants (what 'sufficient' means) in code comments or a short module docstring.",
+      "optimized_pipeline_step": "LLM generation TTFT and choice of :online vs offline model; indirectly search_decision outcome quality",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with search-decision-model-gemini-flash. Per release_and_measurement_policy.",
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "For the default_measurement_context with DB populated for AAPL, generation uses non-online path when policy says DB suffices (assert via logs, model id, or integration test).",
+          "Heuristic/keyword fast-path and timeout behavior documented and covered by at least one automated or scripted check if feasible."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "LLM TTFT (first answer token latency)",
+            "description": "Time from start of model_generate_content (or equivalent) to first answer SSE chunk; must reflect removal of unnecessary :online when DB sufficient.",
+            "how_to_record_before_after": "Same manual run context. Record TTFT before change, after change, and compute seconds_saved for this step. Optionally record total_request duration in total_request_metric fields."
+          },
+          "total_request_metric": {
+            "description": "End-to-end HTTP or server total for the manual run.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "ticker-extraction-regex-prefilter",
+      "sort_order": 3,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Regex/keyword pre-filter before ticker_extractor.extract_tickers LLM",
+      "estimated_effect_from_audit": "3-4s for majority non-comparison questions (audit estimate)",
+      "source_audit_sections": [
+        "Top Bottlenecks §2 ticker_extractor.extract_tickers",
+        "Optimization Impact Matrix: Regex pre-filter for ticker extraction",
+        "Quick Wins #1"
+      ],
+      "definition": "Before invoking the LLM inside ticker extraction, detect absence of comparison signals (e.g. vs, compare, versus, multiple tickers) via regex/heuristics and skip the LLM call when safe.",
+      "explanation_for_agents": "Audit shows extract_tickers dominated classify_question_type time. Add a fast pre-filter in the ticker extraction path; ensure comparison questions still invoke the LLM. Add tests for boundary cases (false negatives are worse than false positives for skipping). Can be developed independently of search decision work.",
+      "optimized_pipeline_step": "ticker_extractor.extract_tickers (including skipped LLM path duration)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with ticker-extraction-parallel-with-classification. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Non-comparison default_measurement_context skips LLM extract_tickers path (verified by log or test).",
+          "Known comparison-style prompts still call LLM or equivalent comparison detection."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "extract_tickers span",
+            "description": "Wall-clock or instrumented duration for ticker_extractor.extract_tickers for the request.",
+            "how_to_record_before_after": "Manual run before/after; fill step_metric and seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional total duration for same context.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "main-generation-reduce-prompt-ttft",
+      "sort_order": 4,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Reduce prompt size for main financial answer generation (TTFT)",
+      "estimated_effect_from_audit": "1-2s TTFT (audit estimate)",
+      "source_audit_sections": [
+        "Top Bottlenecks §1 (Reduce prompt size bullet)",
+        "Optimization Impact Matrix: Reduce prompt size for main generation"
+      ],
+      "definition": "Compress or trim instructions and financial context formatting so the main generation call sends fewer tokens without losing required facts.",
+      "explanation_for_agents": "Focus on prompt templates and context builders feeding model_generate_content. Measure TTFT impact; avoid unrelated refactors. Multi-session: track which templates were shortened in PR description.",
+      "optimized_pipeline_step": "LLM generation TTFT (main answer)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with search-decision-offline-when-db-sufficient (same TTFT). Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Documented token or character count reduction vs prior, or qualitative template list changed.",
+          "No loss of required financial fields per reviewer checklist."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "Main LLM TTFT",
+            "description": "Time to first answer token for main generation only.",
+            "how_to_record_before_after": "Same manual context; record step TTFT before/after and seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional total HTTP time.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "main-generation-streaming-first-partial-yields",
+      "sort_order": 5,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Streaming-first architecture: yield partial results earlier in the pipeline",
+      "estimated_effect_from_audit": "Not quantified in matrix; qualitative perceived latency improvement",
+      "source_audit_sections": [
+        "Top Bottlenecks §1 (Consider streaming-first architecture bullet)"
+      ],
+      "definition": "Restructure SSE flow so the client receives useful events (status, partial outline, or early tokens) sooner, even if total work is unchanged.",
+      "explanation_for_agents": "May require API contract awareness (frontend expectations). Coordinate across backend/frontend if event schema changes. Measure perceived latency (first non-status user-valuable byte) in addition to server timers if agreed.",
+      "optimized_pipeline_step": "Client-perceived time to first meaningful SSE payload (define explicitly in measurement notes)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with related-questions-parallel-with-answer-stream if SSE ordering conflicts. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Documented definition of 'first partial yield' for this feature.",
+          "Frontend/backward compatibility verified if SSE shape changed."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "Time to first meaningful SSE (per milestone definition)",
+            "description": "Record the metric agreed by team (e.g. first answer chunk vs first structured partial).",
+            "how_to_record_before_after": "Manual capture before/after; seconds_saved on that definition."
+          },
+          "total_request_metric": {
+            "description": "Optional total duration.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "ticker-extraction-parallel-with-classification",
+      "sort_order": 6,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Run ticker extraction concurrently with classification (not sequentially inside classify_question_type)",
+      "estimated_effect_from_audit": "Not given as isolated seconds; reduces classify_question_type wall-clock if dependencies allow",
+      "source_audit_sections": [
+        "Top Bottlenecks §2 (Move to parallel bullet)"
+      ],
+      "definition": "Refactor classify_question_type so ticker_extractor work runs in parallel with other independent steps where safe, instead of blocking the rest of classification.",
+      "explanation_for_agents": "Requires analyzing data dependencies between ticker extraction output and classifier. Do not parallelize if classification truly depends on ticker list order. Document dependency graph in PR.",
+      "optimized_pipeline_step": "classify_question_type wall-clock (includes extract_tickers if still nested)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with ticker-extraction-regex-prefilter. Per release_and_measurement_policy.",
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Dependency analysis written (why parallelization is safe).",
+          "No regression on comparison vs single-ticker classification cases."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "classify_question_type total span",
+            "description": "Wall-clock for classify_question_type phase as in audit.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional parallel block (classify + search decision) wall-clock.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "classify-merge-or-parallel-data-period",
+      "sort_order": 7,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Merge or parallelize classify_data_requirement and classify_period_requirement",
+      "estimated_effect_from_audit": "~1s either merge or parallel approach (audit)",
+      "source_audit_sections": [
+        "Top Bottlenecks §4 classify_data_requirement + classify_period_requirement",
+        "Optimization Impact Matrix: Merge data_req + period_req classifiers"
+      ],
+      "definition": "Replace two sequential LLM calls with either one merged call returning both decisions, or two parallel calls, preserving downstream behavior.",
+      "explanation_for_agents": "Pick merge vs parallel based on coupling of outputs. Update prompts and parsers. Single milestone to avoid double-counting savings in planning.",
+      "optimized_pipeline_step": "Combined span of classify_data_requirement + classify_period_requirement",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": null,
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Downstream fetch uses equivalent or better data/period selection on test cases.",
+          "Single or parallel architecture documented."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "data + period classification span",
+            "description": "Sum or single span matching new architecture vs old sequential sum.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved for combined step."
+          },
+          "total_request_metric": {
+            "description": "Optional total.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze-question-dimensions-skip-simple",
+      "sort_order": 8,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Skip _analyze_question_dimensions for simple questions (default sections)",
+      "estimated_effect_from_audit": "~2s (audit)",
+      "source_audit_sections": [
+        "Top Bottlenecks §5 _analyze_question_dimensions (Skip for simple questions bullet)",
+        "Optimization Impact Matrix: Skip _analyze_question_dimensions for simple questions"
+      ],
+      "definition": "When the question is classified as simple or non-deep-analysis, bypass the dimensions LLM and use deterministic default section titles/structure.",
+      "explanation_for_agents": "Define 'simple' using existing flags or classifier output. Avoid skipping when deep_analysis or equivalent requires rich structure.",
+      "optimized_pipeline_step": "_analyze_question_dimensions",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Simple path skips LLM call (log/test).",
+          "Deep/complex path still invokes dimensions analysis when required."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "_analyze_question_dimensions span",
+            "description": "Duration of dimensions step; for simple questions should trend to ~0 when skipped.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional total.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze-question-dimensions-cache-patterns",
+      "sort_order": 9,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Cache common dimension patterns (revenue trend, margins, etc.)",
+      "estimated_effect_from_audit": "~2s (audit)",
+      "source_audit_sections": [
+        "Top Bottlenecks §5 (Cache common patterns bullet)",
+        "Optimization Impact Matrix: Cache common dimension patterns"
+      ],
+      "definition": "Memoize or key-cache LLM dimension outputs for repeated question shapes so identical or near-identical questions reuse structure without a full LLM round trip.",
+      "explanation_for_agents": "Choose cache key (normalized question + handler + ticker). Invalidate on model/prompt version change. Thread-safe if multi-worker.",
+      "optimized_pipeline_step": "_analyze_question_dimensions",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Cache hit/miss observable in logs or metrics.",
+          "Versioning or invalidation strategy documented."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "_analyze_question_dimensions span on cache hit vs miss",
+            "description": "Record before/after for cold vs warm question if testing cache; primary comparison is second identical request after first.",
+            "how_to_record_before_after": "Document which run is before (no cache) and after (cache hit); seconds_saved on dimensions step."
+          },
+          "total_request_metric": {
+            "description": "Optional total.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze-question-dimensions-cheaper-model",
+      "sort_order": 10,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Use cheaper/faster model for _analyze_question_dimensions",
+      "estimated_effect_from_audit": "Qualitative; not separately quantified in matrix",
+      "source_audit_sections": [
+        "Top Bottlenecks §5 (Use cheaper/faster model bullet)"
+      ],
+      "definition": "Swap the model used for dimension analysis to a smaller/faster Gemini (or equivalent) while preserving output schema for downstream code.",
+      "explanation_for_agents": "Validate JSON/schema stability. Compare quality on a small golden set of questions.",
+      "optimized_pipeline_step": "_analyze_question_dimensions",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Model id configurable or updated with rollback path.",
+          "Golden-question review passed."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "_analyze_question_dimensions span",
+            "description": "Wall-clock for dimensions LLM call.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional total.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "llm-streaming-separate-chart-generation",
+      "sort_order": 11,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Generate Chart.js (or chart payload) outside main answer stream",
+      "estimated_effect_from_audit": "Reduces streaming token count; not given as isolated seconds in matrix",
+      "source_audit_sections": [
+        "Top Bottlenecks §6 LLM streaming duration (Generate chart separately bullet)"
+      ],
+      "definition": "Move chart generation to a follow-up LLM call, tool step, or client-side composition so the main answer stream is shorter.",
+      "explanation_for_agents": "May require frontend contract for loading chart after text. Coordinate if API adds new SSE event types.",
+      "optimized_pipeline_step": "LLM generation streaming duration (post-TTFT) for main answer",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with main-generation-streaming-first-partial-yields if SSE contract changes overlap. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Main stream token count reduced or duration reduced on benchmark question.",
+          "Chart still renders correctly in product."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "Main answer streaming duration (after first token)",
+            "description": "Duration from first answer token to end of main answer for default context.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved."
+          },
+          "total_request_metric": {
+            "description": "Optional total including follow-up chart step if separate.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    },
+    {
+      "id": "related-questions-parallel-with-answer-stream",
+      "sort_order": 12,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Start related_questions generation earlier (parallel with answer streaming or post-classify)",
+      "estimated_effect_from_audit": "~1s perceived (audit)",
+      "source_audit_sections": [
+        "Top Bottlenecks §7 related_questions",
+        "Optimization Impact Matrix: Parallelize related_questions with streaming"
+      ],
+      "definition": "Overlap related_questions LLM work with answer streaming or earlier pipeline stages once inputs are available, instead of strictly after answer completes.",
+      "explanation_for_agents": "Ensure thread-safety and ordering of SSE events. Frontend must handle out-of-order related_questions if emitted before answer end.",
+      "optimized_pipeline_step": "related_questions (time until related questions ready vs end-to-end perceived)",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "measurement_order_note": "Do not co-ship with main-generation-streaming-first-partial-yields if SSE ordering conflicts. Per release_and_measurement_policy.",
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "related_questions completes earlier relative to wall-clock than baseline, or perceived latency improves per measurement definition.",
+          "No duplicate or corrupted SSE ordering in client."
+        ],
+        "measurement": {
+          "method": "manual_analyze_sse",
+          "step_specific_metric": {
+            "name": "Time from request start to related_questions ready (or time saved vs sequential baseline)",
+            "description": "Define whether optimizing wall-clock total or time to first related question event.",
+            "how_to_record_before_after": "Manual before/after; seconds_saved per chosen definition; optionally fill total_request_metric."
+          },
+          "total_request_metric": {
+            "description": "Total HTTP time for manual run.",
+            "duration_before_seconds": null,
+            "duration_after_seconds": null
+          },
+          "step_metric": {
+            "duration_before_seconds": null,
+            "duration_after_seconds": null,
+            "seconds_saved": null
+          }
+        }
+      }
+    }
+  ]
+}
