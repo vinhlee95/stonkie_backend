@@ -365,12 +365,16 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                         ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="quarterly"
                     )
 
+        # Get company currency
+        fundamental = company_connector.get_fundamental_data(ticker=ticker.upper())
+        currency = fundamental.currency if fundamental else "USD"
+
         # Return empty if no annual/quarterly data was found
         if len(statements) == 0:
-            return []
+            return {"currency": currency, "statements": []}
 
         if not report_type:
-            return statements
+            return {"currency": currency, "statements": statements}
 
         # Map report types to their corresponding fields
         report_type_to_field = {
@@ -414,7 +418,7 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                         period_type="annually",
                     )
 
-                return []
+                return {"currency": currency, "statements": []}
 
             if period_type == PeriodType.QUARTERLY:
                 logger.info(f"No quarterly {report_type} data found for {ticker}, dispatching crawl task")
@@ -432,9 +436,9 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
                         period_type="quarterly",
                     )
 
-                return filtered_statements
+                return {"currency": currency, "statements": filtered_statements}
 
-        return filtered_statements
+        return {"currency": currency, "statements": filtered_statements}
 
     except Exception as e:
         logger.error(f"Error getting company financial statements: {str(e)}")
