@@ -29,8 +29,8 @@
       "id": "search-decision-model-gemini-flash",
       "sort_order": 1,
       "impact_level": "HIGH",
-      "state": "not-started",
-      "title": "Run search decision on a fast classifier model (e.g. Gemini 3.0 Flash) instead of Sonnet 4.6",
+      "state": "complete",
+      "title": "Run search decision on a fast classifier model (Gemini 2.5 Flash nitro) instead of Sonnet 4.6",
       "estimated_effect_from_audit": "4s+ wall-clock reduction on search_decision_engine.decide; avoids 5s timeout path described in audit",
       "source_audit_sections": [
         "Top Bottlenecks §3 search_decision_engine.decide",
@@ -38,6 +38,7 @@
         "Quick Wins #2"
       ],
       "definition": "Replace or reconfigure the search decision LLM so the decide step completes quickly enough that the asyncio.gather parallel block is not dominated by a Sonnet call timing out at 5s.",
+      "shipped_implementation": "SearchDecisionEngine default model_name=ModelName.Gemini25FlashNitro (OpenRouter google/gemini-2.5-flash:nitro). decision_model metadata uses self.model_name; logs: classify LLM + SearchDecisionEngine result line. ModelName.Gemini25FlashNitro in ai_models; commit d351d6f on main.",
       "explanation_for_agents": "The audit shows search_decision_engine.decide ran ~5.25s and hit the 5s timeout while classify_question_type ran in parallel. Implementers should locate the OpenRouter/Sonnet usage for search decision, choose a faster model appropriate for binary/small classification, preserve behavior tests for search on/off, and add timing logs or reuse existing trace points. Work can span sessions: leave TODOs where integration points need confirmation. Other search-decision milestones ship in separate releases per release_and_measurement_policy—do not merge overlapping edits into one deploy.",
       "optimized_pipeline_step": "search_decision_engine.decide (wall-clock within PARALLEL: classify + search decision)",
       "dependencies": {
@@ -66,7 +67,8 @@
             "duration_before_seconds": null,
             "duration_after_seconds": null,
             "seconds_saved": null
-          }
+          },
+          "real_world_measurement_notes_2026_04": "Manual runs (local, AAPL PRD question): parallel gather wall-clock ~4s before/after when classify_question_type dominates; step-level seconds_saved not isolated without instrumentation inside decide(). Gemini 2.5 Flash nitro completed reliably with search OFF and db_data_sufficient; gemini-3-flash-preview:nitro caused classifier_error in one test. Fail-safe search=ON still possible if decide hits 5s asyncio.wait_for or parse/API errors (log shows classifier_error). Ticker extraction still uses Sonnet (separate milestone)."
         }
       }
     },
