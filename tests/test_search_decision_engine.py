@@ -1,5 +1,6 @@
 import asyncio
 
+from ai_models.model_name import ModelName
 from services.search_decision_engine import SearchDecisionEngine
 
 
@@ -21,7 +22,7 @@ class TestSearchDecisionEngine:
 
         assert decision.use_google_search is True
         assert decision.reason_code == "classifier_error"
-        assert decision.decision_model == "sonnet-4.6"
+        assert decision.decision_model == ModelName.Gemini25FlashNitro.value
         assert decision.decision_fallback == "classifier_fail_safe_on"
 
     def test_decide_force_reason_overrides_classifier(self):
@@ -41,4 +42,5 @@ class TestSearchDecisionEngine:
         assert decision.use_google_search is True
         assert decision.reason_code == "sec_url"
         assert decision.confidence == 1.0
+        assert decision.decision_model == ModelName.Gemini25FlashNitro.value
         assert decision.decision_fallback == "none"

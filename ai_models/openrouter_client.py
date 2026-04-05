@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Map generic Gemini names to OpenRouter format
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
+    ModelName.Gemini25FlashNitro: "google/gemini-2.5-flash:nitro",
     ModelName.Gemini30Flash: "google/gemini-3-flash-preview",
     # Anthropic Models
     ModelName.Sonnet46: "anthropic/claude-sonnet-4.6",

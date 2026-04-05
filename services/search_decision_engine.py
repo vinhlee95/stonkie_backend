@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
+from ai_models.openrouter_client import get_openrouter_model_name
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,26 @@ class SearchDecision:
     decision_fallback: str  # "classifier_fail_safe_on" | "none"
 
 
+def _log_search_decision_result(decision: SearchDecision, ticker: str, is_etf: bool) -> None:
+    """Emit one line with the resolved on/off search decision (mirrors SSE search_decision_meta)."""
+    logger.info(
+        "SearchDecisionEngine result: search=%s reason_code=%s confidence=%.2f decision_model=%s fallback=%s ticker=%s is_etf=%s",
+        "on" if decision.use_google_search else "off",
+        decision.reason_code,
+        decision.confidence,
+        decision.decision_model,
+        decision.decision_fallback,
+        ticker,
+        is_etf,
+    )
+
+
 class SearchDecisionEngine:
     """Decides whether live Google Search should be enabled for a question."""
 
     def __init__(
         self,
-        model_name: ModelName = ModelName.Sonnet46,
+        model_name: ModelName = ModelName.Gemini25FlashNitro,
         timeout_seconds: float = 5.0,
         classifier: Optional[Callable[[str, str, bool], str]] = None,
     ):
@@ -57,24 +72,28 @@ class SearchDecisionEngine:
         available_metrics: list[str] | None = None,
     ) -> SearchDecision:
         if force_google_search_reason:
-            return SearchDecision(
+            decision = SearchDecision(
                 use_google_search=True,
                 reason_code=force_google_search_reason,
                 confidence=1.0,
-                decision_model=ModelName.Sonnet46.value,
+                decision_model=self.model_name.value,
                 decision_fallback="none",
             )
+            _log_search_decision_result(decision, ticker, is_etf)
+            return decision
 
         # Fast path: skip search for obvious historical/static facts
         if self._is_static_fact(question):
-            logger.info(f"SearchDecisionEngine fast path -> search OFF (static fact): {question[:80]}")
-            return SearchDecision(
+            logger.info("SearchDecisionEngine fast path (keyword): static-fact pattern matched: %s", question[:80])
+            decision = SearchDecision(
                 use_google_search=False,
                 reason_code="stable_concept",
                 confidence=0.95,
                 decision_model="keyword_prefilter",
                 decision_fallback="none",
             )
+            _log_search_decision_result(decision, ticker, is_etf)
+            return decision
 
         try:
             raw = await asyncio.wait_for(
@@ -82,22 +101,26 @@ class SearchDecisionEngine:
                 timeout=self.timeout_seconds,
             )
             parsed = self._parse_decision(raw)
-            return SearchDecision(
+            decision = SearchDecision(
                 use_google_search=parsed["use_google_search"],
                 reason_code=parsed["reason_code"],
                 confidence=parsed["confidence"],
-                decision_model=ModelName.Sonnet46.value,
+                decision_model=self.model_name.value,
                 decision_fallback="none",
             )
+            _log_search_decision_result(decision, ticker, is_etf)
+            return decision
         except Exception as e:
-            logger.warning(f"SearchDecisionEngine fallback -> search ON (classifier failed): {e}")
-            return SearchDecision(
+            logger.warning("SearchDecisionEngine classifier failed (fail-safe search ON): %s", e)
+            decision = SearchDecision(
                 use_google_search=True,
                 reason_code="classifier_error",
                 confidence=0.0,
-                decision_model=ModelName.Sonnet46.value,
+                decision_model=self.model_name.value,
                 decision_fallback="classifier_fail_safe_on",
             )
+            _log_search_decision_result(decision, ticker, is_etf)
+            return decision
 
     @staticmethod
     def _is_static_fact(question: str) -> bool:
@@ -113,7 +136,15 @@ class SearchDecisionEngine:
         available_metrics: list[str] | None = None,
     ) -> str:
         if self._classifier:
+            logger.info("SearchDecisionEngine: using injected classifier (no LLM)")
             return self._classifier(question, ticker, is_etf)
+
+        openrouter_id = get_openrouter_model_name(self.model_name)
+        logger.info(
+            "SearchDecisionEngine: classify LLM model=%s openrouter=%s",
+            self.model_name.value,
+            openrouter_id,
+        )
 
         db_context = ""
         if available_periods and (available_periods.get("annual") or available_periods.get("quarterly")):
