@@ -10,62 +10,6 @@ from services.shared.prompt_utils import visual_output_instructions
 logger = logging.getLogger(__name__)
 
 
-def validate_section_titles(sections: List[Dict]) -> bool:
-    """
-    Validate section structure and titles.
-
-    Args:
-        sections: List of section dictionaries
-
-    Returns:
-        True if valid, False otherwise
-    """
-    if not sections or not isinstance(sections, list):
-        logger.error("Sections is not a valid list")
-        return False
-
-    if len(sections) != 2:
-        logger.error(f"Invalid number of sections: {len(sections)} (must be exactly 2)")
-        return False
-
-    for i, section in enumerate(sections):
-        # Check required keys
-        if "title" not in section or "focus_points" not in section:
-            logger.error(f"Section {i} missing required keys: {section}")
-            return False
-
-        title = section["title"]
-        focus_points = section["focus_points"]
-
-        # Validate title
-        if not isinstance(title, str) or not title.strip():
-            logger.error(f"Section {i} has invalid title: {title}")
-            return False
-
-        # Check word count (max 6 words)
-        word_count = len(title.split())
-        if word_count > 6:
-            logger.error(f"Section {i} title too long ({word_count} words): {title}")
-            return False
-
-        # Check for special characters (allow letters, numbers, spaces, &, -)
-        if re.search(r"[^a-zA-Z0-9\s&-]", title):
-            logger.error(f"Section {i} title contains special characters: {title}")
-            return False
-
-        # Validate focus points
-        if not isinstance(focus_points, list) or len(focus_points) == 0:
-            logger.error(f"Section {i} has invalid focus_points: {focus_points}")
-            return False
-
-        for j, point in enumerate(focus_points):
-            if not isinstance(point, str) or not point.strip():
-                logger.error(f"Section {i} focus_point {j} is invalid: {point}")
-                return False
-
-    return True
-
-
 class PromptComponents:
     """Reusable prompt fragments for financial context building."""
 

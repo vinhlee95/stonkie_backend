@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Optional
 
 from connectors.etf_fundamental import ETFFundamentalDto
 
@@ -17,7 +17,6 @@ class ETFContextBuilderInput:
     use_google_search: bool
     deep_analysis: bool
     source_url: Optional[str] = None
-    dimension_sections: Optional[List[Dict]] = None
 
 
 class ETFContextBuilder(ABC):

@@ -1,9 +1,6 @@
 """Company-specific financial analysis handler."""
 
-import asyncio
-import json
 import logging
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -17,7 +14,7 @@ from connectors.company import CompanyConnector
 from utils.conversation_format import format_conversation_context
 
 from .classifier import QuestionClassifier
-from .context_builders import ContextBuilderInput, get_context_builder, validate_section_titles
+from .context_builders import ContextBuilderInput, get_context_builder
 from .context_builders.components import PromptComponents
 from .data_optimizer import FinancialDataOptimizer
 from .handlers import BaseQuestionHandler, _collect_paragraph_sources, _process_source_tags
@@ -49,174 +46,6 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         super().__init__(agent, company_connector)
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
         self.classifier = classifier or QuestionClassifier()
-
-    async def _analyze_question_dimensions(self, question: str, ticker: str) -> Optional[List[Dict]]:
-        """
-        Analyze the question and generate relevant section titles with focus points.
-
-        Args:
-            question: The financial question being asked
-            ticker: Company ticker symbol
-
-        Returns:
-            List of section dictionaries with 'title' and 'focus_points', or None if failed
-        """
-        try:
-            prompt = f"""
-                You are an expert financial analyst. Analyze this question about {ticker.upper()} and determine the most relevant sections for a comprehensive answer.
-
-                Question: {question}
-
-                Identify the 2 most important aspects to cover. These will form the main body of the analysis (a summary section will be added automatically).
-
-                Return ONLY a JSON object (no markdown, no explanation) with this exact structure:
-                {{
-                    "sections": [
-                        {{
-                            "title": "Catchy Section Title (max 6 words)",
-                            "focus_points": [
-                                "Specific aspect to analyze",
-                                "Metrics or data points to examine",
-                                "Comparisons or context to provide"
-                            ]
-                        }}
-                    ]
-                }}
-
-                **Examples:**
-
-                Question: "How is Apple's revenue growing?"
-                {{
-                    "sections": [
-                        {{
-                            "title": "Revenue Growth Trajectory",
-                            "focus_points": [
-                                "Analyze revenue growth rates year-over-year",
-                                "Identify key product lines driving growth",
-                                "Compare against industry peers"
-                            ]
-                        }},
-                        {{
-                            "title": "Growth Sustainability & Outlook",
-                            "focus_points": [
-                                "Assess growth consistency and patterns",
-                                "Evaluate market opportunities and risks",
-                                "Project future growth potential"
-                            ]
-                        }}
-                    ]
-                }}
-
-                Question: "What is Tesla's profit margin?"
-                {{
-                    "sections": [
-                        {{
-                            "title": "Profitability Metrics",
-                            "focus_points": [
-                                "Calculate gross and net profit margins",
-                                "Analyze margin trends over recent periods"
-                            ]
-                        }},
-                        {{
-                            "title": "Competitive Comparison",
-                            "focus_points": [
-                                "Compare with automotive industry benchmarks",
-                                "Assess margin sustainability and risks"
-                            ]
-                        }}
-                    ]
-                }}
-
-                Question: "How is chip business competition going on?"
-                {{
-                    "sections": [
-                        {{
-                            "title": "Competitive Market Position",
-                            "focus_points": [
-                                "Identify major competitors and market share",
-                                "Analyze competitive advantages and weaknesses",
-                                "Assess pricing power and differentiation"
-                            ]
-                        }},
-                        {{
-                            "title": "Market Dynamics & Outlook",
-                            "focus_points": [
-                                "Evaluate demand trends and growth drivers",
-                                "Examine supply chain constraints and opportunities",
-                                "Project future competitive landscape"
-                            ]
-                        }}
-                    ]
-                }}
-
-                **Guidelines:**
-                - Generate EXACTLY 2 sections (the most relevant aspects)
-                - Section titles must be catchy, professional, and max 6 words
-                - Each section should have 2-4 focus points
-                - Focus points should be specific and actionable
-                - Return ONLY valid JSON, no markdown code blocks
-            """
-
-            agent = MultiAgent(model_name=ModelName.Gemini30Flash)
-
-            # Collect full response with timeout
-            response_chunks = []
-
-            async def collect_response():
-                for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
-                    response_chunks.append(chunk)
-
-            await asyncio.wait_for(collect_response(), timeout=3.0)
-            full_response = "".join(response_chunks)
-
-            # Parse and validate JSON
-            parsed_data = self._parse_dimension_json(full_response)
-            if not parsed_data:
-                return None
-
-            sections = parsed_data.get("sections", [])
-            if not validate_section_titles(sections):
-                return None
-
-            return sections
-
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout generating dimension sections for question: {question}")
-            return None
-        except Exception as e:
-            logger.error(f"Error generating dimension sections: {e}")
-            return None
-
-    def _parse_dimension_json(self, response: str) -> Optional[Dict]:
-        """
-        Parse JSON from AI response, handling markdown code blocks.
-
-        Args:
-            response: Raw response from AI model
-
-        Returns:
-            Parsed dictionary or None if parsing failed
-        """
-        try:
-            # Try direct JSON parsing first
-            return json.loads(response)
-        except json.JSONDecodeError:
-            # Try extracting from markdown code block
-            try:
-                match = re.search(r"```(?:json)?\s*({.*?})\s*```", response, re.DOTALL)
-                if match:
-                    return json.loads(match.group(1))
-
-                # Try finding any JSON object in the response
-                match = re.search(r"{.*}", response, re.DOTALL)
-                if match:
-                    return json.loads(match.group(0))
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse dimension JSON from response: {e}")
-
-        logger.error(f"Could not extract valid JSON from response: {response[:200]}...")
-        return None
 
     async def handle(
         self,
@@ -310,45 +139,14 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 "body": f"Retrieving {period_requirement.period_type} financial data for analysis...",
             }
 
-        # Run dimension analysis in parallel with data fetching (for detailed analysis)
-        dimension_sections = None
-        if data_requirement == FinancialDataRequirement.DETAILED:
-            yield {"type": "thinking_status", "body": "Determining key analysis dimensions..."}
-
-            # Execute in parallel to minimize latency
-            results = await asyncio.gather(
-                self._analyze_question_dimensions(question, ticker),
-                self.data_optimizer.fetch_optimized_data(
-                    ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
-                ),
-                return_exceptions=True,
-            )
-
-            # Extract results and handle exceptions
-            dimension_result = results[0]
-            data_result = results[1]
-
-            if isinstance(dimension_result, BaseException):
-                logger.error(f"Failed to generate dimension sections: {dimension_result}")
-                dimension_sections = None
-            else:
-                dimension_sections = dimension_result
-
-            if isinstance(data_result, BaseException):
-                logger.error(f"Failed to fetch financial data: {data_result}")
-                raise data_result
-            else:
-                company_fundamental, annual_statements, quarterly_statements = data_result
-
-        # For non-detailed queries (QUARTERLY_SUMMARY, BASIC, NONE), fetch data
-        if data_requirement != FinancialDataRequirement.DETAILED:
-            (
-                company_fundamental,
-                annual_statements,
-                quarterly_statements,
-            ) = await self.data_optimizer.fetch_optimized_data(
-                ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
-            )
+        # Fetch financial data
+        (
+            company_fundamental,
+            annual_statements,
+            quarterly_statements,
+        ) = await self.data_optimizer.fetch_optimized_data(
+            ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
+        )
 
         if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
             filing_url = quarterly_statements[0].get("filing_10q_url")
@@ -422,7 +220,6 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 company_fundamental=company_fundamental,
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
-                dimension_sections=dimension_sections,
                 deep_analysis=deep_analysis,
             )
 
@@ -544,7 +341,6 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         company_fundamental: Optional[Dict[str, Any]],
         annual_statements: list[Dict[str, Any]],
         quarterly_statements: list[Dict[str, Any]],
-        dimension_sections: Optional[List[Dict]] = None,
         deep_analysis: bool = False,
     ) -> str:
         """
@@ -557,7 +353,6 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             company_fundamental: Fundamental company data
             annual_statements: Annual financial statements
             quarterly_statements: Quarterly financial statements
-            dimension_sections: AI-generated section structure with titles and focus points
             deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
 
         Returns:
@@ -565,7 +360,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         """
         logger.info(
             "Building financial context for analysis",
-            {"ticker": ticker, "data_requirement": data_requirement, "dimension_sections": dimension_sections},
+            {"ticker": ticker, "data_requirement": data_requirement},
         )
 
         builder = get_context_builder(data_requirement)
@@ -576,7 +371,6 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 company_fundamental=company_fundamental,
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
-                dimension_sections=dimension_sections,
                 deep_analysis=deep_analysis,
             )
         )
