@@ -343,35 +343,37 @@
       }
     },
     {
-      "id": "analyze-question-dimensions-skip-simple",
+      "id": "analyze-question-dimensions-remove-llm",
       "sort_order": 8,
       "impact_level": "MEDIUM",
       "state": "not-started",
-      "title": "Skip _analyze_question_dimensions for simple questions (default sections)",
-      "estimated_effect_from_audit": "~2s (audit)",
+      "title": "Remove _analyze_question_dimensions LLM call entirely; inline section-picking into main generation prompt",
+      "estimated_effect_from_audit": "~2s on deep_analysis=True requests (audit). Non-deep requests already skip this.",
       "source_audit_sections": [
         "Top Bottlenecks §5 _analyze_question_dimensions (Skip for simple questions bullet)",
         "Optimization Impact Matrix: Skip _analyze_question_dimensions for simple questions"
       ],
-      "definition": "When the question is classified as simple or non-deep-analysis, bypass the dimensions LLM and use deterministic default section titles/structure.",
-      "explanation_for_agents": "Define 'simple' using existing flags or classifier output. Avoid skipping when deep_analysis or equivalent requires rich structure.",
-      "optimized_pipeline_step": "_analyze_question_dimensions",
+      "definition": "Delete the separate _analyze_question_dimensions LLM call. For deep_analysis=True, add instructions to the main generation prompt telling the LLM to choose its own relevant section titles and structure. For deep_analysis=False (default/majority path), no change needed — it already uses _build_short_analysis which never calls dimensions. This supersedes milestones #9 (cache patterns) and #10 (cheaper model) since the dimensions LLM is removed entirely.",
+      "explanation_for_agents": "The current code already has two paths: _build_short_analysis (no dimensions, used for deep_analysis=False) and _build_deep_analysis (uses dimension_sections from a separate LLM call). The change: modify _build_deep_analysis to instruct the main LLM to pick 2 relevant section titles itself instead of receiving pre-computed ones. Remove _analyze_question_dimensions method, the parallel gather for dimensions+data_fetch (just fetch data directly), and all dimension_sections plumbing (ContextBuilderInput field, handler wiring). Keep the deep_analysis prompt's structure requirements (3 sections, word limits, formatting) but let the model choose titles.",
+      "optimized_pipeline_step": "_analyze_question_dimensions (eliminated entirely)",
       "dependencies": {
         "technical_must_complete_before": [],
-        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "measurement_order_note": null,
         "parallelizable": true
       },
       "definition_of_done": {
         "implementation_checks": [
-          "Simple path skips LLM call (log/test).",
-          "Deep/complex path still invokes dimensions analysis when required."
+          "_analyze_question_dimensions method and all dimension_sections plumbing removed.",
+          "deep_analysis=True prompt instructs main LLM to choose section structure.",
+          "deep_analysis=False path unchanged (already works without dimensions).",
+          "Answer quality spot-checked for deep_analysis=True on a few questions (AAPL revenue, TSLA margins, NVDA competition)."
         ],
         "measurement": {
           "method": "manual_analyze_sse",
           "step_specific_metric": {
-            "name": "_analyze_question_dimensions span",
-            "description": "Duration of dimensions step; for simple questions should trend to ~0 when skipped.",
-            "how_to_record_before_after": "Manual before/after; seconds_saved."
+            "name": "deep_analysis request total time (dimensions step eliminated)",
+            "description": "For deep_analysis=True requests: total wall-clock before/after. The ~2s dimensions step should disappear entirely.",
+            "how_to_record_before_after": "Manual before/after with deepAnalysis=true; seconds_saved."
           },
           "total_request_metric": {
             "description": "Optional total.",
@@ -390,7 +392,8 @@
       "id": "analyze-question-dimensions-cache-patterns",
       "sort_order": 9,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
+      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call is being removed entirely — there is nothing left to cache.",
       "title": "Cache common dimension patterns (revenue trend, margins, etc.)",
       "estimated_effect_from_audit": "~2s (audit)",
       "source_audit_sections": [
@@ -398,29 +401,20 @@
         "Optimization Impact Matrix: Cache common dimension patterns"
       ],
       "definition": "Memoize or key-cache LLM dimension outputs for repeated question shapes so identical or near-identical questions reuse structure without a full LLM round trip.",
-      "explanation_for_agents": "Choose cache key (normalized question + handler + ticker). Invalidate on model/prompt version change. Thread-safe if multi-worker.",
+      "explanation_for_agents": "Superseded — no longer applicable.",
       "optimized_pipeline_step": "_analyze_question_dimensions",
       "dependencies": {
         "technical_must_complete_before": [],
-        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "measurement_order_note": null,
         "parallelizable": true
       },
       "definition_of_done": {
-        "implementation_checks": [
-          "Cache hit/miss observable in logs or metrics.",
-          "Versioning or invalidation strategy documented."
-        ],
+        "implementation_checks": [],
         "measurement": {
           "method": "manual_analyze_sse",
           "step_specific_metric": {
-            "name": "_analyze_question_dimensions span on cache hit vs miss",
-            "description": "Record before/after for cold vs warm question if testing cache; primary comparison is second identical request after first.",
-            "how_to_record_before_after": "Document which run is before (no cache) and after (cache hit); seconds_saved on dimensions step."
-          },
-          "total_request_metric": {
-            "description": "Optional total.",
-            "duration_before_seconds": null,
-            "duration_after_seconds": null
+            "name": "N/A — superseded",
+            "description": "N/A — superseded by #8"
           },
           "step_metric": {
             "duration_before_seconds": null,
@@ -434,36 +428,28 @@
       "id": "analyze-question-dimensions-cheaper-model",
       "sort_order": 10,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
+      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call is being removed entirely — no model to swap.",
       "title": "Use cheaper/faster model for _analyze_question_dimensions",
       "estimated_effect_from_audit": "Qualitative; not separately quantified in matrix",
       "source_audit_sections": [
         "Top Bottlenecks §5 (Use cheaper/faster model bullet)"
       ],
       "definition": "Swap the model used for dimension analysis to a smaller/faster Gemini (or equivalent) while preserving output schema for downstream code.",
-      "explanation_for_agents": "Validate JSON/schema stability. Compare quality on a small golden set of questions.",
+      "explanation_for_agents": "Superseded — no longer applicable.",
       "optimized_pipeline_step": "_analyze_question_dimensions",
       "dependencies": {
         "technical_must_complete_before": [],
-        "measurement_order_note": "Do not co-ship with other analyze-question-dimensions-* milestones. Per release_and_measurement_policy.",
+        "measurement_order_note": null,
         "parallelizable": true
       },
       "definition_of_done": {
-        "implementation_checks": [
-          "Model id configurable or updated with rollback path.",
-          "Golden-question review passed."
-        ],
+        "implementation_checks": [],
         "measurement": {
           "method": "manual_analyze_sse",
           "step_specific_metric": {
-            "name": "_analyze_question_dimensions span",
-            "description": "Wall-clock for dimensions LLM call.",
-            "how_to_record_before_after": "Manual before/after; seconds_saved."
-          },
-          "total_request_metric": {
-            "description": "Optional total.",
-            "duration_before_seconds": null,
-            "duration_after_seconds": null
+            "name": "N/A — superseded",
+            "description": "N/A — superseded by #8"
           },
           "step_metric": {
             "duration_before_seconds": null,
