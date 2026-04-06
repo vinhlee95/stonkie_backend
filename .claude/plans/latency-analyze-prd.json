@@ -76,8 +76,9 @@
       "id": "search-decision-offline-when-db-sufficient",
       "sort_order": 2,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
       "title": "When DB already has sufficient data, avoid Google Search / :online generation path (fix reliability + fast-path)",
+      "completed_reason": "Already implemented before PRD was written. SearchDecisionEngine.decide() receives available_periods and available_metrics from DB, injects them into the LLM classifier prompt with explicit db_data_sufficient routing. The audit's hypothesis (search=ON due to Sonnet timeout) was the root cause — fixed by milestone #1 (Gemini Flash). No additional work needed.",
       "estimated_effect_from_audit": "3-5s TTFT reduction if :online is skipped when DB-backed context suffices; depends on current routing",
       "source_audit_sections": [
         "Top Bottlenecks §1 LLM Generation TTFT (Skip Google Search bullet)",
@@ -122,7 +123,7 @@
       "id": "ticker-extraction-regex-prefilter",
       "sort_order": 3,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
       "title": "Regex/keyword pre-filter before ticker_extractor.extract_tickers LLM",
       "estimated_effect_from_audit": "3-4s for majority non-comparison questions (audit estimate)",
       "source_audit_sections": [
@@ -131,6 +132,7 @@
         "Quick Wins #1"
       ],
       "definition": "Before invoking the LLM inside ticker extraction, detect absence of comparison signals (e.g. vs, compare, versus, multiple tickers) via regex/heuristics and skip the LLM call when safe.",
+      "shipped_implementation": "_has_comparison_signals() regex pre-filter added to both StockTickerExtractor and ETFTickerExtractor. Checks for comparison keywords (vs, compare, versus, against, outperform, etc.) and multiple uppercase ticker-like tokens. Returns [] immediately when no signals found. Also switched extraction model: Stock Sonnet46 → Gemini25FlashNitro, ETF Gemini30Flash → Gemini25FlashNitro. Branch feat/ticker-extraction-prefilter.",
       "explanation_for_agents": "Audit shows extract_tickers dominated classify_question_type time. Add a fast pre-filter in the ticker extraction path; ensure comparison questions still invoke the LLM. Add tests for boundary cases (false negatives are worse than false positives for skipping). Can be developed independently of search decision work.",
       "optimized_pipeline_step": "ticker_extractor.extract_tickers (including skipped LLM path duration)",
       "dependencies": {
@@ -156,10 +158,11 @@
             "duration_after_seconds": null
           },
           "step_metric": {
-            "duration_before_seconds": null,
-            "duration_after_seconds": null,
-            "seconds_saved": null
-          }
+            "duration_before_seconds": 2.87,
+            "duration_after_seconds": 0.0003,
+            "seconds_saved": 2.87
+          },
+          "real_world_measurement_notes_2026_04": "Local server, AAPL 'What is Apple's revenue trend over the last 3 years?', fastest model profile. Before: extract_tickers 1.91s/3.82s (2 runs, Sonnet 4.6 AI fallback for non-comparison). After: 0.0003s/0.0002s (pre-filter skips immediately). classify_question_type dropped from 3.79s avg to 1.20s avg. Comparison questions verified working: 'Compare Apple to Microsoft margins' → AAPL+MSFT via AI (1.76s on Flash Nitro), 'How does Nvidia compare to AMD?' → NVDA+AMD via regex (2.12s including context preprocess), contextual ref 'Compare this stock with MSFT' → resolved and detected (3.74s, includes preprocessing LLM call). Model swap Sonnet→Flash Nitro contributes ~1-2s savings on comparison path as bonus."
         }
       }
     },

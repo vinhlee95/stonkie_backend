@@ -9,13 +9,33 @@ from connectors.etf_fundamental import ETFFundamentalConnector
 
 logger = logging.getLogger(__name__)
 
+# Regex pattern detecting comparison intent in a question
+_COMPARISON_PATTERN = re.compile(
+    r"""
+    \bvs\.?\b | \bversus\b | \bcompare[ds]?\b | \bcomparison\b
+    | \bagainst\b | \bhead[\s-]to[\s-]head\b | \bbetter\s+than\b
+    | \bworse\s+than\b | \bstronger\s+than\b | \bweaker\s+than\b
+    | \boutperform | \bunderperform | \brelative\s+to\b
+    | \bor\b(?=\s+(?:[A-Z]{1,5}\b))
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _has_comparison_signals(question: str) -> bool:
+    """Fast check: does the question contain comparison language or multiple ticker-like tokens?"""
+    if _COMPARISON_PATTERN.search(question):
+        return True
+    ticker_like = re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", question)
+    return len(ticker_like) >= 2
+
 
 class ETFTickerExtractor:
     """Extract 2-4 ETF tickers from comparison questions using hybrid approach."""
 
     def __init__(self):
         self.connector = ETFFundamentalConnector()
-        self.agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        self.agent = MultiAgent(model_name=ModelName.Gemini25FlashNitro)
 
     async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
         """
@@ -86,6 +106,11 @@ Return ONLY the rewritten question, no explanation."""
         """
         t_start = time.perf_counter()
         try:
+            # Pre-filter: skip entirely when no comparison signals detected
+            if not _has_comparison_signals(question):
+                logger.info("[etf_ticker_extractor] No comparison signals — skipping extraction")
+                return []
+
             # AI preprocessing if context provided
             processed_question = question
             if current_ticker:
