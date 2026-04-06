@@ -214,7 +214,8 @@
       "id": "main-generation-streaming-first-partial-yields",
       "sort_order": 5,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
+      "completed_reason": "Already implemented before PRD was written. The SSE pipeline already streams partial results early: conversation ID and thinking_status events emit immediately, search_decision_meta streams during parallel classify+search, answer tokens stream incrementally as they arrive from the LLM (no buffering), and visual content uses granular start/delta/done events. The architecture described in this milestone is the existing design.",
       "title": "Streaming-first architecture: yield partial results earlier in the pipeline",
       "estimated_effect_from_audit": "Not quantified in matrix; qualitative perceived latency improvement",
       "source_audit_sections": [
@@ -257,7 +258,8 @@
       "id": "ticker-extraction-parallel-with-classification",
       "sort_order": 6,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
+      "completed_reason": "Superseded by milestone #3 (ticker-extraction-regex-prefilter). With the regex pre-filter shipped, non-comparison ticker extraction completes in ~0.0003s — making parallelization pointless for ~90% of questions. For comparison questions, extraction must complete before classification anyway (2+ tickers triggers early COMPANY_COMPARISON return), so parallelization wouldn't help there either.",
       "title": "Run ticker extraction concurrently with classification (not sequentially inside classify_question_type)",
       "estimated_effect_from_audit": "Not given as isolated seconds; reduces classify_question_type wall-clock if dependencies allow",
       "source_audit_sections": [
