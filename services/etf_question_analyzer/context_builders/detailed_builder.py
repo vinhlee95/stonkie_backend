@@ -46,7 +46,7 @@ class DetailedETFBuilder(ETFContextBuilder):
             **Instructions for your analysis:**
 
             Analyze the ETF data and organize your findings into focused sections.
-            Use AT MOST 2-3 sections. Each section must be 2-3 sentences MAX (under 60 words).
+            Limit to 1-2 sections maximum. Each section must be 2-3 sentences MAX (under 60 words).
             Start each section heading on its own line in markdown bold: **Section Title**
             Tell the story behind the numbers — don't list every detail.
 
@@ -102,7 +102,7 @@ class DetailedETFBuilder(ETFContextBuilder):
             - Each section should be a cohesive paragraph (or 2-3 short paragraphs)
             - Use numbers strategically - select 2-4 key figures per section that best support your analysis
             - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M", "0.07%" not "7 basis points")
-            - Keep total response under 300 words
+            - Keep total response under 400 words
 
             **Analysis Rules:**
             - PRIORITIZE REASONING: Explain WHY certain allocations exist, WHAT drives the ETF's strategy, and WHAT it means for investors
