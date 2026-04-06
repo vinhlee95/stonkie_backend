@@ -3,7 +3,7 @@
 import json
 import logging
 from dataclasses import asdict
-from typing import Dict, List, Optional
+from typing import Dict
 
 from .base import ETFContextBuilder, ETFContextBuilderInput
 from .components import ETFPromptComponents
@@ -47,6 +47,7 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             Analyze the ETF data and organize your findings into focused sections.
             Limit to 1-2 sections maximum. Each section must be 2-3 sentences MAX (under 60 words).
+            Start each section heading on its own line in markdown bold: **Section Title**
             Tell the story behind the numbers — don't list every detail.
 
             {section_structure}
@@ -72,40 +73,6 @@ class DetailedETFBuilder(ETFContextBuilder):
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
 
-        # Use AI-generated sections or fallback to default structure
-        sections = input.dimension_sections
-        if not sections or not self._validate_sections(sections):
-            logger.info("Using fallback section structure for ETF deep analysis")
-            sections = [
-                {
-                    "title": "Holdings & Allocation Analysis",
-                    "focus_points": [
-                        "Analyze top holdings concentration and diversification",
-                        "Sector and geographic allocation breakdown",
-                    ],
-                },
-                {
-                    "title": "Cost Efficiency & Performance",
-                    "focus_points": [
-                        "TER comparison and cost efficiency",
-                        "Fund size and tracking accuracy",
-                    ],
-                },
-            ]
-
-        # Word allocation: 80 words for summary, 160 words each for 2 main sections (total: 400)
-        summary_words = 80
-        section_words = 160
-
-        # Build dynamic section instructions for the 2 main sections
-        sections_text = ""
-        for section in sections:
-            sections_text += f"\n**{section['title']}**\n\n"
-            sections_text += f"(~{section_words} words) Focus on:\n"
-            for point in section["focus_points"]:
-                sections_text += f"- {point}\n"
-            sections_text += "\n"
-
         # Check data completeness
         warnings_text = self._check_data_completeness(etf_context)
 
@@ -121,9 +88,13 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             Structure your response with EXACTLY 3 sections in this order:
 
-            (~{summary_words} words) Provide a concise overview that previews the key findings from the two sections below. Highlight the most important takeaway.
+            1. (~80 words) A concise overview that previews the key findings from the two sections below. Highlight the most important takeaway.
 
-            {sections_text}
+            2. (~160 words) Choose a section title (max 6 words) for the most relevant aspect of the question. Identify 2-3 key focus points and analyze them in depth.
+
+            3. (~160 words) Choose a section title (max 6 words) for a second important aspect. Identify 2-3 key focus points and analyze them in depth.
+
+            The two section titles should be specific to the question asked (e.g., "Holdings Concentration Analysis" not generic "ETF Overview").
 
             **Formatting Guidelines:**
             - Start each section with its title in markdown bold: **Section Title**
@@ -131,7 +102,7 @@ class DetailedETFBuilder(ETFContextBuilder):
             - Each section should be a cohesive paragraph (or 2-3 short paragraphs)
             - Use numbers strategically - select 2-4 key figures per section that best support your analysis
             - Use the largest appropriate unit for numbers (e.g., "$1.5B" not "$1,500M", "0.07%" not "7 basis points")
-            - Keep total response under 300 words
+            - Keep total response under 400 words
 
             **Analysis Rules:**
             - PRIORITIZE REASONING: Explain WHY certain allocations exist, WHAT drives the ETF's strategy, and WHAT it means for investors
@@ -181,18 +152,3 @@ class DetailedETFBuilder(ETFContextBuilder):
             data_warnings.append("Country allocation unavailable - search online if needed")
 
         return "\n".join([f"- {w}" for w in data_warnings]) if data_warnings else ""
-
-    def _validate_sections(self, sections: Optional[List[Dict]]) -> bool:
-        """Validate dimension section structure."""
-        if not sections or len(sections) != 2:
-            return False
-
-        for section in sections:
-            if "title" not in section or "focus_points" not in section:
-                return False
-            # Validate title length (max 6 words)
-            title_words = section["title"].split()
-            if len(title_words) > 6:
-                return False
-
-        return True

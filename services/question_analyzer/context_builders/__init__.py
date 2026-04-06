@@ -6,7 +6,6 @@ from ..types import FinancialDataRequirement
 from .annual_builder import AnnualContextBuilder
 from .base import ContextBuilder, ContextBuilderInput
 from .basic_builder import BasicContextBuilder
-from .components import validate_section_titles
 from .detailed_builder import DetailedContextBuilder
 from .none_builder import NoneContextBuilder
 from .quarterly_builder import QuarterlyContextBuilder
@@ -34,7 +33,6 @@ __all__ = [
     "ContextBuilder",
     "ContextBuilderInput",
     "get_context_builder",
-    "validate_section_titles",
     "CONTEXT_BUILDERS",
     "NoneContextBuilder",
     "BasicContextBuilder",
