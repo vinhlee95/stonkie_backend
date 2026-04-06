@@ -3,7 +3,8 @@
     "title": "Latency reduction PRD: POST /analyze (company-specific finance path)",
     "description": "Product requirements derived from latency_audit_results.md (AAPL, COMPANY_SPECIFIC_FINANCE handler). Optimize server-side and perceived latency by addressing bottlenecks in order of impact.",
     "source_documents": [
-      ".claude/plans/latency_audit_results.md (audit 2026-04-05; originally produced in worktree crystalline-swinging-lamport)"
+      ".claude/plans/latency_audit_results.md (audit 2026-04-05; originally produced in worktree crystalline-swinging-lamport)",
+      "PR #11 / commit 0db68d98 (2026-04-06): remove _analyze_question_dimensions LLM call"
     ],
     "scope_endpoint": "POST /analyze (SSE)",
     "sorting_rule": "milestones are ordered by impact_level (HIGH before MEDIUM), then by sort_order descending estimated_effect within the same level",
@@ -346,7 +347,7 @@
       "id": "analyze-question-dimensions-remove-llm",
       "sort_order": 8,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
       "title": "Remove _analyze_question_dimensions LLM call entirely; inline section-picking into main generation prompt",
       "estimated_effect_from_audit": "~2s on deep_analysis=True requests (audit). Non-deep requests already skip this.",
       "source_audit_sections": [
@@ -354,6 +355,7 @@
         "Optimization Impact Matrix: Skip _analyze_question_dimensions for simple questions"
       ],
       "definition": "Delete the separate _analyze_question_dimensions LLM call. For deep_analysis=True, add instructions to the main generation prompt telling the LLM to choose its own relevant section titles and structure. For deep_analysis=False (default/majority path), no change needed — it already uses _build_short_analysis which never calls dimensions. This supersedes milestones #9 (cache patterns) and #10 (cheaper model) since the dimensions LLM is removed entirely.",
+      "shipped_implementation": "Removed _analyze_question_dimensions and dimension_sections plumbing from company_specific_finance_handler and ETF handlers; DetailedBuilder no longer runs a parallel dimensions LLM before data fetch. The removed call was Gemini 3 Flash (~2.26s) and ran on DETAILED data-requirement requests even when deep_analysis was false, so default detailed path also benefits. Main generation prompts instruct the model to choose section structure. Follow-up: deep-analysis word budget text aligned to 400 words (80+160+160); ETF short analysis kept at 1–2 sections (not 2–3). Commit 0db68d98 (PR #11).",
       "explanation_for_agents": "The current code already has two paths: _build_short_analysis (no dimensions, used for deep_analysis=False) and _build_deep_analysis (uses dimension_sections from a separate LLM call). The change: modify _build_deep_analysis to instruct the main LLM to pick 2 relevant section titles itself instead of receiving pre-computed ones. Remove _analyze_question_dimensions method, the parallel gather for dimensions+data_fetch (just fetch data directly), and all dimension_sections plumbing (ContextBuilderInput field, handler wiring). Keep the deep_analysis prompt's structure requirements (3 sections, word limits, formatting) but let the model choose titles.",
       "optimized_pipeline_step": "_analyze_question_dimensions (eliminated entirely)",
       "dependencies": {
@@ -365,7 +367,7 @@
         "implementation_checks": [
           "_analyze_question_dimensions method and all dimension_sections plumbing removed.",
           "deep_analysis=True prompt instructs main LLM to choose section structure.",
-          "deep_analysis=False path unchanged (already works without dimensions).",
+          "Short/detailed prompts: copy fixes only where needed (e.g. word budget 400, section-count guidance); no separate dimensions LLM on any path.",
           "Answer quality spot-checked for deep_analysis=True on a few questions (AAPL revenue, TSLA margins, NVDA competition)."
         ],
         "measurement": {
@@ -381,10 +383,11 @@
             "duration_after_seconds": null
           },
           "step_metric": {
-            "duration_before_seconds": null,
-            "duration_after_seconds": null,
-            "seconds_saved": null
-          }
+            "duration_before_seconds": 10,
+            "duration_after_seconds": 6,
+            "seconds_saved": 4
+          },
+          "real_world_measurement_notes_2026_04": "Shipped 2026-04-06. Author-reported stock TTFT ~10s → ~6s after removing the extra dimensions LLM (~2.26s isolated). Not a fresh PRD baseline/after pair per baseline_policy — treat as indicative; re-record step_metric if re-measured."
         }
       }
     },
@@ -393,7 +396,7 @@
       "sort_order": 9,
       "impact_level": "MEDIUM",
       "state": "complete",
-      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call is being removed entirely — there is nothing left to cache.",
+      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call was removed entirely — there is nothing left to cache.",
       "title": "Cache common dimension patterns (revenue trend, margins, etc.)",
       "estimated_effect_from_audit": "~2s (audit)",
       "source_audit_sections": [
@@ -429,7 +432,7 @@
       "sort_order": 10,
       "impact_level": "MEDIUM",
       "state": "complete",
-      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call is being removed entirely — no model to swap.",
+      "completed_reason": "Superseded by milestone #8 (analyze-question-dimensions-remove-llm). The dimensions LLM call was removed entirely — no model to swap.",
       "title": "Use cheaper/faster model for _analyze_question_dimensions",
       "estimated_effect_from_audit": "Qualitative; not separately quantified in matrix",
       "source_audit_sections": [
