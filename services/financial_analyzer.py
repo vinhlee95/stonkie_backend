@@ -179,7 +179,12 @@ class FinancialAnalyzer:
             classify_coro = self.classifier.classify_question_type(
                 question, ticker, conversation_messages=conversation_messages
             )
+            t_parallel_block = time.perf_counter()
             decision, classify_result = await asyncio.gather(search_coro, classify_coro)
+            logger.info(
+                "Profiling parallel classify_question_type + search_decision_engine.decide: %.4fs",
+                time.perf_counter() - t_parallel_block,
+            )
             classification, comparison_tickers = classify_result
             logger.info(f"Question classified as: {classification}")
 
@@ -188,7 +193,12 @@ class FinancialAnalyzer:
                     anon_user_id, normalized_ticker, conversation_id, {"last_question_type": classification}
                 )
         else:
+            t_search_only = time.perf_counter()
             decision = await search_coro
+            logger.info(
+                "Profiling search_decision_engine.decide only (sticky classification, no classify): %.4fs",
+                time.perf_counter() - t_search_only,
+            )
 
         use_google_search = decision.use_google_search
 

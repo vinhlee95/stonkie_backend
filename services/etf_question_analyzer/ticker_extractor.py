@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from typing import Optional
 
 from agent.multi_agent import MultiAgent
@@ -83,28 +84,35 @@ Return ONLY the rewritten question, no explanation."""
         Returns:
             List of 2-4 validated ETF ticker strings, or empty list
         """
-        # AI preprocessing if context provided
-        processed_question = question
-        if current_ticker:
-            processed_question = await self._preprocess_question_with_context(question, current_ticker)
-            if processed_question != question:
-                logger.info(f"Context resolved: '{question}' → '{processed_question}'")
+        t_start = time.perf_counter()
+        try:
+            # AI preprocessing if context provided
+            processed_question = question
+            if current_ticker:
+                processed_question = await self._preprocess_question_with_context(question, current_ticker)
+                if processed_question != question:
+                    logger.info(f"Context resolved: '{question}' → '{processed_question}'")
 
-        # Stage 1: Try regex extraction (fast, free)
-        regex_tickers = self._extract_via_regex(processed_question)
-        if len(regex_tickers) >= 2:
-            logger.info(f"Extracted {len(regex_tickers)} tickers via regex: {regex_tickers}")
-            return regex_tickers
+            # Stage 1: Try regex extraction (fast, free)
+            regex_tickers = self._extract_via_regex(processed_question)
+            if len(regex_tickers) >= 2:
+                logger.info(f"Extracted {len(regex_tickers)} tickers via regex: {regex_tickers}")
+                return regex_tickers
 
-        # Stage 2: Fall back to AI extraction (handles names)
-        logger.info("Regex found < 2 tickers, falling back to AI extraction")
-        ai_tickers = await self._extract_via_ai(processed_question)
-        if len(ai_tickers) >= 2:
-            logger.info(f"Extracted {len(ai_tickers)} tickers via AI: {ai_tickers}")
-            return ai_tickers
+            # Stage 2: Fall back to AI extraction (handles names)
+            logger.info("Regex found < 2 tickers, falling back to AI extraction")
+            ai_tickers = await self._extract_via_ai(processed_question)
+            if len(ai_tickers) >= 2:
+                logger.info(f"Extracted {len(ai_tickers)} tickers via AI: {ai_tickers}")
+                return ai_tickers
 
-        logger.info("No comparison detected (< 2 valid tickers)")
-        return []
+            logger.info("No comparison detected (< 2 valid tickers)")
+            return []
+        finally:
+            logger.info(
+                "Profiling ETFTickerExtractor.extract_tickers: %.4fs",
+                time.perf_counter() - t_start,
+            )
 
     def _extract_via_regex(self, question: str) -> list[str]:
         """

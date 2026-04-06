@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 from agent.multi_agent import MultiAgent
@@ -118,29 +119,36 @@ Return ONLY the rewritten question, no explanation."""
         Returns:
             List of 2-4 validated stock ticker strings, or empty list
         """
-        # AI preprocessing if context provided
-        processed_question = question
-        if current_ticker:
-            processed_question = await self._preprocess_question_with_context(question, current_ticker)
-            if processed_question != question:
-                logger.info(f"Context resolved: '{question}' → '{processed_question}'")
+        t_start = time.perf_counter()
+        try:
+            # AI preprocessing if context provided
+            processed_question = question
+            if current_ticker:
+                processed_question = await self._preprocess_question_with_context(question, current_ticker)
+                if processed_question != question:
+                    logger.info(f"Context resolved: '{question}' → '{processed_question}'")
 
-        # Stage 1: Try regex extraction (fast, free)
-        regex_tickers = self._extract_via_regex(processed_question)
-        if len(regex_tickers) >= 2:
-            logger.info(f"[ticker_extractor] Stage 1 (regex): extracted {regex_tickers}")
-            return regex_tickers
+            # Stage 1: Try regex extraction (fast, free)
+            regex_tickers = self._extract_via_regex(processed_question)
+            if len(regex_tickers) >= 2:
+                logger.info(f"[ticker_extractor] Stage 1 (regex): extracted {regex_tickers}")
+                return regex_tickers
 
-        logger.info(f"[ticker_extractor] Stage 1 (regex): found {regex_tickers}, need 2+ — falling back to AI")
+            logger.info(f"[ticker_extractor] Stage 1 (regex): found {regex_tickers}, need 2+ — falling back to AI")
 
-        # Stage 2: Fall back to AI extraction (handles company names)
-        ai_tickers = await self._extract_via_ai(processed_question)
-        if len(ai_tickers) >= 2:
-            logger.info(f"[ticker_extractor] Stage 2 (AI): extracted {ai_tickers}")
-            return ai_tickers
+            # Stage 2: Fall back to AI extraction (handles company names)
+            ai_tickers = await self._extract_via_ai(processed_question)
+            if len(ai_tickers) >= 2:
+                logger.info(f"[ticker_extractor] Stage 2 (AI): extracted {ai_tickers}")
+                return ai_tickers
 
-        logger.info(f"[ticker_extractor] Stage 2 (AI): found {ai_tickers} — no comparison detected (< 2 tickers)")
-        return []
+            logger.info(f"[ticker_extractor] Stage 2 (AI): found {ai_tickers} — no comparison detected (< 2 tickers)")
+            return []
+        finally:
+            logger.info(
+                "Profiling StockTickerExtractor.extract_tickers: %.4fs",
+                time.perf_counter() - t_start,
+            )
 
     def _extract_via_regex(self, question: str) -> list[str]:
         """
