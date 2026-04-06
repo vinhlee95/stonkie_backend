@@ -12,3 +12,6 @@ scripts/*.pdf
 
 # Pre-commit
 .pre-commit-config.yaml.bak
+
+# Claude Code worktrees
+.claude/worktrees/
