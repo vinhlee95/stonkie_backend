@@ -348,7 +348,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
         t_start = time.perf_counter()
 
         try:
-            yield thinking_status("Generating response...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
+            yield thinking_status("Writing your answer...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
 
             # Conversation context (important for follow-ups like "then?", "so?", "based on that?")
             conversation_context = ""

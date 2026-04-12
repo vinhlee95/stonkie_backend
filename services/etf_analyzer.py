@@ -51,7 +51,7 @@ class ETFAnalyzer:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         t_start = time.perf_counter()
 
-        yield thinking_status("Classifying your question...", phase=AnalysisPhase.CLASSIFY, step=1)
+        yield thinking_status("Understanding your question...", phase=AnalysisPhase.CLASSIFY, step=1)
 
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in ["UNDEFINED", "NULL", "NONE", ""]:
@@ -95,9 +95,19 @@ class ETFAnalyzer:
             },
         }
         if use_google_search:
-            yield thinking_status("Searching the web for up-to-date data...", phase=AnalysisPhase.SEARCH, step=2)
+            _search_msg = (
+                f"Searching for the latest {normalized_ticker} data..."
+                if normalized_ticker
+                else "Searching for the latest ETF data..."
+            )
+            yield thinking_status(_search_msg, phase=AnalysisPhase.SEARCH, step=2)
         else:
-            yield thinking_status("Using cached data for faster response", phase=AnalysisPhase.SEARCH, step=2)
+            _db_msg = (
+                f"Found {normalized_ticker} data in our database"
+                if normalized_ticker
+                else "Using ETF data from our database"
+            )
+            yield thinking_status(_db_msg, phase=AnalysisPhase.SEARCH, step=2)
 
         # Handle comparison questions
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
@@ -178,7 +188,7 @@ class ETFAnalyzer:
         if use_google_search and not has_sources:
             logger.warning("ETF search attempt completed with no sources/citations.")
             yield thinking_status(
-                "Web search returned no results — using model knowledge",
+                "No recent sources found — answering from existing knowledge",
                 phase=AnalysisPhase.SEARCH,
                 step=2,
             )

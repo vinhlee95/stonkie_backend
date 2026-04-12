@@ -53,7 +53,7 @@ async def analyze_financial_report(
             return
 
         yield thinking_status(
-            f"Found filing for {ticker}. Starting AI analysis...",
+            f"Reading {ticker.upper()} filing...",
             phase=AnalysisPhase.DATA_FETCH,
             step=1,
             total_steps=3,
@@ -79,7 +79,7 @@ async def analyze_financial_report(
         prompt = builder.build(context_builder_input)
 
         yield thinking_status(
-            "Generating AI analysis of the financial report...",
+            "Analyzing the financial report...",
             phase=AnalysisPhase.ANALYZE,
             step=2,
             total_steps=3,
@@ -135,7 +135,7 @@ async def analyze_uploaded_file(
     """
     try:
         yield thinking_status(
-            f"Processing uploaded file: {filename}...",
+            f"Reading your file: {filename}...",
             phase=AnalysisPhase.DATA_FETCH,
             step=1,
             total_steps=4,
@@ -181,7 +181,7 @@ async def analyze_uploaded_file(
             - NO SPECULATION: Only analyze what's in the document unless using search for context
         """
 
-        yield thinking_status("Analyzing document with AI...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=4)
+        yield thinking_status("Analyzing the document...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=4)
 
         # Use MultiAgent with native PDF support - no manual text extraction needed
         analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
@@ -197,7 +197,7 @@ async def analyze_uploaded_file(
             yield {"type": "answer", "body": text_chunk if text_chunk else "❌ No analysis generated from the model"}
 
         # Generate related questions
-        yield thinking_status("Generating follow-up questions...", phase=AnalysisPhase.ENRICH, step=3, total_steps=4)
+        yield thinking_status("Preparing follow-up questions...", phase=AnalysisPhase.ENRICH, step=3, total_steps=4)
 
         related_question_prompt = f"""
             Based on this analysis for {ticker.upper()}: {full_answer}

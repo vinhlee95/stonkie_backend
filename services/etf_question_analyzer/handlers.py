@@ -95,7 +95,7 @@ class GeneralETFHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
-            yield thinking_status("Generating response...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
+            yield thinking_status("Writing your answer...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
 
             # Build prompt using NoneETFBuilder
             builder = get_etf_context_builder(ETFDataRequirement.NONE, context.use_url_context)
@@ -163,7 +163,13 @@ class ETFOverviewHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
-            yield thinking_status("Fetching ETF data...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=4)
+            _etf_t = context.ticker or "this ETF"
+            yield thinking_status(
+                f"Loading {_etf_t} fund data...",
+                phase=AnalysisPhase.DATA_FETCH,
+                step=3,
+                total_steps=4,
+            )
 
             # Check data completeness
             data_complete = bool(
@@ -175,7 +181,7 @@ class ETFOverviewHandler(BaseETFHandler):
 
             if not data_complete:
                 yield thinking_status(
-                    "ETF data incomplete — searching online...",
+                    f"Some {_etf_t} data missing — searching online...",
                     phase=AnalysisPhase.SEARCH,
                     step=3,
                     total_steps=5,
@@ -247,9 +253,13 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
+            _etf_t = context.ticker or "this ETF"
             total_steps = 5
             yield thinking_status(
-                "Analyzing holdings...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=total_steps
+                f"Reviewing {_etf_t} holdings...",
+                phase=AnalysisPhase.DATA_FETCH,
+                step=3,
+                total_steps=total_steps,
             )
 
             # Check data availability
@@ -260,7 +270,7 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
             if not has_holdings:
                 total_steps = 6
                 yield thinking_status(
-                    "Holdings unavailable — searching online...",
+                    f"{_etf_t} holdings not in database — searching online...",
                     phase=AnalysisPhase.SEARCH,
                     step=4,
                     total_steps=total_steps,
@@ -268,7 +278,7 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
             elif not has_sectors:
                 total_steps = 6
                 yield thinking_status(
-                    "Sector data unavailable — searching online...",
+                    f"{_etf_t} sector data not in database — searching online...",
                     phase=AnalysisPhase.SEARCH,
                     step=4,
                     total_steps=total_steps,
@@ -289,7 +299,7 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
             prompt = builder.build(builder_input)
 
             yield thinking_status(
-                "Generating analysis...",
+                f"Analyzing {_etf_t} in detail...",
                 phase=AnalysisPhase.ANALYZE,
                 step=total_steps - 1,
                 total_steps=total_steps,

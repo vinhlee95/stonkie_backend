@@ -56,7 +56,7 @@ class CompanyComparisonHandler:
         try:
             tickers_str = ", ".join(tickers)
             yield thinking_status(
-                f"Fetching data for {tickers_str}...",
+                f"Loading financial data for {tickers_str}...",
                 phase=AnalysisPhase.DATA_FETCH,
                 step=3,
                 total_steps=5,
@@ -78,15 +78,15 @@ class CompanyComparisonHandler:
 
             # Emit a single transparent status showing where each ticker's data comes from
             source_labels = {
-                "database": "internal database",
-                "training_data": "model training data (may not be current)",
-                "google_search": "Google Search (live)",
+                "database": "our database",
+                "training_data": "general knowledge",
+                "google_search": "web search",
             }
             data_origin_parts = [
                 f"{c.ticker} from {source_labels.get(c.data_source, c.data_source)}" for c in companies_data
             ]
             yield thinking_status(
-                f"Building comparison — {', '.join(data_origin_parts)}",
+                f"Comparing {', '.join(data_origin_parts)}",
                 phase=AnalysisPhase.ANALYZE,
                 step=4,
                 total_steps=5,

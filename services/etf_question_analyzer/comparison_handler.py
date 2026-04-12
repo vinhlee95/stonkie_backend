@@ -55,7 +55,7 @@ class ETFComparisonHandler:
 
         try:
             yield thinking_status(
-                f"Fetching {len(tickers)} ETFs...",
+                f"Loading data for {', '.join(tickers)}...",
                 phase=AnalysisPhase.DATA_FETCH,
                 step=3,
                 total_steps=5,
@@ -81,14 +81,15 @@ class ETFComparisonHandler:
                 found_tickers = {etf.ticker for etf in etf_data_list}
                 missing_tickers = set(tickers) - found_tickers
                 yield thinking_status(
-                    f"ETFs not found: {', '.join(missing_tickers)}. Comparing available ETFs...",
+                    f"Couldn't find {', '.join(missing_tickers)} — comparing the rest...",
                     phase=AnalysisPhase.DATA_FETCH,
                     step=3,
                     total_steps=5,
                 )
 
+            _compare_tickers = ", ".join(etf.ticker for etf in etf_data_list)
             yield thinking_status(
-                "Building comparison analysis...",
+                f"Comparing {_compare_tickers}...",
                 phase=AnalysisPhase.ANALYZE,
                 step=4,
                 total_steps=5,

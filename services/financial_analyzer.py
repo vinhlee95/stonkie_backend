@@ -81,7 +81,7 @@ class FinancialAnalyzer:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         t_start = time.perf_counter()
 
-        yield thinking_status("Classifying your question...", phase=AnalysisPhase.CLASSIFY, step=1)
+        yield thinking_status("Understanding your question...", phase=AnalysisPhase.CLASSIFY, step=1)
 
         # Check for PDF URL in question
         extracted_url = extract_first_url(question)
@@ -90,7 +90,7 @@ class FinancialAnalyzer:
             if is_sec_filing_url(extracted_url):
                 logger.info(f"SEC filing URL detected: {extracted_url}. Using Google Search to access content.")
                 yield {"type": "attachment_url", "body": extracted_url}
-                yield thinking_status("Searching SEC filing via Google...", phase=AnalysisPhase.SEARCH, step=2)
+                yield thinking_status("Reading SEC filing...", phase=AnalysisPhase.SEARCH, step=2)
                 force_google_search_reason = "sec_url"
             else:
                 is_valid, error_message = validate_pdf_url(extracted_url)
@@ -98,7 +98,7 @@ class FinancialAnalyzer:
                     yield {"type": "answer", "body": f"❌ {error_message}"}
                     return
                 yield {"type": "attachment_url", "body": extracted_url}
-                yield thinking_status("Analyzing PDF document from URL...", phase=AnalysisPhase.ANALYZE, step=2)
+                yield thinking_status("Reading the attached document...", phase=AnalysisPhase.ANALYZE, step=2)
                 async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
                     yield chunk
                 return
@@ -161,10 +161,13 @@ class FinancialAnalyzer:
                 "confidence": decision.confidence,
             },
         }
+        _t = normalized_ticker if normalized_ticker != "none" else None
         if use_google_search:
-            yield thinking_status("Searching the web for up-to-date data...", phase=AnalysisPhase.SEARCH, step=2)
+            _search_msg = f"Searching for the latest {_t} data..." if _t else "Searching for the latest data..."
+            yield thinking_status(_search_msg, phase=AnalysisPhase.SEARCH, step=2)
         else:
-            yield thinking_status("Using cached data for faster response", phase=AnalysisPhase.SEARCH, step=2)
+            _db_msg = f"Found {_t} data in our database" if _t else "Using data from our database"
+            yield thinking_status(_db_msg, phase=AnalysisPhase.SEARCH, step=2)
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}
@@ -253,7 +256,7 @@ class FinancialAnalyzer:
         if use_google_search and not has_sources:
             logger.warning("Search attempt completed with no sources/citations.")
             yield thinking_status(
-                "Web search returned no results — using model knowledge",
+                "No recent sources found — answering from existing knowledge",
                 phase=AnalysisPhase.SEARCH,
                 step=2,
             )

@@ -82,7 +82,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 "Answering question generally based on conversation context."
             )
             yield thinking_status(
-                "No ticker found — answering from conversation context",
+                "Continuing from our previous conversation...",
                 phase=AnalysisPhase.ANALYZE,
                 step=3,
                 total_steps=4,
@@ -122,7 +122,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
 
         # Determine what financial data we need (and which periods) in a single LLM call
         yield thinking_status(
-            "Determining which financial statements to pull...",
+            f"Figuring out what {ticker.upper()} data you need...",
             phase=AnalysisPhase.CLASSIFY,
             step=3,
             total_steps=6,
@@ -136,7 +136,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
 
         if period_requirement is not None:
             yield thinking_status(
-                f"Pulling {ticker.upper()} {period_requirement.period_type} reports...",
+                f"Loading {ticker.upper()} {period_requirement.period_type} financial reports...",
                 phase=AnalysisPhase.DATA_FETCH,
                 step=4,
                 total_steps=6,
@@ -179,7 +179,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 "Answering question generally based on conversation context."
             )
             yield thinking_status(
-                f"No financial data found for {ticker.upper()} — answering from conversation context",
+                f"No {ticker.upper()} financials available — answering from conversation context",
                 phase=AnalysisPhase.ANALYZE,
                 step=5,
                 total_steps=6,
@@ -217,7 +217,12 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             )
             return
 
-        yield thinking_status("Generating analysis...", phase=AnalysisPhase.ANALYZE, step=5, total_steps=6)
+        yield thinking_status(
+            f"Analyzing {ticker.upper()} financials...",
+            phase=AnalysisPhase.ANALYZE,
+            step=5,
+            total_steps=6,
+        )
 
         try:
             # Build financial context
