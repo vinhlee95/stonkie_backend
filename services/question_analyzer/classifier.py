@@ -47,7 +47,7 @@ class QuestionClassifier:
         Args:
             agent: AI agent for classification. Creates default if not provided.
         """
-        self.agent = agent or MultiAgent(model_name=ModelName.Gemini30Flash)
+        self.agent = agent or MultiAgent(model_name=ModelName.Gemini25FlashNitro)
         self.ticker_extractor = StockTickerExtractor()
 
     def _detect_quarterly_report_keywords(self, question: str) -> bool:
@@ -176,142 +176,100 @@ class QuestionClassifier:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_question_type: {t_end - t_start:.4f}s")
 
-    @observe(name="classify_data_requirement")
-    async def classify_data_requirement(self, ticker: str, question: str) -> FinancialDataRequirement:
+    @observe(name="classify_data_and_period_requirement")
+    async def classify_data_and_period_requirement(
+        self, ticker: str, question: str
+    ) -> tuple[FinancialDataRequirement, Optional[FinancialPeriodRequirement]]:
         """
-        Determine what level of financial data is needed.
+        Determine the level of financial data needed AND which periods are needed in a single LLM call.
+
+        Returns (data_requirement, period_requirement). period_requirement is None for NONE/BASIC and
+        for keyword-fast-path QUARTERLY_SUMMARY/ANNUAL_SUMMARY (downstream defaults to "latest 1").
 
         Args:
             ticker: Company ticker symbol
             question: The question being asked
 
         Returns:
-            FinancialDataRequirement level
+            Tuple of (FinancialDataRequirement, Optional[FinancialPeriodRequirement])
         """
         t_start = time.perf_counter()
 
         # Fast path: check for quarterly report keywords before calling LLM
         if self._detect_quarterly_report_keywords(question):
             logger.info(f"Keyword pre-filter detected quarterly report question: {question[:50]}...")
-            return FinancialDataRequirement.QUARTERLY_SUMMARY
+            logger.info(
+                f"Profiling classify_data_and_period_requirement: {time.perf_counter() - t_start:.4f}s (fast path)"
+            )
+            return FinancialDataRequirement.QUARTERLY_SUMMARY, None
 
         # Fast path: check for annual report keywords before calling LLM
         if self._detect_annual_report_keywords(question):
             logger.info(f"Keyword pre-filter detected annual report question: {question[:50]}...")
-            return FinancialDataRequirement.ANNUAL_SUMMARY
+            logger.info(
+                f"Profiling classify_data_and_period_requirement: {time.perf_counter() - t_start:.4f}s (fast path)"
+            )
+            return FinancialDataRequirement.ANNUAL_SUMMARY, None
 
-        prompt = f"""Analyze this question about {ticker.upper()} and determine what level of financial data is needed.
+        prompt = f"""Analyze this question about {ticker.upper()} and decide BOTH (a) what level of financial data is needed AND (b) which financial periods are needed.
             NOTE: The question may be in any language. Classify based on the meaning regardless of language.
 
             Question: "{question}"
 
-            Classify into one of these categories:
+            ===== Part A: data_requirement =====
+            Pick exactly one of:
 
             1. 'none' - Question can be answered without any financial data (e.g., "What does {ticker.upper()} do?", "Who is the CEO?", "What industry is {ticker.upper()} in?")
-
             2. 'basic' - Question needs only basic company metrics like market cap, P/E ratio, basic ratios (e.g., "What is {ticker.upper()}'s market cap?", "What's the P/E ratio?", "Is {ticker.upper()} profitable?")
-
             3. 'detailed' - Question requires specific financial statement data like revenue, expenses, cash flow details (e.g., "What was {ticker.upper()}'s revenue last quarter?", "How much debt does {ticker.upper()} have?", "What's the operating margin trend?")
+            4. 'quarterly_summary' - Question requires a summary of recent quarterly financial results (e.g., "Summarize the latest quarterly earnings report", "What were the key financial highlights last quarter?")
+            5. 'annual_summary' - Question requires a summary of recent annual financial results (e.g., "Summarize the latest annual report", "What were the key highlights from the 10-K filing?")
 
-            4. 'quarterly_summary' - Question requires a summary of recent quarterly financial results (e.g., "Summarize the {ticker.upper()}'s latest quarterly earnings report", "What were the key financial highlights for {ticker.upper()} last quarter?")
-
-            5. 'annual_summary' - Question requires a summary of recent annual financial results (e.g., "Summarize the {ticker.upper()}'s latest annual report", "What were the key highlights from {ticker.upper()}'s 10-K filing?", "What did management discuss in the annual report?")
-
-            Examples:
+            data_requirement examples:
             - "What does Apple do?" -> none
-            - "Who is Tesla's CEO?" -> none  
+            - "Who is Tesla's CEO?" -> none
             - "What is Microsoft's market cap?" -> basic
             - "Is Amazon profitable?" -> basic
             - "What was Apple's revenue in Q3 2024?" -> detailed
-            - "How much cash does Tesla have?" -> detailed
             - "What's Google's debt-to-equity ratio?" -> detailed
             - "Summarize Apple's latest quarterly earnings report" -> quarterly_summary
-            - "What are the key revenue drivers mentioned in the latest quarterly report?" -> quarterly_summary
-            - "What did management discuss about growth in the 10-Q?" -> quarterly_summary
-            - "What were the highlights from the quarterly filing?" -> quarterly_summary
-            - "Summarize Apple's latest annual report" -> annual_summary
             - "What are the key highlights from Apple's 10-K filing?" -> annual_summary
-            - "What did management discuss in the annual filing?" -> annual_summary
-            - "What were the highlights from the annual report?" -> annual_summary
 
-            Return only the classification: none, basic, detailed, quarterly_summary, or annual_summary
-        """
+            ===== Part B: period_requirement =====
+            If data_requirement is 'none' or 'basic', set period_requirement to null.
+            Otherwise, fill period_requirement with:
+            1. period_type: "annual", "quarterly", or "both"
+            2. Specific periods: which years or quarters, or just recent periods
 
-        try:
-            response_text = ""
-            for chunk in self.agent.generate_content(prompt=prompt):
-                response_text += chunk
+            period_requirement examples:
+            - "What was Apple's revenue in 2023?" -> {{"period_type": "annual", "specific_years": [2023], "specific_quarters": null, "num_periods": null}}
+            - "What was Apple revenue in the most recent year?" -> {{"period_type": "annual", "specific_years": null, "specific_quarters": null, "num_periods": 1}}
+            - "How did Tesla perform in Q3 2024?" -> {{"period_type": "quarterly", "specific_years": null, "specific_quarters": ["2024-Q3"], "num_periods": null}}
+            - "Show me Microsoft's revenue trend over the last 3 years" -> {{"period_type": "annual", "specific_years": null, "specific_quarters": null, "num_periods": 3}}
+            - "Compare Amazon's Q1 and Q2 2024 results" -> {{"period_type": "quarterly", "specific_years": null, "specific_quarters": ["2024-Q1", "2024-Q2"], "num_periods": null}}
+            - "What's Google's 5-year revenue growth?" -> {{"period_type": "annual", "specific_years": null, "specific_quarters": null, "num_periods": 5}}
+            - "Analyze Meta's quarterly performance in 2024" -> {{"period_type": "quarterly", "specific_years": null, "specific_quarters": ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"], "num_periods": null}}
+            - "What were the latest quarterly results?" -> {{"period_type": "quarterly", "specific_years": null, "specific_quarters": ["latest"], "num_periods": 1}}
+            - "Show both annual and quarterly trends" -> {{"period_type": "both", "specific_years": null, "specific_quarters": null, "num_periods": 3}}
 
-            response_text = response_text.lower().strip()
-
-            if "detailed" in response_text:
-                return FinancialDataRequirement.DETAILED
-            elif "basic" in response_text:
-                return FinancialDataRequirement.BASIC
-            elif "quarterly_summary" in response_text:
-                return FinancialDataRequirement.QUARTERLY_SUMMARY
-            elif "annual_summary" in response_text:
-                return FinancialDataRequirement.ANNUAL_SUMMARY
-            else:
-                return FinancialDataRequirement.NONE
-
-        except Exception as e:
-            logger.error(f"Error classifying data requirement: {e}")
-            return FinancialDataRequirement.BASIC
-        finally:
-            t_end = time.perf_counter()
-            logger.info(f"Profiling classify_data_requirement: {t_end - t_start:.4f}s")
-
-    @observe(name="classify_period_requirement")
-    async def classify_period_requirement(self, ticker: str, question: str) -> FinancialPeriodRequirement:
-        """
-        Determine which specific financial periods are needed.
-
-        Args:
-            ticker: Company ticker symbol
-            question: The question being asked
-
-        Returns:
-            FinancialPeriodRequirement specification
-        """
-        t_start = time.perf_counter()
-
-        prompt = f"""Analyze this question about {ticker.upper()} and determine which financial periods are needed.
-            NOTE: The question may be in any language. Classify based on the meaning regardless of language.
-
-            Question: "{question}"
-
-            Determine:
-            1. Period type needed: "annual", "quarterly", or "both"
-            2. Specific periods: Which years or quarters? Or just recent periods?
-
-            Examples:
-            - "What was Apple's revenue in 2023?" -> annual, years: [2023]
-            - "What was Apple revenue in the most recent year?" -> annual, num_periods: 1
-            - "How did Tesla perform in Q3 2024?" -> quarterly, specific_quarters: ["2024-Q3"]
-            - "Show me Microsoft's revenue trend over the last 3 years" -> annual, num_periods: 3
-            - "Compare Amazon's Q1 and Q2 2024 results" -> quarterly, specific_quarters: ["2024-Q1", "2024-Q2"]
-            - "What's Google's 5-year revenue growth?" -> annual, num_periods: 5
-            - "Analyze Meta's quarterly performance in 2024" -> quarterly, quarters: ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"]
-            - "What was Netflix's annual revenue last year?" -> annual, num_periods: 1
-            - "Show both annual and quarterly trends" -> both, num_periods: 3
-            - "What were the latest quarterly results?", or "Summarise the latest quarterly report" -> quarterly, specific_quarters: ["latest"], num_periods: 1
-
-            Return your answer in this EXACT JSON format (no other text):
-            {{
-                "period_type": "annual" | "quarterly" | "both",
-                "specific_years": [2023, 2024] or null,
-                "specific_quarters": ["2024-Q1", "2024-Q2"] or ["latest"] or null,
-                "num_periods": 1
-            }}
-
-            Rules:
+            Rules for period_requirement:
             - If no specific year/quarter mentioned, use num_periods with a reasonable number (3-5)
             - Quarters should be in format "YYYY-Q#" (e.g., "2024-Q1")
             - Only fill specific_years OR specific_quarters OR num_periods, not multiple
             - Default to annual unless quarterly is explicitly mentioned
-            - Never leave num_periods as null when specific_quarters is provided. 
-                - If specific_quarters is ["latest"], then num_periods should be 1.
+            - Never leave num_periods as null when specific_quarters is ["latest"] (set num_periods to 1 in that case)
+
+            ===== Output =====
+            Return your answer in this EXACT JSON format (no other text, no markdown fences):
+            {{
+                "data_requirement": "none" | "basic" | "detailed" | "quarterly_summary" | "annual_summary",
+                "period_requirement": null | {{
+                    "period_type": "annual" | "quarterly" | "both",
+                    "specific_years": [2023, 2024] | null,
+                    "specific_quarters": ["2024-Q1", "2024-Q2"] | ["latest"] | null,
+                    "num_periods": 1 | null
+                }}
+            }}
         """
 
         try:
@@ -321,19 +279,55 @@ class QuestionClassifier:
 
             parsed = self._parse_json_from_response(response_text)
 
-            return FinancialPeriodRequirement(
-                period_type=parsed.get("period_type", "annual"),
-                specific_years=parsed.get("specific_years"),
-                specific_quarters=parsed.get("specific_quarters"),
-                num_periods=parsed.get("num_periods"),
-            )
+            data_req_str = str(parsed.get("data_requirement", "")).lower().strip()
+            if "detailed" in data_req_str:
+                data_requirement = FinancialDataRequirement.DETAILED
+            elif "quarterly_summary" in data_req_str:
+                data_requirement = FinancialDataRequirement.QUARTERLY_SUMMARY
+            elif "annual_summary" in data_req_str:
+                data_requirement = FinancialDataRequirement.ANNUAL_SUMMARY
+            elif "basic" in data_req_str:
+                data_requirement = FinancialDataRequirement.BASIC
+            elif "none" in data_req_str:
+                data_requirement = FinancialDataRequirement.NONE
+            else:
+                logger.warning(f"Unknown data_requirement value '{data_req_str}', defaulting to BASIC")
+                data_requirement = FinancialDataRequirement.BASIC
+
+            period_requirement: Optional[FinancialPeriodRequirement] = None
+            if data_requirement in (
+                FinancialDataRequirement.DETAILED,
+                FinancialDataRequirement.QUARTERLY_SUMMARY,
+                FinancialDataRequirement.ANNUAL_SUMMARY,
+            ):
+                period_block = parsed.get("period_requirement")
+                if isinstance(period_block, dict):
+                    try:
+                        period_requirement = FinancialPeriodRequirement(
+                            period_type=period_block.get("period_type", "annual"),
+                            specific_years=period_block.get("specific_years"),
+                            specific_quarters=period_block.get("specific_quarters"),
+                            num_periods=period_block.get("num_periods"),
+                        )
+                    except Exception as inner:
+                        logger.warning(
+                            f"Failed to build FinancialPeriodRequirement from {period_block}: {inner}; using fallback"
+                        )
+                        period_requirement = FinancialPeriodRequirement(period_type="annual", num_periods=3)
+                else:
+                    logger.warning(
+                        f"Missing/invalid period_requirement for data_requirement={data_requirement}; using fallback"
+                    )
+                    period_requirement = FinancialPeriodRequirement(period_type="annual", num_periods=3)
+
+            return data_requirement, period_requirement
 
         except Exception as e:
-            logger.error(f"Error classifying period requirement: {e}")
-            return FinancialPeriodRequirement(period_type="annual", num_periods=3)
+            logger.error(f"Error classifying data + period requirement: {e}")
+            return FinancialDataRequirement.BASIC, None
         finally:
             t_end = time.perf_counter()
-            logger.info(f"Profiling classify_period_requirement: {t_end - t_start:.4f}s")
+            logger.info(f"Profiling classify_data_and_period_requirement: {t_end - t_start:.4f}s")
 
     def _parse_json_from_response(self, response_text: str) -> dict:
         """Parse JSON from response, handling markdown code blocks."""
