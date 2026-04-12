@@ -118,7 +118,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         # Determine what financial data we need (and which periods) in a single LLM call
         yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
 
-        # Merged classifier: data_requirement + period_requirement in one LLM call (default Gemini3.0 Flash)
+        # Merged classifier: data_requirement + period_requirement in one LLM call
         data_requirement, period_requirement = await self.classifier.classify_data_and_period_requirement(
             ticker, question
         )

@@ -173,3 +173,53 @@ class TestClassifyDataAndPeriodRequirementLLMPath:
 
         assert data_req == FinancialDataRequirement.BASIC
         assert period_req is None
+
+    def test_quarterly_summary_via_llm_with_period(self):
+        response = (
+            '{"data_requirement": "quarterly_summary", '
+            '"period_requirement": {"period_type": "quarterly", '
+            '"specific_years": null, "specific_quarters": ["2024-Q3"], "num_periods": null}}'
+        )
+        classifier, _ = _make_classifier_with_llm_response(response)
+
+        data_req, period_req = asyncio.run(
+            classifier.classify_data_and_period_requirement("AAPL", "How did Apple do in Q3 2024?")
+        )
+
+        assert data_req == FinancialDataRequirement.QUARTERLY_SUMMARY
+        assert period_req is not None
+        assert period_req.period_type == "quarterly"
+        assert period_req.specific_quarters == ["2024-Q3"]
+
+    def test_quarterly_summary_missing_period_block_falls_back_quarterly(self):
+        # Use a question that does NOT trigger keyword fast path
+        response = '{"data_requirement": "quarterly_summary"}'
+        classifier, _ = _make_classifier_with_llm_response(response)
+
+        data_req, period_req = asyncio.run(
+            classifier.classify_data_and_period_requirement("AAPL", "How did Apple do last quarter financially?")
+        )
+
+        assert data_req == FinancialDataRequirement.QUARTERLY_SUMMARY
+        assert period_req == FinancialPeriodRequirement(period_type="quarterly", num_periods=1)
+
+    def test_annual_summary_missing_period_block_falls_back_annual(self):
+        # Use a question that does NOT trigger keyword fast path
+        response = '{"data_requirement": "annual_summary"}'
+        classifier, _ = _make_classifier_with_llm_response(response)
+
+        data_req, period_req = asyncio.run(
+            classifier.classify_data_and_period_requirement("AAPL", "How did Apple perform for the full year?")
+        )
+
+        assert data_req == FinancialDataRequirement.ANNUAL_SUMMARY
+        assert period_req == FinancialPeriodRequirement(period_type="annual", num_periods=1)
+
+    def test_unknown_data_requirement_falls_back_to_basic(self):
+        response = '{"data_requirement": "unknown_value", "period_requirement": null}'
+        classifier, _ = _make_classifier_with_llm_response(response)
+
+        data_req, period_req = asyncio.run(classifier.classify_data_and_period_requirement("AAPL", "Something unusual"))
+
+        assert data_req == FinancialDataRequirement.BASIC
+        assert period_req is None

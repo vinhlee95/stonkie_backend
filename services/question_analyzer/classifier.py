@@ -255,9 +255,8 @@ class QuestionClassifier:
             Rules for period_requirement:
             - If no specific year/quarter mentioned, use num_periods with a reasonable number (3-5)
             - Quarters should be in format "YYYY-Q#" (e.g., "2024-Q1")
-            - Only fill specific_years OR specific_quarters OR num_periods, not multiple
+            - Only fill specific_years OR specific_quarters OR num_periods, not multiple — EXCEPT when specific_quarters is ["latest"], where you must also set num_periods: 1
             - Default to annual unless quarterly is explicitly mentioned
-            - Never leave num_periods as null when specific_quarters is ["latest"] (set num_periods to 1 in that case)
 
             ===== Output =====
             Return your answer in this EXACT JSON format (no other text, no markdown fences):
@@ -313,12 +312,12 @@ class QuestionClassifier:
                         logger.warning(
                             f"Failed to build FinancialPeriodRequirement from {period_block}: {inner}; using fallback"
                         )
-                        period_requirement = FinancialPeriodRequirement(period_type="annual", num_periods=3)
+                        period_requirement = self._fallback_period(data_requirement)
                 else:
                     logger.warning(
                         f"Missing/invalid period_requirement for data_requirement={data_requirement}; using fallback"
                     )
-                    period_requirement = FinancialPeriodRequirement(period_type="annual", num_periods=3)
+                    period_requirement = self._fallback_period(data_requirement)
 
             return data_requirement, period_requirement
 
@@ -328,6 +327,15 @@ class QuestionClassifier:
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_data_and_period_requirement: {t_end - t_start:.4f}s")
+
+    @staticmethod
+    def _fallback_period(data_requirement: FinancialDataRequirement) -> FinancialPeriodRequirement:
+        """Build a sensible fallback period when the LLM response is unparseable."""
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY:
+            return FinancialPeriodRequirement(period_type="quarterly", num_periods=1)
+        if data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY:
+            return FinancialPeriodRequirement(period_type="annual", num_periods=1)
+        return FinancialPeriodRequirement(period_type="annual", num_periods=3)
 
     def _parse_json_from_response(self, response_text: str) -> dict:
         """Parse JSON from response, handling markdown code blocks."""
