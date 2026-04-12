@@ -18,7 +18,7 @@ from .context_builders import ContextBuilderInput, get_context_builder
 from .context_builders.components import PromptComponents
 from .data_optimizer import FinancialDataOptimizer
 from .handlers import BaseQuestionHandler, _collect_paragraph_sources, _process_source_tags
-from .types import FinancialDataRequirement
+from .types import AnalysisPhase, FinancialDataRequirement, thinking_status
 
 logger = logging.getLogger(__name__)
 langfuse = get_client()
@@ -81,7 +81,12 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
                 "⚠️  Fallback: Ticker is missing/undefined but conversation context exists. "
                 "Answering question generally based on conversation context."
             )
-            yield {"type": "thinking_status", "body": "Answering based on our previous discussion..."}
+            yield thinking_status(
+                "No ticker found — answering from conversation context",
+                phase=AnalysisPhase.ANALYZE,
+                step=3,
+                total_steps=4,
+            )
 
             # Use conversation context to answer generally
             company_name = ""
@@ -116,7 +121,12 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             return
 
         # Determine what financial data we need (and which periods) in a single LLM call
-        yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
+        yield thinking_status(
+            "Determining which financial statements to pull...",
+            phase=AnalysisPhase.CLASSIFY,
+            step=3,
+            total_steps=6,
+        )
 
         # Merged classifier: data_requirement + period_requirement in one LLM call
         data_requirement, period_requirement = await self.classifier.classify_data_and_period_requirement(
@@ -125,10 +135,12 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         logger.info(f"Financial data requirement: {data_requirement}, period: {period_requirement}")
 
         if period_requirement is not None:
-            yield {
-                "type": "thinking_status",
-                "body": f"Retrieving {period_requirement.period_type} financial data for analysis...",
-            }
+            yield thinking_status(
+                f"Pulling {ticker.upper()} {period_requirement.period_type} reports...",
+                phase=AnalysisPhase.DATA_FETCH,
+                step=4,
+                total_steps=6,
+            )
 
         # Fetch financial data
         (
@@ -166,7 +178,12 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 "⚠️  Fallback: No financial data available but conversation context exists. "
                 "Answering question generally based on conversation context."
             )
-            yield {"type": "thinking_status", "body": "Answering based on our previous discussion..."}
+            yield thinking_status(
+                f"No financial data found for {ticker.upper()} — answering from conversation context",
+                phase=AnalysisPhase.ANALYZE,
+                step=5,
+                total_steps=6,
+            )
 
             # Use conversation context to answer generally
             company_name = company_fundamental.get("Name", "") if company_fundamental else ""
@@ -200,7 +217,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             )
             return
 
-        yield {"type": "thinking_status", "body": "Analyzing data and preparing insights..."}
+        yield thinking_status("Generating analysis...", phase=AnalysisPhase.ANALYZE, step=5, total_steps=6)
 
         try:
             # Build financial context

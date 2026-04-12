@@ -16,6 +16,7 @@ from connectors.company import CompanyConnector
 from utils.conversation_format import format_conversation_context
 
 from .context_builders.components import PromptComponents
+from .types import AnalysisPhase, thinking_status
 
 logger = logging.getLogger(__name__)
 langfuse = get_client()
@@ -347,7 +348,7 @@ class GeneralFinanceHandler(BaseQuestionHandler):
         t_start = time.perf_counter()
 
         try:
-            yield {"type": "thinking_status", "body": "Structuring the answer..."}
+            yield thinking_status("Generating response...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
 
             # Conversation context (important for follow-ups like "then?", "so?", "based on that?")
             conversation_context = ""
@@ -486,10 +487,12 @@ class CompanyGeneralHandler(BaseQuestionHandler):
         company = self.company_connector.get_by_ticker(ticker)
         company_name = company.name if company else ""
 
-        yield {
-            "type": "thinking_status",
-            "body": f"Analyzing general information about {company_name} (ticker: {ticker}) and preparing a concise, insightful answer...",
-        }
+        yield thinking_status(
+            f"Analyzing {company_name} ({ticker})...",
+            phase=AnalysisPhase.ANALYZE,
+            step=3,
+            total_steps=4,
+        )
 
         try:
             source_instructions = PromptComponents.source_instructions()

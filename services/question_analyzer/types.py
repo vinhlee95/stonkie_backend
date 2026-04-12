@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum, StrEnum
 from typing import List, Optional
 
+from services.analysis_progress import AnalysisPhase, thinking_status  # noqa: F401
+
 
 class QuestionType(Enum):
     """Types of questions the system can handle."""

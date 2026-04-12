@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, Dict, List
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.types import FinancialDataRequirement
 
@@ -51,7 +52,12 @@ async def analyze_financial_report(
             }
             return
 
-        yield {"type": "thinking_status", "body": f"Found filing for {ticker}. Starting AI analysis..."}
+        yield thinking_status(
+            f"Found filing for {ticker}. Starting AI analysis...",
+            phase=AnalysisPhase.DATA_FETCH,
+            step=1,
+            total_steps=3,
+        )
 
         # Build question for the report analysis
         period_label = f"{period_type} report ending {period_end_at}"
@@ -72,7 +78,12 @@ async def analyze_financial_report(
         # Build the prompt using the context builder
         prompt = builder.build(context_builder_input)
 
-        yield {"type": "thinking_status", "body": "Generating AI analysis of the financial report..."}
+        yield thinking_status(
+            "Generating AI analysis of the financial report...",
+            phase=AnalysisPhase.ANALYZE,
+            step=2,
+            total_steps=3,
+        )
 
         # Use MultiAgent with Gemini 3.0 and :online suffix for URL context
         analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
@@ -123,7 +134,12 @@ async def analyze_uploaded_file(
         Analysis results as streaming dictionary chunks
     """
     try:
-        yield {"type": "thinking_status", "body": f"Processing uploaded file: {filename}..."}
+        yield thinking_status(
+            f"Processing uploaded file: {filename}...",
+            phase=AnalysisPhase.DATA_FETCH,
+            step=1,
+            total_steps=4,
+        )
 
         # Create analysis prompt with structured sections (PDF content will be automatically included by OpenRouter)
         prompt = f"""
@@ -165,7 +181,7 @@ async def analyze_uploaded_file(
             - NO SPECULATION: Only analyze what's in the document unless using search for context
         """
 
-        yield {"type": "thinking_status", "body": "Analyzing document with AI..."}
+        yield thinking_status("Analyzing document with AI...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=4)
 
         # Use MultiAgent with native PDF support - no manual text extraction needed
         analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
@@ -181,7 +197,7 @@ async def analyze_uploaded_file(
             yield {"type": "answer", "body": text_chunk if text_chunk else "❌ No analysis generated from the model"}
 
         # Generate related questions
-        yield {"type": "thinking_status", "body": "Generating follow-up questions..."}
+        yield thinking_status("Generating follow-up questions...", phase=AnalysisPhase.ENRICH, step=3, total_steps=4)
 
         related_question_prompt = f"""
             Based on this analysis for {ticker.upper()}: {full_answer}

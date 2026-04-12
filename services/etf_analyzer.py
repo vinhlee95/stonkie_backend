@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from langfuse import observe
 
 from ai_models.model_name import ModelName
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.search_decision_engine import SearchDecisionEngine
 from utils.visual_stream import VisualAnswerStreamSplitter
 
@@ -50,7 +51,7 @@ class ETFAnalyzer:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         t_start = time.perf_counter()
 
-        yield {"type": "thinking_status", "body": "Just a moment..."}
+        yield thinking_status("Classifying your question...", phase=AnalysisPhase.CLASSIFY, step=1)
 
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in ["UNDEFINED", "NULL", "NONE", ""]:
@@ -94,9 +95,9 @@ class ETFAnalyzer:
             },
         }
         if use_google_search:
-            yield {"type": "thinking_status", "body": "Using Google Search for up-to-date information..."}
+            yield thinking_status("Searching the web for up-to-date data...", phase=AnalysisPhase.SEARCH, step=2)
         else:
-            yield {"type": "thinking_status", "body": "Using internal knowledge/context for fastest response..."}
+            yield thinking_status("Using cached data for faster response", phase=AnalysisPhase.SEARCH, step=2)
 
         # Handle comparison questions
         if question_type == ETFQuestionType.ETF_COMPARISON and comparison_tickers:
@@ -176,10 +177,11 @@ class ETFAnalyzer:
 
         if use_google_search and not has_sources:
             logger.warning("ETF search attempt completed with no sources/citations.")
-            yield {
-                "type": "thinking_status",
-                "body": "Live search returned no usable citations in this response. Information may be less current.",
-            }
+            yield thinking_status(
+                "Web search returned no results — using model knowledge",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+            )
 
         t_handler_end = time.perf_counter()
         logger.info(f"ETF handler execution: {t_handler_end - t_handler:.4f}s")
