@@ -4,8 +4,9 @@ from typing import Any, AsyncGenerator, Dict, List
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
-from services.question_analyzer.types import AnalysisPhase, FinancialDataRequirement, thinking_status
+from services.question_analyzer.types import FinancialDataRequirement
 
 logger = logging.getLogger(__name__)
 company_financial_connector = CompanyFinancialConnector()

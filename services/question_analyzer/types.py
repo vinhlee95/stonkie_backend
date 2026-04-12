@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum, StrEnum
 from typing import List, Optional
 
+from services.analysis_progress import AnalysisPhase, thinking_status  # noqa: F401
+
 
 class QuestionType(Enum):
     """Types of questions the system can handle."""
@@ -33,26 +35,6 @@ class FinancialPeriodRequirement:
     specific_years: Optional[List[int]] = None  # e.g., [2023, 2024]
     specific_quarters: Optional[List[str]] = None  # e.g., ["2024-Q1", "2024-Q2"]
     num_periods: Optional[int] = None  # Number of recent periods
-
-
-class AnalysisPhase(StrEnum):
-    CLASSIFY = "classify"
-    DATA_FETCH = "data_fetch"
-    SEARCH = "search"
-    ANALYZE = "analyze"
-    ENRICH = "enrich"
-
-
-def thinking_status(body: str, *, phase: str, step: int, total_steps: Optional[int] = None) -> dict:
-    event: dict = {
-        "type": "thinking_status",
-        "body": body,
-        "phase": phase,
-        "step": step,
-    }
-    if total_steps is not None:
-        event["total_steps"] = total_steps
-    return event
 
 
 @dataclass(frozen=True)

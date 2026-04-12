@@ -13,6 +13,7 @@ from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
 from connectors.conversation_store import get_conversation_meta, set_conversation_meta
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.question_analyzer import CompanySpecificFinanceHandler
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.comparison_handler import CompanyComparisonHandler
@@ -21,7 +22,7 @@ from services.question_analyzer.handlers import (
     CompanyGeneralHandler,
     GeneralFinanceHandler,
 )
-from services.question_analyzer.types import AnalysisPhase, QuestionType, thinking_status
+from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecisionEngine
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 from utils.visual_stream import VisualAnswerStreamSplitter

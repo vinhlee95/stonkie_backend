@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from langfuse import observe
 
 from ai_models.model_name import ModelName
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.search_decision_engine import SearchDecisionEngine
 from utils.visual_stream import VisualAnswerStreamSplitter
 
@@ -20,7 +21,6 @@ from .etf_question_analyzer.handlers import (
     GeneralETFHandler,
 )
 from .etf_question_analyzer.types import ETFAnalysisContext, ETFQuestionType
-from .question_analyzer.types import AnalysisPhase, thinking_status
 
 logger = logging.getLogger(__name__)
 

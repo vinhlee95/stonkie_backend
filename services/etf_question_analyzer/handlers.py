@@ -9,7 +9,7 @@ from langfuse import get_client, observe
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
-from services.question_analyzer.types import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, thinking_status
 
 from .context_builders import ETFContextBuilderInput, get_etf_context_builder
 from .types import ETFAnalysisContext, ETFDataRequirement

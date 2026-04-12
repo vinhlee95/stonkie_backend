@@ -11,7 +11,7 @@ from langfuse import get_client, observe
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector
-from services.question_analyzer.types import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, thinking_status
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 
