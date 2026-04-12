@@ -115,25 +115,16 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             )
             return
 
-        # Determine what financial data we need
+        # Determine what financial data we need (and which periods) in a single LLM call
         yield {"type": "thinking_status", "body": "Analyzing question to determine required data..."}
 
-        # Use default classifier model (Gemini3.0 Flash) for classification
-        data_requirement = await self.classifier.classify_data_requirement(ticker, question)
-        logger.info(f"Financial data requirement: {data_requirement}")
+        # Merged classifier: data_requirement + period_requirement in one LLM call
+        data_requirement, period_requirement = await self.classifier.classify_data_and_period_requirement(
+            ticker, question
+        )
+        logger.info(f"Financial data requirement: {data_requirement}, period: {period_requirement}")
 
-        # Determine which specific periods are needed (if detailed data required)
-        period_requirement = None
-        if data_requirement in [
-            FinancialDataRequirement.DETAILED,
-            FinancialDataRequirement.QUARTERLY_SUMMARY,
-            FinancialDataRequirement.ANNUAL_SUMMARY,
-        ]:
-            yield {"type": "thinking_status", "body": "Identifying relevant financial periods..."}
-
-            period_requirement = await self.classifier.classify_period_requirement(ticker, question)
-            logger.info(f"Period requirement: {period_requirement}")
-
+        if period_requirement is not None:
             yield {
                 "type": "thinking_status",
                 "body": f"Retrieving {period_requirement.period_type} financial data for analysis...",
