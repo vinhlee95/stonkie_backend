@@ -21,7 +21,7 @@ from services.question_analyzer.handlers import (
     CompanyGeneralHandler,
     GeneralFinanceHandler,
 )
-from services.question_analyzer.types import QuestionType
+from services.question_analyzer.types import AnalysisPhase, QuestionType, thinking_status
 from services.search_decision_engine import SearchDecisionEngine
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 from utils.visual_stream import VisualAnswerStreamSplitter
@@ -81,7 +81,7 @@ class FinancialAnalyzer:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         t_start = time.perf_counter()
 
-        yield {"type": "thinking_status", "body": "Just a moment..."}
+        yield thinking_status("Classifying your question...", phase=AnalysisPhase.CLASSIFY, step=1)
 
         # Check for PDF URL in question
         extracted_url = extract_first_url(question)
@@ -90,7 +90,7 @@ class FinancialAnalyzer:
             if is_sec_filing_url(extracted_url):
                 logger.info(f"SEC filing URL detected: {extracted_url}. Using Google Search to access content.")
                 yield {"type": "attachment_url", "body": extracted_url}
-                yield {"type": "thinking_status", "body": "Using Google Search to access SEC filing..."}
+                yield thinking_status("Searching SEC filing via Google...", phase=AnalysisPhase.SEARCH, step=2)
                 force_google_search_reason = "sec_url"
             else:
                 is_valid, error_message = validate_pdf_url(extracted_url)
@@ -98,7 +98,7 @@ class FinancialAnalyzer:
                     yield {"type": "answer", "body": f"❌ {error_message}"}
                     return
                 yield {"type": "attachment_url", "body": extracted_url}
-                yield {"type": "thinking_status", "body": "Analyzing PDF document from URL..."}
+                yield thinking_status("Analyzing PDF document from URL...", phase=AnalysisPhase.ANALYZE, step=2)
                 async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
                     yield chunk
                 return
@@ -214,9 +214,9 @@ class FinancialAnalyzer:
             },
         }
         if use_google_search:
-            yield {"type": "thinking_status", "body": "Using Google Search for up-to-date information..."}
+            yield thinking_status("Searching the web for up-to-date data...", phase=AnalysisPhase.SEARCH, step=2)
         else:
-            yield {"type": "thinking_status", "body": "Using internal knowledge/context for fastest response..."}
+            yield thinking_status("Using cached data for faster response", phase=AnalysisPhase.SEARCH, step=2)
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}
@@ -304,10 +304,11 @@ class FinancialAnalyzer:
 
         if use_google_search and not has_sources:
             logger.warning("Search attempt completed with no sources/citations.")
-            yield {
-                "type": "thinking_status",
-                "body": "Live search returned no usable citations in this response. Information may be less current.",
-            }
+            yield thinking_status(
+                "Web search returned no results — using model knowledge",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+            )
 
         t_handler_end = time.perf_counter()
         logger.info(f"Profiling handler execution: {t_handler_end - t_handler:.4f}s")

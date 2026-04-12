@@ -11,6 +11,7 @@ from langfuse import get_client, observe
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector
+from services.question_analyzer.types import AnalysisPhase, thinking_status
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 
@@ -53,7 +54,12 @@ class ETFComparisonHandler:
         logger.info(f"ETF Comparison - short_analysis mode: {short_analysis}")
 
         try:
-            yield {"type": "thinking_status", "body": f"Fetching {len(tickers)} ETFs..."}
+            yield thinking_status(
+                f"Fetching {len(tickers)} ETFs...",
+                phase=AnalysisPhase.DATA_FETCH,
+                step=3,
+                total_steps=5,
+            )
 
             # Fetch all ETFs in parallel
             t_fetch = time.perf_counter()
@@ -74,12 +80,19 @@ class ETFComparisonHandler:
             if len(etf_data_list) < len(tickers):
                 found_tickers = {etf.ticker for etf in etf_data_list}
                 missing_tickers = set(tickers) - found_tickers
-                yield {
-                    "type": "thinking_status",
-                    "body": f"ETFs not found: {', '.join(missing_tickers)}. Comparing available ETFs...",
-                }
+                yield thinking_status(
+                    f"ETFs not found: {', '.join(missing_tickers)}. Comparing available ETFs...",
+                    phase=AnalysisPhase.DATA_FETCH,
+                    step=3,
+                    total_steps=5,
+                )
 
-            yield {"type": "thinking_status", "body": "Building comparison analysis..."}
+            yield thinking_status(
+                "Building comparison analysis...",
+                phase=AnalysisPhase.ANALYZE,
+                step=4,
+                total_steps=5,
+            )
 
             # Build comparison context
             builder_input = ComparisonContextBuilderInput(

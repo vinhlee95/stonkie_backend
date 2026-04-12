@@ -20,6 +20,7 @@ from .context_builders.comparison_builder import (
 )
 from .context_builders.components import PromptComponents
 from .handlers import _collect_paragraph_sources, _process_source_tags
+from .types import AnalysisPhase, thinking_status
 
 logger = logging.getLogger(__name__)
 langfuse = get_client()
@@ -54,7 +55,12 @@ class CompanyComparisonHandler:
 
         try:
             tickers_str = ", ".join(tickers)
-            yield {"type": "thinking_status", "body": f"Fetching data for {tickers_str}..."}
+            yield thinking_status(
+                f"Fetching data for {tickers_str}...",
+                phase=AnalysisPhase.DATA_FETCH,
+                step=3,
+                total_steps=5,
+            )
 
             # Fetch all companies in parallel
             t_fetch = time.perf_counter()
@@ -79,7 +85,12 @@ class CompanyComparisonHandler:
             data_origin_parts = [
                 f"{c.ticker} from {source_labels.get(c.data_source, c.data_source)}" for c in companies_data
             ]
-            yield {"type": "thinking_status", "body": f"Building comparison — {', '.join(data_origin_parts)}"}
+            yield thinking_status(
+                f"Building comparison — {', '.join(data_origin_parts)}",
+                phase=AnalysisPhase.ANALYZE,
+                step=4,
+                total_steps=5,
+            )
 
             google_search_tickers = [c.ticker for c in companies_data if c.data_source == "google_search"]
             if google_search_tickers:

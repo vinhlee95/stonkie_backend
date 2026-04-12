@@ -9,6 +9,7 @@ from langfuse import get_client, observe
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
+from services.question_analyzer.types import AnalysisPhase, thinking_status
 
 from .context_builders import ETFContextBuilderInput, get_etf_context_builder
 from .types import ETFAnalysisContext, ETFDataRequirement
@@ -94,7 +95,7 @@ class GeneralETFHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
-            yield {"type": "thinking_status", "body": "Analyzing question..."}
+            yield thinking_status("Generating response...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
 
             # Build prompt using NoneETFBuilder
             builder = get_etf_context_builder(ETFDataRequirement.NONE, context.use_url_context)
@@ -162,7 +163,7 @@ class ETFOverviewHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
-            yield {"type": "thinking_status", "body": "Fetching ETF data..."}
+            yield thinking_status("Fetching ETF data...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=4)
 
             # Check data completeness
             data_complete = bool(
@@ -173,10 +174,12 @@ class ETFOverviewHandler(BaseETFHandler):
             )
 
             if not data_complete:
-                yield {
-                    "type": "thinking_status",
-                    "body": "ETF data incomplete, searching for additional information...",
-                }
+                yield thinking_status(
+                    "ETF data incomplete — searching online...",
+                    phase=AnalysisPhase.SEARCH,
+                    step=3,
+                    total_steps=5,
+                )
 
             # Build prompt using BasicETFBuilder
             builder = get_etf_context_builder(ETFDataRequirement.BASIC, context.use_url_context)
@@ -244,7 +247,10 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
         t_start = time.perf_counter()
 
         try:
-            yield {"type": "thinking_status", "body": "Analyzing holdings..."}
+            total_steps = 5
+            yield thinking_status(
+                "Analyzing holdings...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=total_steps
+            )
 
             # Check data availability
             has_holdings = bool(context.etf_data and context.etf_data.holdings)
@@ -252,9 +258,21 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
             has_countries = bool(context.etf_data and context.etf_data.country_allocation)
 
             if not has_holdings:
-                yield {"type": "thinking_status", "body": "Holdings data unavailable, searching online..."}
+                total_steps = 6
+                yield thinking_status(
+                    "Holdings unavailable — searching online...",
+                    phase=AnalysisPhase.SEARCH,
+                    step=4,
+                    total_steps=total_steps,
+                )
             elif not has_sectors:
-                yield {"type": "thinking_status", "body": "Sector data unavailable, searching online..."}
+                total_steps = 6
+                yield thinking_status(
+                    "Sector data unavailable — searching online...",
+                    phase=AnalysisPhase.SEARCH,
+                    step=4,
+                    total_steps=total_steps,
+                )
 
             arrays_empty = not has_holdings or not has_sectors or not has_countries
 
@@ -270,7 +288,12 @@ class ETFDetailedAnalysisHandler(BaseETFHandler):
             )
             prompt = builder.build(builder_input)
 
-            yield {"type": "thinking_status", "body": "Examining sector allocation..."}
+            yield thinking_status(
+                "Generating analysis...",
+                phase=AnalysisPhase.ANALYZE,
+                step=total_steps - 1,
+                total_steps=total_steps,
+            )
 
             agent = MultiAgent(model_name=context.preferred_model)
             model_used = agent.model_name
