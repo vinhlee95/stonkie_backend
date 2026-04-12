@@ -39,10 +39,18 @@ class ETFPromptComponents:
         return """
             **CRITICAL - Source Citation:**
             - Freshness rule: unless user explicitly asks historical data, avoid citing years older than current year - 1
-            - ALWAYS cite sources at the end: Sources: [Name](URL)
+            - NEVER write source names, document titles, or citation text inline in your paragraphs (not at sentence end, not in parentheses).
+              Citations must appear only in the designated line: Sources: [Name](URL) or Sources: ETF Fundamental Data
+            - ALWAYS cite sources at the end on their own line: Sources: [Name](URL)
             - For database ETF data: "Sources: ETF Fundamental Data"
             - For Google Search results: cite specific URLs
             - NEVER fabricate information - if data missing, state clearly and search online
+
+            Do NOT do this (wrong — redundant inline name before Sources line):
+            VOO tracks the S&P 500. Vanguard fund factsheet
+            Sources: [VOO fund factsheet](https://...)
+
+            Correct: end the paragraph without naming the source in prose, then the Sources line only.
         """
 
     @staticmethod
