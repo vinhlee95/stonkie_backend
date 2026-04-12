@@ -12,7 +12,6 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
-from connectors.conversation_store import get_conversation_meta, set_conversation_meta
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.question_analyzer import CompanySpecificFinanceHandler
 from services.question_analyzer.classifier import QuestionClassifier
@@ -136,70 +135,18 @@ class FinancialAnalyzer:
             available_metrics=available_metrics,
         )
 
-        # Sticky routing: reuse last classification for ambiguous follow-ups
-        classification = None
-        if conversation_messages and conversation_id and anon_user_id:
-            is_ambiguous = len(question.split()) < 10 and not any(
-                keyword in question.lower()
-                for keyword in [
-                    "revenue",
-                    "profit",
-                    "margin",
-                    "earnings",
-                    "cash flow",
-                    "debt",
-                    "assets",
-                    "quarterly",
-                    "annual",
-                    "financial",
-                    "doanh thu",
-                    "lợi nhuận",
-                    "biên lợi nhuận",
-                    "thu nhập",
-                    "dòng tiền",
-                    "nợ",
-                    "tài sản",
-                    "quý",
-                    "năm",
-                    "tài chính",
-                ]
-            )
-            if is_ambiguous:
-                meta = get_conversation_meta(anon_user_id, normalized_ticker, conversation_id)
-                last_question_type = meta.get("last_question_type")
-                if last_question_type and last_question_type != QuestionType.COMPANY_COMPARISON.value:
-                    classification = last_question_type
-                    logger.info(
-                        f"📌 Sticky routing: Reusing last classification '{classification}' "
-                        f"for ambiguous follow-up question"
-                    )
-
-        # Run search decision + question classification in parallel when possible
-        comparison_tickers = None
-        if not classification:
-            classify_coro = self.classifier.classify_question_type(
-                question, ticker, conversation_messages=conversation_messages
-            )
-            t_parallel_block = time.perf_counter()
-            decision, classify_result = await asyncio.gather(search_coro, classify_coro)
-            logger.info(
-                "Profiling parallel classify_question_type + search_decision_engine.decide: %.4fs",
-                time.perf_counter() - t_parallel_block,
-            )
-            classification, comparison_tickers = classify_result
-            logger.info(f"Question classified as: {classification}")
-
-            if classification and conversation_id and anon_user_id:
-                set_conversation_meta(
-                    anon_user_id, normalized_ticker, conversation_id, {"last_question_type": classification}
-                )
-        else:
-            t_search_only = time.perf_counter()
-            decision = await search_coro
-            logger.info(
-                "Profiling search_decision_engine.decide only (sticky classification, no classify): %.4fs",
-                time.perf_counter() - t_search_only,
-            )
+        # Run search decision + question classification in parallel
+        classify_coro = self.classifier.classify_question_type(
+            question, ticker, conversation_messages=conversation_messages
+        )
+        t_parallel_block = time.perf_counter()
+        decision, classify_result = await asyncio.gather(search_coro, classify_coro)
+        logger.info(
+            "Profiling parallel classify_question_type + search_decision_engine.decide: %.4fs",
+            time.perf_counter() - t_parallel_block,
+        )
+        classification, comparison_tickers = classify_result
+        logger.info(f"Question classified as: {classification}")
 
         use_google_search = decision.use_google_search
 
