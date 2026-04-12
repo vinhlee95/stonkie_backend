@@ -312,7 +312,7 @@
       "id": "classify-merge-or-parallel-data-period",
       "sort_order": 7,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
       "title": "Merge or parallelize classify_data_requirement and classify_period_requirement",
       "estimated_effect_from_audit": "~1s either merge or parallel approach (audit)",
       "source_audit_sections": [
@@ -321,6 +321,7 @@
       ],
       "definition": "Replace two sequential LLM calls with either one merged call returning both decisions, or two parallel calls, preserving downstream behavior.",
       "explanation_for_agents": "Pick merge vs parallel based on coupling of outputs. Update prompts and parsers. Single milestone to avoid double-counting savings in planning.",
+      "shipped_implementation": "Merged classify_data_requirement and classify_period_requirement into a single LLM round-trip via classify_data_and_period_requirement returning (data_req, period_req). Old methods removed. Quarterly/annual report keyword fast paths preserved (return SUMMARY + None with zero LLM cost). Classifier model swapped from Gemini30Flash to Gemini25FlashNitro (~46% faster, identical accuracy on test queries). One Langfuse span; one profiling line. Handler call site collapsed in company_specific_finance_handler.py. 10 mocked unit tests added in tests/test_question_classifier.py.",
       "optimized_pipeline_step": "Combined span of classify_data_requirement + classify_period_requirement",
       "dependencies": {
         "technical_must_complete_before": [],
@@ -340,15 +341,17 @@
             "how_to_record_before_after": "Manual before/after; seconds_saved for combined step."
           },
           "total_request_metric": {
-            "description": "Optional total.",
-            "duration_before_seconds": null,
-            "duration_after_seconds": null
+            "description": "Median of warmed runs of audit query (AAPL revenue/profit margin trend over the last 3 years). High variance from network/LLM streaming jitter; step_metric is the cleaner signal.",
+            "duration_before_seconds": 9.4,
+            "duration_after_seconds": 9.54
           },
           "step_metric": {
-            "duration_before_seconds": null,
-            "duration_after_seconds": null,
-            "seconds_saved": null
-          }
+            "duration_before_seconds": 2.31,
+            "duration_after_seconds": 0.86,
+            "seconds_saved": 1.45
+          },
+          "real_world_measurement_notes_2026_04_11": "BEFORE: median of 2 warmed runs on main (classify_data_requirement ~1.01s + classify_period_requirement ~1.30s = 2.31s; total ~9.40s). AFTER (Gemini30Flash): median of 4 warmed runs (classify_data_and_period_requirement = 1.59s). Step saving 0.72s from merge alone.",
+          "real_world_measurement_notes_2026_04_12": "AFTER (Gemini25FlashNitro): 2 warmed runs both at 0.86s. Classification output identical (detailed, annual, num_periods=3). Combined saving from merge + model swap: 2.31s → 0.86s = 1.45s. Behavior validation: 5/5 routed queries match expected. Quality spot-check: equivalent."
         }
       }
     },
