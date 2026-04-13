@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from connectors.company import CompanyFundamentalDto
+from core.financial_statement_type import FinancialStatementType
 
 from .components import PromptComponents
 
@@ -195,7 +196,7 @@ class ComparisonCompanyBuilder:
             lines.append("- **Recent Quarters:**")
             for stmt in data.quarterly_statements[:3]:
                 period = stmt.get("period_end_quarter", "N/A")
-                income = stmt.get("income_statement", {})
+                income = stmt.get(FinancialStatementType.INCOME_STATEMENT, {})
                 revenue = income.get("total_revenue") or income.get("revenue", "N/A")
                 net_inc = income.get("net_income", "N/A")
                 lines.append(f"  - {period}: Revenue={revenue}, Net Income={net_inc}")

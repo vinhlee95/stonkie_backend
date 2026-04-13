@@ -12,6 +12,7 @@ from google.cloud.storage import Client
 from google.oauth2 import service_account
 
 from connectors.database import SessionLocal
+from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
 
 BUCKET_NAME = "stock_agent_financial_report"
@@ -103,14 +104,22 @@ def parse_financial_statements(df: list[dict]):
 
     # First add all yearly data
     for period_end_year, metrics in yearly_metrics.items():
-        item = {"period_end_year": period_end_year, "is_ttm": False, "income_statement": metrics}
+        item = {
+            "period_end_year": period_end_year,
+            "is_ttm": False,
+            FinancialStatementType.INCOME_STATEMENT.value: metrics,
+        }
         result.append(item)
 
     # If we have TTM data, add it with the most recent year + 1
     if ttm_metrics:
         most_recent_year = max(yearly_metrics.keys()) if yearly_metrics else None
         if most_recent_year:
-            ttm_item = {"period_end_year": most_recent_year + 1, "is_ttm": True, "income_statement": ttm_metrics}
+            ttm_item = {
+                "period_end_year": most_recent_year + 1,
+                "is_ttm": True,
+                FinancialStatementType.INCOME_STATEMENT.value: ttm_metrics,
+            }
             result.append(ttm_item)
 
     return result
@@ -124,9 +133,9 @@ def save_financial_statements(ticker: str, financial_statements: list[dict]):
                 company_symbol=statement["company_symbol"],
                 period_end_year=statement["period_end_year"],
                 is_ttm=statement["is_ttm"],
-                income_statement=statement["income_statement"],
-                balance_sheet=statement["balance_sheet"],
-                cash_flow=statement["cash_flow"],
+                income_statement=statement[FinancialStatementType.INCOME_STATEMENT.value],
+                balance_sheet=statement[FinancialStatementType.BALANCE_SHEET.value],
+                cash_flow=statement[FinancialStatementType.CASH_FLOW.value],
             )
             db.add(db_statement)
         db.commit()
@@ -141,22 +150,19 @@ def save_financial_statements(ticker: str, financial_statements: list[dict]):
 def main():
     ticker = input("Enter stock ticker symbol (e.g., TSLA, AAPL): ").strip()
 
-    REPORT_TYPES = ["income_statement", "balance_sheet", "cash_flow"]
-    financial_statements = {}
-    for report_type in REPORT_TYPES:
-        # Get the financial statement from the GCP bucket
-        df, columns = get_financial_statement(ticker, report_type)
+    financial_statements: dict[str, list] = {}
+    for rt in FinancialStatementType:
+        df, columns = get_financial_statement(ticker, rt.value)
 
         if df is None:
-            logger.error(f"Cannot find {report_type} for {ticker}")
+            logger.error(f"Cannot find {rt.value} for {ticker}")
             continue
 
-        # Save the financial statement to the database
-        financial_statements[report_type] = parse_financial_statements(df.to_dict("records"))
+        financial_statements[rt.value] = parse_financial_statements(df.to_dict("records"))
 
-    # Group financial statements by year
     grouped_statements = {}
-    for report_type, statements in financial_statements.items():
+    for report_type_str, statements in financial_statements.items():
+        rt = FinancialStatementType(report_type_str)
         for statement in statements:
             year = statement["period_end_year"]
             if year not in grouped_statements:
@@ -164,18 +170,13 @@ def main():
                     "company_symbol": ticker,
                     "period_end_year": year,
                     "is_ttm": statement["is_ttm"],
-                    "income_statement": None,
-                    "balance_sheet": None,
-                    "cash_flow": None,
+                    FinancialStatementType.INCOME_STATEMENT.value: None,
+                    FinancialStatementType.BALANCE_SHEET.value: None,
+                    FinancialStatementType.CASH_FLOW.value: None,
                 }
 
-            # Add the statement data to the appropriate field
-            if report_type == "income_statement":
-                grouped_statements[year]["income_statement"] = statement["income_statement"]
-            elif report_type == "balance_sheet":
-                grouped_statements[year]["balance_sheet"] = statement["income_statement"]
-            elif report_type == "cash_flow":
-                grouped_statements[year]["cash_flow"] = statement["income_statement"]
+            metrics_key = FinancialStatementType.INCOME_STATEMENT.value
+            grouped_statements[year][rt.value] = statement[metrics_key]
 
     # Convert grouped statements to list for database insertion
     statements_to_save = list(grouped_statements.values())

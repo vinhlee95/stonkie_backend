@@ -173,7 +173,7 @@ class TestCompanySpecificFinanceHandlerPromptInjection:
         # Setup mocks
         mock_classifier = MagicMock()
         mock_classifier.classify_data_and_period_requirement = AsyncMock(
-            return_value=(FinancialDataRequirement.BASIC, None)
+            return_value=(FinancialDataRequirement.BASIC, None, None)
         )
         mock_classifier_class.return_value = mock_classifier
 

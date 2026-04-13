@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from connectors.cache import TaskDispatchDecision
+from core.financial_statement_type import FinancialStatementType
 from services.company import PeriodType, get_company_financial_statements
 
 
@@ -36,7 +37,7 @@ def mock_crawl_quarterly():
         yield m
 
 
-REPORT_TYPES = ["balance_sheet", "cash_flow", "income_statement"]
+REPORT_TYPES = [rt.value for rt in FinancialStatementType.crawl_dispatch_order()]
 
 
 class TestNewTickerDispatchesBothAnnualAndQuarterly:

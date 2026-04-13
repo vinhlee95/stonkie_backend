@@ -15,7 +15,8 @@ class ContextBuilderInput:
     annual_statements: List[Dict[str, Any]]
     quarterly_statements: List[Dict[str, Any]]
     deep_analysis: bool = False
-    source_url: Optional[str] = None  # Generic URL field for URL-based analysis
+    source_url: Optional[str] = None
+    use_google_search: bool = False
 
 
 class ContextBuilder(ABC):

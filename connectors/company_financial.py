@@ -5,6 +5,7 @@ from typing import Any, List
 from sqlalchemy.inspection import inspect
 
 from connectors.database import SessionLocal
+from core.financial_statement_type import FinancialStatementType
 from models.company_financial import CompanyFinancials
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
@@ -35,22 +36,15 @@ class CompanyFinancialConnector:
         return result
 
     def get_company_statement_by_type(
-        self, financial_statement_dict: dict[str, Any], statement_type: "str"
+        self,
+        financial_statement_dict: dict[str, Any],
+        statement_type: FinancialStatementType | str,
     ) -> dict[str, Any]:
-        # Get intended income statement data
-        # Deep copy the income statement data
         data = deepcopy(financial_statement_dict)
-
-        if statement_type == "income_statement":
-            data.pop("balance_sheet", None)
-            data.pop("cash_flow", None)
-        elif statement_type == "balance_sheet":
-            data.pop("income_statement", None)
-            data.pop("cash_flow", None)
-        elif statement_type == "cash_flow":
-            data.pop("income_statement", None)
-            data.pop("balance_sheet", None)
-
+        st = FinancialStatementType(statement_type) if isinstance(statement_type, str) else statement_type
+        for other in FinancialStatementType:
+            if other != st:
+                data.pop(other, None)
         return data
 
     def get_company_revenue_data(self, ticker: str) -> List[CompanyFinancials]:
@@ -160,8 +154,8 @@ class CompanyFinancialConnector:
             if not row:
                 return []
             metrics: set = set()
-            for key in ("income_statement", "balance_sheet", "cash_flow"):
-                section = getattr(row, key, None)
+            for key in FinancialStatementType:
+                section = getattr(row, key.value, None)
                 if isinstance(section, dict):
                     metrics.update(section.keys())
             return sorted(metrics)
@@ -170,7 +164,7 @@ class CompanyFinancialConnector:
         annual_financial_statements = self.get_company_financial_statements(ticker)
         results = []
         for item in annual_financial_statements:
-            data = self.get_company_statement_by_type(self._to_dict(item), "income_statement")
+            data = self.get_company_statement_by_type(self._to_dict(item), FinancialStatementType.INCOME_STATEMENT)
             results.append(data)
 
         return results
@@ -180,7 +174,7 @@ class CompanyFinancialConnector:
 
         results = []
         for item in quarterly_financial_statements:
-            data = self.get_company_statement_by_type(self._to_dict(item), "income_statement")
+            data = self.get_company_statement_by_type(self._to_dict(item), FinancialStatementType.INCOME_STATEMENT)
             results.append(data)
 
         return results
@@ -189,7 +183,7 @@ class CompanyFinancialConnector:
         annual_financial_statements = self.get_company_financial_statements(ticker)
         results = []
         for item in annual_financial_statements:
-            data = self.get_company_statement_by_type(self._to_dict(item), "cash_flow")
+            data = self.get_company_statement_by_type(self._to_dict(item), FinancialStatementType.CASH_FLOW)
             results.append(data)
 
         return results
@@ -199,7 +193,7 @@ class CompanyFinancialConnector:
 
         results = []
         for item in quarterly_financial_statements:
-            data = self.get_company_statement_by_type(self._to_dict(item), "cash_flow")
+            data = self.get_company_statement_by_type(self._to_dict(item), FinancialStatementType.CASH_FLOW)
             results.append(data)
 
         return results

@@ -11,6 +11,7 @@ from agent.agent import Agent
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
+from core.financial_statement_type import FinancialStatementType
 from utils.conversation_format import format_conversation_context
 
 from .classifier import QuestionClassifier
@@ -56,6 +57,7 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
+        available_metrics: Optional[list[str]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Handle company-specific financial questions.
@@ -129,8 +131,12 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         )
 
         # Merged classifier: data_requirement + period_requirement in one LLM call
-        data_requirement, period_requirement = await self.classifier.classify_data_and_period_requirement(
-            ticker, question
+        (
+            data_requirement,
+            period_requirement,
+            relevant_statements,
+        ) = await self.classifier.classify_data_and_period_requirement(
+            ticker, question, available_metrics=available_metrics
         )
         logger.info(f"Financial data requirement: {data_requirement}, period: {period_requirement}")
 
@@ -150,6 +156,22 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         ) = await self.data_optimizer.fetch_optimized_data(
             ticker=ticker, data_requirement=data_requirement, period_requirement=period_requirement
         )
+
+        # Filter statements to only relevant types
+        if relevant_statements and data_requirement == FinancialDataRequirement.DETAILED:
+            valid_types = set(FinancialStatementType)
+            drop_types = valid_types - set(relevant_statements)
+            if drop_types:
+                logger.info(
+                    f"Filtering statements: keeping {[s.value for s in relevant_statements]}, "
+                    f"dropping {[d.value for d in drop_types]}"
+                )
+                for stmt in annual_statements:
+                    for t in drop_types:
+                        stmt.pop(t, None)
+                for stmt in quarterly_statements:
+                    for t in drop_types:
+                        stmt.pop(t, None)
 
         if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
             filing_url = quarterly_statements[0].get("filing_10q_url")
@@ -234,6 +256,7 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
                 deep_analysis=deep_analysis,
+                use_google_search=use_google_search,
             )
 
             analysis_prompt = PromptComponents.analysis_focus()
@@ -355,22 +378,8 @@ Provide a helpful, general answer that builds on what we discussed before. If th
         annual_statements: list[Dict[str, Any]],
         quarterly_statements: list[Dict[str, Any]],
         deep_analysis: bool = False,
+        use_google_search: bool = False,
     ) -> str:
-        """
-        Build the appropriate financial context prompt based on data requirement level.
-
-        Args:
-            ticker: Company ticker symbol
-            question: The question being asked
-            data_requirement: Level of data required
-            company_fundamental: Fundamental company data
-            annual_statements: Annual financial statements
-            quarterly_statements: Quarterly financial statements
-            deep_analysis: Whether to use detailed analysis prompt (default: False for shorter responses)
-
-        Returns:
-            Formatted prompt string with financial context
-        """
         logger.info(
             "Building financial context for analysis",
             {"ticker": ticker, "data_requirement": data_requirement},
@@ -385,5 +394,6 @@ Provide a helpful, general answer that builds on what we discussed before. If th
                 annual_statements=annual_statements,
                 quarterly_statements=quarterly_statements,
                 deep_analysis=deep_analysis,
+                use_google_search=use_google_search,
             )
         )

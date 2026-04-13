@@ -8,19 +8,18 @@ Usage:
 import sys
 from pathlib import Path
 
-from tasks.financial_crawler import crawl_annual_financial_data_task
-
-# Add parent directory to path
 current_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(current_dir))
+
+from core.financial_statement_type import FinancialStatementType  # noqa: E402
+from tasks.financial_crawler import crawl_annual_financial_data_task  # noqa: E402
 
 
 def test_crawl_task():
     """Test the annual financial data crawl task."""
 
-    # Test with a well-known ticker
     ticker = "BA"
-    statement_type = "cash_flow"
+    statement_type = FinancialStatementType.CASH_FLOW.value
 
     print(f"🧪 Testing Celery task for {ticker} - {statement_type}")
     print("=" * 60)

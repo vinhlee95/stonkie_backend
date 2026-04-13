@@ -230,6 +230,7 @@ class FinancialAnalyzer:
                 deep_analysis,
                 preferred_model,
                 conversation_messages=conversation_messages,
+                available_metrics=available_metrics,
             )
         else:
             return

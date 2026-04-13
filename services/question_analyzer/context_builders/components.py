@@ -5,6 +5,7 @@ import re
 from datetime import date
 from typing import Dict, List
 
+from core.financial_statement_type import FinancialStatementType
 from services.shared.prompt_utils import visual_output_instructions
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ class PromptComponents:
     def data_coverage_notice(annual_statements: List[Dict], quarterly_statements: List[Dict]) -> str:
         metric_names: set = set()
         for stmt in annual_statements + quarterly_statements:
-            for key in ("income_statement", "balance_sheet", "cash_flow"):
+            for key in FinancialStatementType:
                 section = stmt.get(key)
                 if isinstance(section, dict):
                     metric_names.update(section.keys())

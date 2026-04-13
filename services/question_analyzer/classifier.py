@@ -10,6 +10,7 @@ from langfuse import observe
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
+from core.financial_statement_type import FinancialStatementType
 
 from .ticker_extractor import StockTickerExtractor
 from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
@@ -178,20 +179,15 @@ class QuestionClassifier:
 
     @observe(name="classify_data_and_period_requirement")
     async def classify_data_and_period_requirement(
-        self, ticker: str, question: str
-    ) -> tuple[FinancialDataRequirement, Optional[FinancialPeriodRequirement]]:
+        self, ticker: str, question: str, available_metrics: Optional[list[str]] = None
+    ) -> tuple[FinancialDataRequirement, Optional[FinancialPeriodRequirement], Optional[list[FinancialStatementType]]]:
         """
-        Determine the level of financial data needed AND which periods are needed in a single LLM call.
+        Determine data level, periods, and relevant statement types in a single LLM call.
 
-        Returns (data_requirement, period_requirement). period_requirement is None for NONE/BASIC and
-        for keyword-fast-path QUARTERLY_SUMMARY/ANNUAL_SUMMARY (downstream defaults to "latest 1").
-
-        Args:
-            ticker: Company ticker symbol
-            question: The question being asked
-
-        Returns:
-            Tuple of (FinancialDataRequirement, Optional[FinancialPeriodRequirement])
+        Returns (data_requirement, period_requirement, relevant_statements).
+        For DETAILED, relevant_statements is always a non-empty list of FinancialStatementType;
+        when all are needed it matches FinancialStatementType.all_ordered(). For other requirements,
+        relevant_statements is None.
         """
         t_start = time.perf_counter()
 
@@ -201,7 +197,7 @@ class QuestionClassifier:
             logger.info(
                 f"Profiling classify_data_and_period_requirement: {time.perf_counter() - t_start:.4f}s (fast path)"
             )
-            return FinancialDataRequirement.QUARTERLY_SUMMARY, None
+            return FinancialDataRequirement.QUARTERLY_SUMMARY, None, None
 
         # Fast path: check for annual report keywords before calling LLM
         if self._detect_annual_report_keywords(question):
@@ -209,19 +205,29 @@ class QuestionClassifier:
             logger.info(
                 f"Profiling classify_data_and_period_requirement: {time.perf_counter() - t_start:.4f}s (fast path)"
             )
-            return FinancialDataRequirement.ANNUAL_SUMMARY, None
+            return FinancialDataRequirement.ANNUAL_SUMMARY, None, None
 
-        prompt = f"""Analyze this question about {ticker.upper()} and decide BOTH (a) what level of financial data is needed AND (b) which financial periods are needed.
+        metrics_context = ""
+        if available_metrics:
+            metrics_context = f"""
+            ===== Available DB Metrics =====
+            Our database contains ONLY these aggregate financial metrics for {ticker.upper()}:
+            {', '.join(available_metrics)}
+
+            IMPORTANT: The database does NOT contain segment breakdowns, geographic splits, product-line revenue, revenue by source/category, or any granular sub-categories. If the question asks for data that cannot be derived from the metrics listed above (e.g., "breakdown revenue sources", "revenue by segment", "how does the company make money in detail"), return data_requirement='none'.
+"""
+
+        prompt = f"""Analyze this question about {ticker.upper()} and decide (a) what level of financial data is needed, (b) which financial periods are needed, and (c) which statement types are relevant.
             NOTE: The question may be in any language. Classify based on the meaning regardless of language.
 
             Question: "{question}"
-
+{metrics_context}
             ===== Part A: data_requirement =====
             Pick exactly one of:
 
-            1. 'none' - Question can be answered without any financial data (e.g., "What does {ticker.upper()} do?", "Who is the CEO?", "What industry is {ticker.upper()} in?")
+            1. 'none' - Question can be answered without any financial data, OR the question asks for granular data not available in our database (e.g., segment breakdowns, revenue by source, geographic splits)
             2. 'basic' - Question needs only basic company metrics like market cap, P/E ratio, basic ratios (e.g., "What is {ticker.upper()}'s market cap?", "What's the P/E ratio?", "Is {ticker.upper()} profitable?")
-            3. 'detailed' - Question requires specific financial statement data like revenue, expenses, cash flow details (e.g., "What was {ticker.upper()}'s revenue last quarter?", "How much debt does {ticker.upper()} have?", "What's the operating margin trend?")
+            3. 'detailed' - Question requires specific financial statement data like revenue, expenses, cash flow details that ARE available in our metrics (e.g., "What was {ticker.upper()}'s revenue last quarter?", "How much debt does {ticker.upper()} have?", "What's the operating margin trend?")
             4. 'quarterly_summary' - Question requires a summary of recent quarterly financial results (e.g., "Summarize the latest quarterly earnings report", "What were the key financial highlights last quarter?")
             5. 'annual_summary' - Question requires a summary of recent annual financial results (e.g., "Summarize the latest annual report", "What were the key highlights from the 10-K filing?")
 
@@ -258,6 +264,19 @@ class QuestionClassifier:
             - Only fill specific_years OR specific_quarters OR num_periods, not multiple — EXCEPT when specific_quarters is ["latest"], where you must also set num_periods: 1
             - Default to annual unless quarterly is explicitly mentioned
 
+            ===== Part C: relevant_statements =====
+            If data_requirement is 'detailed', you MUST return a JSON array of which statement types are needed.
+            Pick from: "income_statement", "balance_sheet", "cash_flow".
+            Do NOT use null for this field when data_requirement is 'detailed'.
+            If the question is broad or needs a full financial picture, return ALL three types explicitly:
+            ["income_statement", "balance_sheet", "cash_flow"]
+
+            Examples:
+            - "What was revenue last quarter?" -> ["income_statement"]
+            - "How much debt does the company have?" -> ["balance_sheet"]
+            - "What is the free cash flow?" -> ["cash_flow"]
+            - "What is the company's financial health?" -> ["income_statement", "balance_sheet", "cash_flow"]
+
             ===== Output =====
             Return your answer in this EXACT JSON format (no other text, no markdown fences):
             {{
@@ -267,8 +286,10 @@ class QuestionClassifier:
                     "specific_years": [2023, 2024] | null,
                     "specific_quarters": ["2024-Q1", "2024-Q2"] | ["latest"] | null,
                     "num_periods": 1 | null
-                }}
+                }},
+                "relevant_statements": ["income_statement"] | ["balance_sheet", "cash_flow"] | ["income_statement", "balance_sheet", "cash_flow"] | null
             }}
+            Note: When data_requirement is not 'detailed', set relevant_statements to null.
         """
 
         try:
@@ -319,11 +340,37 @@ class QuestionClassifier:
                     )
                     period_requirement = self._fallback_period(data_requirement)
 
-            return data_requirement, period_requirement
+            # Parse relevant_statements (DETAILED only — always explicit list, never null)
+            relevant_statements: Optional[list[FinancialStatementType]] = None
+            if data_requirement == FinancialDataRequirement.DETAILED:
+                raw_stmts = parsed.get("relevant_statements")
+                all_members = set(FinancialStatementType)
+                if isinstance(raw_stmts, list) and raw_stmts:
+                    deduped: list[FinancialStatementType] = []
+                    for raw in raw_stmts:
+                        if not isinstance(raw, str):
+                            continue
+                        try:
+                            st = FinancialStatementType(raw)
+                        except ValueError:
+                            continue
+                        if st not in deduped:
+                            deduped.append(st)
+                    if not deduped:
+                        relevant_statements = list(FinancialStatementType.all_ordered())
+                    elif set(deduped) == all_members:
+                        relevant_statements = list(FinancialStatementType.all_ordered())
+                    else:
+                        relevant_statements = deduped
+                else:
+                    relevant_statements = list(FinancialStatementType.all_ordered())
+                logger.info(f"Relevant statements: {[s.value for s in relevant_statements]}")
+
+            return data_requirement, period_requirement, relevant_statements
 
         except Exception as e:
             logger.error(f"Error classifying data + period requirement: {e}")
-            return FinancialDataRequirement.BASIC, None
+            return FinancialDataRequirement.BASIC, None, None
         finally:
             t_end = time.perf_counter()
             logger.info(f"Profiling classify_data_and_period_requirement: {t_end - t_start:.4f}s")

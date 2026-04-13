@@ -15,6 +15,7 @@ from connectors.vector_store import (
     init_vector_record,
     search_similar_content_and_format_to_texts,
 )
+from core.financial_statement_type import FinancialStatementType
 from models.company_financial import CompanyFinancials
 from tasks.financial_crawler import crawl_annual_financial_data_task, crawl_quarterly_financial_data_task
 
@@ -318,24 +319,21 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
         if len(statements) == 0 and period_type in [PeriodType.ANNUALLY, None]:
             logger.info(f"No financial data found for {ticker}, checking task states")
 
-            for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
-                # Check if we can dispatch a new task
-                decision = can_dispatch_task(ticker, rpt_type, "annually")
+            for rpt_type in FinancialStatementType.crawl_dispatch_order():
+                decision = can_dispatch_task(ticker, rpt_type.value, "annually")
 
                 if not decision.can_dispatch:
                     logger.info(
-                        f"Skipping task dispatch for {ticker} - {rpt_type}: {decision.reason}"
+                        f"Skipping task dispatch for {ticker} - {rpt_type.value}: {decision.reason}"
                         + (f", existing task_id: {decision.existing_task_id}" if decision.existing_task_id else "")
                     )
                     continue
 
-                # Dispatch new task
-                task = crawl_annual_financial_data_task.delay(ticker, rpt_type)
-                logger.info(f"Crawl task queued for {ticker} - {rpt_type}, task_id: {task.id}")
+                task = crawl_annual_financial_data_task.delay(ticker, rpt_type.value)
+                logger.info(f"Crawl task queued for {ticker} - {rpt_type.value}, task_id: {task.id}")
 
-                # Store task state in Redis
                 set_task_state(
-                    ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="annually"
+                    ticker=ticker, report_type=rpt_type.value, status="pending", task_id=task.id, period_type="annually"
                 )
 
         # Dispatch quarterly crawling tasks if no quarterly data exists
@@ -348,21 +346,25 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
             if len(quarterly_statements) == 0:
                 logger.info(f"No quarterly financial data found for {ticker}, dispatching quarterly crawl tasks")
 
-                for rpt_type in ["balance_sheet", "cash_flow", "income_statement"]:
-                    decision = can_dispatch_task(ticker, rpt_type, "quarterly")
+                for rpt_type in FinancialStatementType.crawl_dispatch_order():
+                    decision = can_dispatch_task(ticker, rpt_type.value, "quarterly")
 
                     if not decision.can_dispatch:
                         logger.info(
-                            f"Skipping quarterly task dispatch for {ticker} - {rpt_type}: {decision.reason}"
+                            f"Skipping quarterly task dispatch for {ticker} - {rpt_type.value}: {decision.reason}"
                             + (f", existing task_id: {decision.existing_task_id}" if decision.existing_task_id else "")
                         )
                         continue
 
-                    task = crawl_quarterly_financial_data_task.delay(ticker, rpt_type)
-                    logger.info(f"Quarterly crawl task queued for {ticker} - {rpt_type}, task_id: {task.id}")
+                    task = crawl_quarterly_financial_data_task.delay(ticker, rpt_type.value)
+                    logger.info(f"Quarterly crawl task queued for {ticker} - {rpt_type.value}, task_id: {task.id}")
 
                     set_task_state(
-                        ticker=ticker, report_type=rpt_type, status="pending", task_id=task.id, period_type="quarterly"
+                        ticker=ticker,
+                        report_type=rpt_type.value,
+                        status="pending",
+                        task_id=task.id,
+                        period_type="quarterly",
                     )
 
         # Get company currency
@@ -376,17 +378,11 @@ def get_company_financial_statements(ticker: str, report_type: str | None = None
         if not report_type:
             return {"currency": currency, "statements": statements}
 
-        # Map report types to their corresponding fields
-        report_type_to_field = {
-            "balance_sheet": "balance_sheet",
-            "cash_flow": "cash_flow",
-            "income_statement": "income_statement",
-        }
+        rt = FinancialStatementType(report_type)
 
-        # Filter and transform statements based on report type
         filtered_statements = []
         for statement in statements:
-            data_field = getattr(statement, report_type_to_field[report_type])
+            data_field = getattr(statement, rt.value)
             if data_field is None:
                 continue
 

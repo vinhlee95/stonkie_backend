@@ -14,6 +14,7 @@ from agent.agent import Agent
 from celery_app import celery_app
 from connectors.cache import set_task_state
 from connectors.database import SessionLocal, get_db
+from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
@@ -127,13 +128,14 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
 
     Args:
         ticker: Company ticker symbol
-        statement_type: Type of statement (income_statement, balance_sheet, cash_flow)
+        statement_type: FinancialStatementType value string
         data: List of financial data dictionaries
 
     Returns:
         bool: True if successful, False otherwise
     """
     try:
+        st = FinancialStatementType(statement_type)
         db = next(get_db())
 
         # Find the most recent non-TTM year
@@ -168,47 +170,25 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
                     )
 
                     if existing_record:
-                        # Check if the specific field for this statement type is already populated
-                        field_already_populated = False
-                        if statement_type == "income_statement" and existing_record.income_statement is not None:
-                            field_already_populated = True
-                        elif statement_type == "balance_sheet" and existing_record.balance_sheet is not None:
-                            field_already_populated = True
-                        elif statement_type == "cash_flow" and existing_record.cash_flow is not None:
-                            field_already_populated = True
+                        field_already_populated = getattr(existing_record, st.value) is not None
 
                         if field_already_populated:
                             logger.info(
-                                f"Skipping existing record for {ticker} {statement_type} {period_end_year} - already populated"
+                                f"Skipping existing record for {ticker} {st.value} {period_end_year} - already populated"
                             )
                             break
 
-                        logger.info(f"Updating existing record for {ticker} {statement_type} {period_end_year}")
-                        # Update existing record
-                        if statement_type == "income_statement":
-                            existing_record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            existing_record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            existing_record.cash_flow = item["metrics"]
+                        logger.info(f"Updating existing record for {ticker} {st.value} {period_end_year}")
+                        setattr(existing_record, st.value, item["metrics"])
                         existing_record.is_ttm = is_ttm
                     else:
-                        logger.info(f"Creating new record for {ticker} {statement_type} {period_end_year}")
-                        # Create new record with only the current statement type
+                        logger.info(f"Creating new record for {ticker} {st.value} {period_end_year}")
                         record = CompanyFinancialStatement(
                             company_symbol=ticker.upper(),
                             period_end_year=period_end_year,
                             is_ttm=is_ttm,
                         )
-
-                        # Set the appropriate statement type
-                        if statement_type == "income_statement":
-                            record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            record.cash_flow = item["metrics"]
-
+                        setattr(record, st.value, item["metrics"])
                         db.add(record)
 
                     # Commit the transaction
@@ -232,7 +212,7 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
                     else:
                         raise e
 
-        logger.info(f"✅ Financial data for {ticker} {statement_type} saved to database")
+        logger.info(f"✅ Financial data for {ticker} {st.value} saved to database")
         db.close()
         return True
 
@@ -428,30 +408,21 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
 
     Args:
         ticker: Company ticker symbol
-        statement_type: Type of statement (income_statement, balance_sheet, cash_flow)
+        statement_type: FinancialStatementType value string
 
     Returns:
         dict with status and details
     """
     try:
-        # Update task state to running
+        st = FinancialStatementType(statement_type)
         set_task_state(
-            ticker=ticker, report_type=statement_type, status="running", task_id=self.request.id, period_type="annually"
+            ticker=ticker, report_type=st.value, status="running", task_id=self.request.id, period_type="annually"
         )
 
-        logger.info(f"🚀 Starting annual financial data crawl for {ticker} - {statement_type}")
+        logger.info(f"🚀 Starting annual financial data crawl for {ticker} - {st.value}")
 
-        # Map statement type to Yahoo Finance URL
         base_url = f"https://finance.yahoo.com/quote/{ticker.upper()}"
-        url_mapping = {
-            "income_statement": f"{base_url}/financials/",
-            "balance_sheet": f"{base_url}/balance-sheet/",
-            "cash_flow": f"{base_url}/cash-flow/",
-        }
-
-        url = url_mapping.get(statement_type)
-        if not url:
-            raise ValueError(f"Invalid statement_type: {statement_type}")
+        url = f"{base_url}/{st.yahoo_finance_path_segment()}/"
 
         # Extract data from page
         logger.info(f"Extracting data from: {url}")
@@ -521,7 +492,7 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         logger.info(f"Successfully extracted {len(json_response)} periods of financial data")
 
         # Save to database
-        success = _save_to_database(ticker, statement_type, json_response)
+        success = _save_to_database(ticker, st.value, json_response)
 
         if not success:
             raise Exception("Failed to save data to database")
@@ -529,28 +500,26 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         result = {
             "status": "success",
             "ticker": ticker.upper(),
-            "statement_type": statement_type,
+            "statement_type": st.value,
             "periods_count": len(json_response),
             "task_id": self.request.id,
-            "message": f"Successfully crawled and saved {statement_type} for {ticker}",
+            "message": f"Successfully crawled and saved {st.value} for {ticker}",
         }
 
-        # Update task state to completed
         set_task_state(
             ticker=ticker,
-            report_type=statement_type,
+            report_type=st.value,
             status="completed",
             task_id=self.request.id,
             period_type="annually",
         )
 
-        logger.info(f"✅ Annual financial data crawl completed for {ticker} - {statement_type}")
+        logger.info(f"✅ Annual financial data crawl completed for {ticker} - {st.value}")
         return result
 
     except Exception as e:
         logger.error(f"❌ Annual financial data crawl failed for {ticker} - {statement_type}: {e}")
 
-        # Update task state to failed
         set_task_state(
             ticker=ticker,
             report_type=statement_type,
@@ -567,6 +536,7 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
 def _save_quarterly_to_database(ticker: str, statement_type: str, data: list) -> bool:
     """Save quarterly financial data to the database."""
     try:
+        st = FinancialStatementType(statement_type)
         with SessionLocal() as db:
             for item in data:
                 period_end_quarter = item["period_end_quarter"]
@@ -585,45 +555,26 @@ def _save_quarterly_to_database(ticker: str, statement_type: str, data: list) ->
                         )
 
                         if existing_record:
-                            field_already_populated = False
-                            if statement_type == "income_statement" and existing_record.income_statement is not None:
-                                field_already_populated = True
-                            elif statement_type == "balance_sheet" and existing_record.balance_sheet is not None:
-                                field_already_populated = True
-                            elif statement_type == "cash_flow" and existing_record.cash_flow is not None:
-                                field_already_populated = True
+                            field_already_populated = getattr(existing_record, st.value) is not None
 
                             if field_already_populated:
                                 logger.info(
                                     f"Skipping existing quarterly record for "
-                                    f"{ticker} {statement_type} {period_end_quarter}"
+                                    f"{ticker} {st.value} {period_end_quarter}"
                                 )
                                 break
 
                             logger.info(
-                                f"Updating existing quarterly record for "
-                                f"{ticker} {statement_type} {period_end_quarter}"
+                                f"Updating existing quarterly record for " f"{ticker} {st.value} {period_end_quarter}"
                             )
-                            if statement_type == "income_statement":
-                                existing_record.income_statement = item["metrics"]
-                            elif statement_type == "balance_sheet":
-                                existing_record.balance_sheet = item["metrics"]
-                            elif statement_type == "cash_flow":
-                                existing_record.cash_flow = item["metrics"]
+                            setattr(existing_record, st.value, item["metrics"])
                         else:
-                            logger.info(
-                                f"Creating new quarterly record for " f"{ticker} {statement_type} {period_end_quarter}"
-                            )
+                            logger.info(f"Creating new quarterly record for {ticker} {st.value} {period_end_quarter}")
                             record = CompanyQuarterlyFinancialStatement(
                                 company_symbol=ticker.upper(),
                                 period_end_quarter=period_end_quarter,
                             )
-                            if statement_type == "income_statement":
-                                record.income_statement = item["metrics"]
-                            elif statement_type == "balance_sheet":
-                                record.balance_sheet = item["metrics"]
-                            elif statement_type == "cash_flow":
-                                record.cash_flow = item["metrics"]
+                            setattr(record, st.value, item["metrics"])
                             db.add(record)
 
                         db.commit()
@@ -645,7 +596,7 @@ def _save_quarterly_to_database(ticker: str, statement_type: str, data: list) ->
                         else:
                             raise e
 
-            logger.info(f"Quarterly financial data for {ticker} {statement_type} saved to database")
+            logger.info(f"Quarterly financial data for {ticker} {st.value} saved to database")
             return True
 
     except Exception as e:
@@ -666,32 +617,25 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
 
     Args:
         ticker: Company ticker symbol
-        statement_type: Type of statement (income_statement, balance_sheet, cash_flow)
+        statement_type: FinancialStatementType value string
 
     Returns:
         dict with status and details
     """
     try:
+        st = FinancialStatementType(statement_type)
         set_task_state(
             ticker=ticker,
-            report_type=statement_type,
+            report_type=st.value,
             status="running",
             task_id=self.request.id,
             period_type="quarterly",
         )
 
-        logger.info(f"Starting quarterly financial data crawl for {ticker} - {statement_type}")
+        logger.info(f"Starting quarterly financial data crawl for {ticker} - {st.value}")
 
         base_url = f"https://finance.yahoo.com/quote/{ticker.upper()}"
-        url_mapping = {
-            "income_statement": f"{base_url}/financials/",
-            "balance_sheet": f"{base_url}/balance-sheet/",
-            "cash_flow": f"{base_url}/cash-flow/",
-        }
-
-        url = url_mapping.get(statement_type)
-        if not url:
-            raise ValueError(f"Invalid statement_type: {statement_type}")
+        url = f"{base_url}/{st.yahoo_finance_path_segment()}/"
 
         result = _extract_financial_data_from_page(url, quarterly=True)
         if result is None:
@@ -753,28 +697,28 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
 
         logger.info(f"Successfully extracted {len(data_to_save)} quarters of financial data")
 
-        success = _save_quarterly_to_database(ticker, statement_type, data_to_save)
+        success = _save_quarterly_to_database(ticker, st.value, data_to_save)
         if not success:
             raise Exception("Failed to save quarterly data to database")
 
         result = {
             "status": "success",
             "ticker": ticker.upper(),
-            "statement_type": statement_type,
+            "statement_type": st.value,
             "periods_count": len(data_to_save),
             "task_id": self.request.id,
-            "message": f"Successfully crawled and saved quarterly {statement_type} for {ticker}",
+            "message": f"Successfully crawled and saved quarterly {st.value} for {ticker}",
         }
 
         set_task_state(
             ticker=ticker,
-            report_type=statement_type,
+            report_type=st.value,
             status="completed",
             task_id=self.request.id,
             period_type="quarterly",
         )
 
-        logger.info(f"Quarterly financial data crawl completed for {ticker} - {statement_type}")
+        logger.info(f"Quarterly financial data crawl completed for {ticker} - {st.value}")
         return result
 
     except Exception as e:

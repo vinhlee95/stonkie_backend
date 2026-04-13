@@ -44,7 +44,7 @@ def get_task_state(ticker: str, report_type: str, period_type: str = "annually")
 
     Args:
         ticker: Company ticker symbol
-        report_type: Type of report (income_statement, balance_sheet, cash_flow)
+        report_type: FinancialStatementType value string (see core.financial_statement_type)
         period_type: Period type (annually, quarterly)
 
     Returns:

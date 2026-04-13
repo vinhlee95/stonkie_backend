@@ -4,7 +4,6 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from enum import Enum
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -19,6 +18,7 @@ from connectors.conversation_store import (
     generate_conversation_id,
     get_conversation_history_for_prompt,
 )
+from core.financial_statement_type import FinancialStatementType
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
     PeriodType,
@@ -117,21 +117,16 @@ async def get_etfs():
         raise HTTPException(status_code=500, detail="Internal server error while fetching ETF list")
 
 
-class ReportType(Enum):
-    INCOME_STATEMENT = "income_statement"
-    BALANCE_SHEET = "balance_sheet"
-    CASH_FLOW = "cash_flow"
-
-
 @app.get("/api/companies/{ticker}/statements")
 def get_financial_statements(ticker: str, report_type: str | None = None, period_type: str | None = None):
     # Validate report_type if provided
     if report_type:
         try:
-            ReportType(report_type)
+            FinancialStatementType(report_type)
         except ValueError:
             raise HTTPException(
-                status_code=400, detail=f"Invalid report type. Must be one of: {[rt.value for rt in ReportType]}"
+                status_code=400,
+                detail=f"Invalid report type. Must be one of: {[rt.value for rt in FinancialStatementType]}",
             )
 
     # Validate period_type if provided

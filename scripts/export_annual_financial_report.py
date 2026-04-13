@@ -35,6 +35,7 @@ from sqlalchemy.exc import IntegrityError
 
 from agent.agent import Agent
 from connectors.database import get_db
+from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
 from services.company import CompanyConnector
 
@@ -48,6 +49,7 @@ def save_to_database(ticker, statement_type, data):
     Save financial data to the database with concurrency safety
     """
     try:
+        st = FinancialStatementType(statement_type)
         db = next(get_db())
 
         # Find the most recent non-TTM year
@@ -82,47 +84,25 @@ def save_to_database(ticker, statement_type, data):
                     )
 
                     if existing_record:
-                        # Check if the specific field for this statement type is already populated
-                        field_already_populated = False
-                        if statement_type == "income_statement" and existing_record.income_statement is not None:
-                            field_already_populated = True
-                        elif statement_type == "balance_sheet" and existing_record.balance_sheet is not None:
-                            field_already_populated = True
-                        elif statement_type == "cash_flow" and existing_record.cash_flow is not None:
-                            field_already_populated = True
+                        field_already_populated = getattr(existing_record, st.value) is not None
 
                         if field_already_populated:
                             print(
-                                f"🔄 Skipping existing record for {ticker} {statement_type} {period_end_year} because {statement_type} is already populated."
+                                f"🔄 Skipping existing record for {ticker} {st.value} {period_end_year} because {st.value} is already populated."
                             )
                             break
 
-                        print(f"🔄 Updating existing record for {ticker} {statement_type} {period_end_year}")
-                        # Update existing record
-                        if statement_type == "income_statement":
-                            existing_record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            existing_record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            existing_record.cash_flow = item["metrics"]
+                        print(f"🔄 Updating existing record for {ticker} {st.value} {period_end_year}")
+                        setattr(existing_record, st.value, item["metrics"])
                         existing_record.is_ttm = is_ttm
                     else:
-                        print(f"🔄 Creating new record for {ticker} {statement_type} {period_end_year}")
-                        # Create new record with only the current statement type
+                        print(f"🔄 Creating new record for {ticker} {st.value} {period_end_year}")
                         record = CompanyFinancialStatement(
                             company_symbol=ticker.upper(),
                             period_end_year=period_end_year,
                             is_ttm=is_ttm,
                         )
-
-                        # Set the appropriate statement type
-                        if statement_type == "income_statement":
-                            record.income_statement = item["metrics"]
-                        elif statement_type == "balance_sheet":
-                            record.balance_sheet = item["metrics"]
-                        elif statement_type == "cash_flow":
-                            record.cash_flow = item["metrics"]
-
+                        setattr(record, st.value, item["metrics"])
                         db.add(record)
 
                     # Commit the transaction
@@ -146,7 +126,7 @@ def save_to_database(ticker, statement_type, data):
                     else:
                         raise e
 
-        print(f"✅✅✅ Financial data for {ticker} {statement_type} has been saved to the database")
+        print(f"✅✅✅ Financial data for {ticker} {st.value} has been saved to the database")
 
     except Exception as e:
         print(f"❌❌❌ Failed to save financial data to the database: {e}")
@@ -506,9 +486,9 @@ def main():
     for ticker in tickers:
         financial_statement_url, balance_sheet_url, cash_flow_url = get_financial_urls(ticker)
         ticker_tasks = [
-            (financial_statement_url, ticker, "income_statement"),
-            (balance_sheet_url, ticker, "balance_sheet"),
-            (cash_flow_url, ticker, "cash_flow"),
+            (financial_statement_url, ticker, FinancialStatementType.INCOME_STATEMENT.value),
+            (balance_sheet_url, ticker, FinancialStatementType.BALANCE_SHEET.value),
+            (cash_flow_url, ticker, FinancialStatementType.CASH_FLOW.value),
         ]
         financial_tasks.extend(ticker_tasks)
 

@@ -9,6 +9,8 @@ from google.cloud import storage, vision
 from google.oauth2 import service_account
 from playwright.sync_api import sync_playwright
 
+from core.financial_statement_type import FinancialStatementType
+
 
 def get_vision_client():
     # Decode and save the credentials temporarily
@@ -272,17 +274,17 @@ def main():
     # Process financial data
     export_financial_data_to_csv(
         financial_statement_url,
-        f"{ticker.lower()}_income_statement",
+        f"{ticker.lower()}_{FinancialStatementType.INCOME_STATEMENT.value}",
     )
 
     export_financial_data_to_csv(
         balance_sheet_url,
-        f"{ticker.lower()}_balance_sheet",
+        f"{ticker.lower()}_{FinancialStatementType.BALANCE_SHEET.value}",
     )
 
     export_financial_data_to_csv(
         cash_flow_url,
-        f"{ticker.lower()}_cash_flow",
+        f"{ticker.lower()}_{FinancialStatementType.CASH_FLOW.value}",
     )
 
 
