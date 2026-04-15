@@ -114,9 +114,11 @@ class CompanyConnector:
                 ticker = str(getattr(item, "company_symbol", ""))
                 logo_url = item_data.get("logo_url") or self.get_company_logo_url(ticker)
                 sector = item_data.get("sector", "") or ""
+                market_cap = safe_int(item_data.get("market_cap"))
 
-                companies.append(Company(name=name, ticker=ticker, logo_url=logo_url, sector=sector))
-            return companies
+                companies.append((market_cap, Company(name=name, ticker=ticker, logo_url=logo_url, sector=sector)))
+            companies.sort(key=lambda c: c[0], reverse=True)
+            return [company for _, company in companies]
 
     def get_fundamental_data(self, ticker: str) -> CompanyFundamentalDto | None:
         with SessionLocal() as db:
