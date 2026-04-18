@@ -69,6 +69,45 @@ def test_semantic_cache_hit_skips_analyzer(client):
     append_asst.assert_called_once_with(ANY, "AAPL", "conv-test-1", "short reply")
 
 
+def test_semantic_cache_hit_emits_answer_visual_for_fenced_html(client):
+    """Cached replay must use VisualAnswerStreamSplitter so FE gets answer_visual_* not raw HTML in answer."""
+    entry = MagicMock()
+    entry.answer_text = 'Summary line.\n\n```html\n<div id="c">ok</div>\n```\n'
+    entry.sources = None
+    entry.model_used = "m"
+
+    async def analyzer_should_not_run(*_a, **_kw):
+        raise AssertionError("analyzer should not run on cache hit")
+        yield  # pragma: no cover
+
+    with (
+        patch.object(main_module, "append_user_message"),
+        patch.object(main_module, "append_assistant_message"),
+        patch.object(main_module, "get_conversation_history_for_prompt", return_value=[]),
+        patch.object(main_module, "SemanticCache") as mock_sc,
+        patch.object(main_module.financial_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
+        patch.object(main_module.etf_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
+        patch.object(main_module, "get_etf_by_ticker", return_value=None),
+    ):
+        inst = MagicMock()
+        inst.embed.return_value = [0.01] * 1536
+        inst.lookup.return_value = entry
+        mock_sc.return_value = inst
+
+        with client.stream(
+            "POST",
+            "/api/companies/AAPL/analyze",
+            json={"question": "test?", "conversationId": "conv-vis-1"},
+        ) as response:
+            assert response.status_code == 200
+            body = response.read()
+
+    types = [e["type"] for e in _parse_sse(body)]
+    assert "answer_visual_start" in types
+    assert "answer_visual_delta" in types
+    assert "answer_visual_done" in types
+
+
 def test_semantic_cache_miss_runs_analyzer_and_schedules_store(client):
     async def fake_analyze(*_a, **_kw):
         yield {"type": "answer", "body": "live"}

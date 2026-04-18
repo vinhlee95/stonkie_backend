@@ -41,6 +41,7 @@ from services.revenue_insight import get_revenue_insights_for_company_product, g
 from services.search_decision_engine import SearchDecisionEngine
 from utils.logging import setup_local_logging, setup_production_logging
 from utils.url_helper import extract_first_url
+from utils.visual_stream import VisualAnswerStreamSplitter
 
 load_dotenv()
 
@@ -58,9 +59,6 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-
-_SEMANTIC_CACHE_ANSWER_CHUNK_CHARS = 100
-_SEMANTIC_CACHE_CHUNK_DELAY_SEC = 0.005
 
 # Shared search decision engine
 search_decision_engine = SearchDecisionEngine()
@@ -329,14 +327,18 @@ async def analyze_financial_data(ticker: str, request: Request):
                         )
                         + "\n\n"
                     )
+                    # Match live pipeline: split ```html``` / ```svg``` into answer_visual_* events
+                    # so the frontend renders charts/iframes instead of raw markup in plain answer chunks.
                     answer_text = cached_entry.answer_text or ""
-                    for i in range(0, len(answer_text), _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS):
+                    visual_splitter = VisualAnswerStreamSplitter()
+                    for visual_event in visual_splitter.process_text(answer_text):
                         if await request.is_disconnected():
                             return
-                        piece = answer_text[i : i + _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS]
-                        yield json.dumps({"type": "answer", "body": piece}) + "\n\n"
-                        if i + _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS < len(answer_text):
-                            await asyncio.sleep(_SEMANTIC_CACHE_CHUNK_DELAY_SEC)
+                        yield json.dumps(visual_event) + "\n\n"
+                    for visual_event in visual_splitter.finalize():
+                        if await request.is_disconnected():
+                            return
+                        yield json.dumps(visual_event) + "\n\n"
 
                     raw_sources = cached_entry.sources
                     sources_out = None
