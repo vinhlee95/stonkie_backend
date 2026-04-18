@@ -42,8 +42,6 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
     )
 
-    op.create_index("ix_semantic_cache_ticker", "semantic_cache", ["ticker"])
-    op.create_index("ix_semantic_cache_expires_at", "semantic_cache", ["expires_at"])
     op.create_index(
         "ix_semantic_cache_ticker_expires",
         "semantic_cache",

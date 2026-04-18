@@ -10,7 +10,7 @@ class SemanticCacheEntry(Base):
     __tablename__ = "semantic_cache"
 
     id = Column(Integer, primary_key=True, index=True)
-    ticker = Column(String, index=True)
+    ticker = Column(String)
     question_text = Column(Text, nullable=False)
     question_embedding = Column(Vector(1536), nullable=False)
     answer_text = Column(Text, nullable=False)
@@ -18,4 +18,4 @@ class SemanticCacheEntry(Base):
     model_used = Column(String)
     ttl_tier = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
