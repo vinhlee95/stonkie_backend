@@ -67,8 +67,7 @@ class SemanticCache:
         self.openai_model = OpenAIModel()
 
     def embed(self, text: str) -> list[float]:
-        normalized = normalize_question(text)
-        return self.openai_model.generate_embedding(normalized)
+        return self.openai_model.generate_embedding(text)
 
     def store(
         self,
@@ -100,14 +99,14 @@ class SemanticCache:
             logger.info("Cached response for %s (tier=%s, expires=%s)", ticker, tier, expires_at)
             return entry
 
-    def lookup(self, ticker: str, embedding: list[float], threshold: float = 0.08) -> SemanticCacheEntry | None:
+    def lookup(self, ticker: str, embedding: list[float], threshold: float = 0.20) -> SemanticCacheEntry | None:
         query = text("""
             SELECT id, ticker, question_text, answer_text, sources, model_used,
                    created_at, expires_at,
-                   question_embedding <=> :embedding AS distance
+                   question_embedding <=> cast(:embedding as vector) AS distance
             FROM semantic_cache
             WHERE ticker = :ticker AND expires_at > now()
-            ORDER BY question_embedding <=> :embedding
+            ORDER BY question_embedding <=> cast(:embedding as vector)
             LIMIT 1
         """)
 
