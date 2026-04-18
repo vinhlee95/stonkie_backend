@@ -3,7 +3,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete
+from sqlalchemy.sql import func
 
 from ai_models.openai import OpenAIModel
 from connectors.database import SessionLocal
@@ -101,38 +102,30 @@ class SemanticCache:
             return entry
 
     def lookup(self, ticker: str, embedding: list[float], threshold: float = 0.20) -> SemanticCacheEntry | None:
-        query = text("""
-            SELECT id, ticker, question_text, answer_text, sources, model_used,
-                   created_at, expires_at,
-                   question_embedding <=> cast(:embedding as vector) AS distance
-            FROM semantic_cache
-            WHERE ticker = :ticker AND expires_at > now()
-            ORDER BY question_embedding <=> cast(:embedding as vector)
-            LIMIT 1
-        """)
+        distance = SemanticCacheEntry.question_embedding.cosine_distance(embedding)
 
         with SessionLocal() as db:
-            row = db.execute(query, {"ticker": ticker.upper(), "embedding": str(embedding)}).fetchone()
+            row = (
+                db.query(SemanticCacheEntry, distance.label("distance"))
+                .filter(
+                    SemanticCacheEntry.ticker == ticker.upper(),
+                    SemanticCacheEntry.expires_at > func.now(),
+                )
+                .order_by(distance)
+                .first()
+            )
 
             if row is None or row.distance > threshold:
                 return None
 
+            entry = row.SemanticCacheEntry
             logger.info(
                 "Cache hit for %s (distance=%.4f, question=%s)",
                 ticker,
                 row.distance,
-                row.question_text[:60],
+                entry.question_text[:60],
             )
-            return SemanticCacheEntry(
-                id=row.id,
-                ticker=row.ticker,
-                question_text=row.question_text,
-                answer_text=row.answer_text,
-                sources=row.sources,
-                model_used=row.model_used,
-                created_at=row.created_at,
-                expires_at=row.expires_at,
-            )
+            return entry
 
     def invalidate_ticker(self, ticker: str) -> int:
         with SessionLocal() as db:
