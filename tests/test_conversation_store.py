@@ -168,16 +168,14 @@ class TestMessageTrimming:
         # Verify setex was called
         assert mock_redis.setex.called
 
-        # Get the stored messages
+        # Get the stored messages (setex key, ttl_seconds, value_json)
         call_args = mock_redis.setex.call_args
-        stored_messages_json = call_args[0][1]  # Second positional arg is the JSON value
+        stored_messages_json = call_args[0][2]
         stored_messages = json.loads(stored_messages_json)
 
-        # Should have exactly 6 messages (3 pairs) - oldest pair removed
+        # Last 6 of 7 messages: drops Q0 only; _trim_messages counts messages not Q/A pairs
         assert len(stored_messages) == 6
-        # Should start with Q1 (not Q0)
-        assert stored_messages[0]["content"] == "Q1"
-        # Should end with new question
+        assert stored_messages[0]["content"] == "A0"
         assert stored_messages[-1]["content"] == "New Question"
         assert stored_messages[-1]["role"] == "user"
 

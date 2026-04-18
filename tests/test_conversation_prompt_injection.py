@@ -88,12 +88,12 @@ class TestCompanyGeneralHandlerPromptInjection:
         # Collect prompt from handler
         prompt_captured = None
 
-        async def capture_prompt(*args, **kwargs):
+        def capture_prompt(*args, **kwargs):
             nonlocal prompt_captured
-            prompt_captured = args[0] if args else kwargs.get("prompt", "")
+            prompt_captured = kwargs.get("prompt", args[0] if args else "")
             yield "Answer chunk"
 
-        mock_agent_instance.generate_content = AsyncMock(side_effect=capture_prompt)
+        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
 
         # Call handler
         chunks = []
@@ -132,12 +132,12 @@ class TestCompanyGeneralHandlerPromptInjection:
 
         prompt_captured = None
 
-        async def capture_prompt(*args, **kwargs):
+        def capture_prompt(*args, **kwargs):
             nonlocal prompt_captured
-            prompt_captured = args[0] if args else kwargs.get("prompt", "")
+            prompt_captured = kwargs.get("prompt", args[0] if args else "")
             yield "Answer chunk"
 
-        mock_agent_instance.generate_content = AsyncMock(side_effect=capture_prompt)
+        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
 
         # Call handler without conversation_messages
         chunks = []
@@ -200,12 +200,12 @@ class TestCompanySpecificFinanceHandlerPromptInjection:
 
         prompt_captured = None
 
-        async def capture_prompt(*args, **kwargs):
+        def capture_prompt(*args, **kwargs):
             nonlocal prompt_captured
-            prompt_captured = args[0] if args else kwargs.get("prompt", "")
+            prompt_captured = kwargs.get("prompt", args[0] if args else "")
             yield "Answer chunk"
 
-        mock_agent_instance.generate_content = AsyncMock(side_effect=capture_prompt)
+        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
 
         # Call handler
         chunks = []

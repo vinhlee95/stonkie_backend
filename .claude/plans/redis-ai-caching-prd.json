@@ -1,0 +1,268 @@
+{
+  "prd_meta": {
+    "title": "Semantic Caching: single-layer analysis response cache via pgvector",
+    "description": "One semantic cache at the analysis level. On hit, skip the entire pipeline (classify + search decision + data fetch + LLM generation). On miss, run everything normally. No intermediate step caching. pgvector for similarity search, Redis for conversation/task state (unchanged).",
+    "source_documents": [
+      "Notion backlog: Use Redis AI for better caching (342c1f5aa05480ca89c7d0ba37ec3a7c)",
+      ".claude/plans/latency-analyze-prd.json (prior latency work)"
+    ],
+    "scope_endpoint": "POST /analyze (SSE)",
+    "sorting_rule": "Phases ordered by dependency chain",
+    "baseline_policy": "Before each phase, record fresh timing using the shared measurement context. After implementation, compare cold (cache miss) vs warm (cache hit). seconds_saved = cold_duration - warm_duration.",
+    "default_measurement_context": {
+      "method": "manual_analyze_sse",
+      "ticker": "AAPL",
+      "question": "What is Apple's revenue trend over the last 3 years?",
+      "paraphrase": "How has AAPL revenue changed in the past 3 years?",
+      "model_profile": "fastest (google/gemini-2.5-flash:nitro)",
+      "handler": "COMPANY_SPECIFIC_FINANCE",
+      "notes": "Run original question (cold miss → full pipeline). Then run paraphrase (should hit semantic cache). Compare total wall-clock."
+    },
+    "allowed_states": ["not-started", "inprogress", "complete", "skipped"],
+    "design_decisions": {
+      "architecture": "Single semantic cache layer at the analysis response level. No classification or search decision caching.",
+      "rationale": "Users rarely ask identical questions, so exact-match caching has negligible hit rate. Semantic cache catches paraphrases. Caching intermediate steps (classify, search decision) adds complexity for marginal gain — the analysis cache already skips them on hit.",
+      "embedding_provider": "OpenAI text-embedding-3-small (1536 dims, ~$0.00002/query)",
+      "embedding_timing": "Background async — embed + store after response completes, no added latency to user",
+      "similarity_threshold": "cosine distance < 0.20 (similarity > 0.80) — originally 0.08, raised after prod testing showed real paraphrases land at 0.10-0.18 with text-embedding-3-small",
+      "vector_store": "PostgreSQL + pgvector (Railway Postgres, already deployed)",
+      "ttl_strategy": "Tiered — historical period questions = 7d, recent/latest quarter = 24h (+ crawl invalidation), price/market = 1h",
+      "model_preference_in_cache": "Ignored — cache is model-agnostic for higher hit rate",
+      "cache_scope": "Per-ticker. Question + ticker together determine cache identity."
+    }
+  },
+  "phases": [
+    {
+      "id": "pgvector-setup",
+      "sort_order": 1,
+      "impact_level": "HIGH",
+      "state": "complete",
+      "title": "pgvector table + embedding infrastructure",
+      "estimated_effect": "Foundation — no user-facing impact yet",
+      "definition": "Enable pgvector extension, create semantic_cache table, build the SemanticCache class with embed/store/lookup/invalidate methods, and add the question normalizer + TTL tier detector.",
+      "explanation_for_agents": "Schema: semantic_cache(id serial, ticker varchar, question_text text, question_embedding vector(1536), answer_text text, sources jsonb, model_used varchar, ttl_tier varchar, created_at timestamptz, expires_at timestamptz). Index: HNSW on question_embedding (m=16, ef_construction=64). Btree composite on (ticker, expires_at). SemanticCache class: embed(text) → OpenAI text-embedding-3-small 1536-dim vector (no normalization — raw text preserves semantic similarity better); store(...) → inserts with TTL tier-based expires_at; lookup(ticker, embedding, threshold=0.20) → ORM query with cosine_distance, filter by ticker + expires_at > now(); invalidate_ticker(ticker) → DELETE WHERE ticker. TTL detection via regex: year/quarter → HISTORICAL (7d), price/market → MARKET (1h), default → RECENT (24h).",
+      "files_modified": [
+        "models/semantic_cache.py — SQLAlchemy model with pgvector Vector column",
+        "connectors/semantic_cache.py — SemanticCache class + normalize_question() + detect_ttl_tier()",
+        "alembic/versions/a1b2c3d4e5f6_add_semantic_cache_table.py — table + HNSW + btree indexes",
+        "alembic/versions/b2c3d4e5f6a7_add_ttl_tier_to_semantic_cache.py — ttl_tier column",
+        "alembic/versions/c3d4e5f6a7b8_drop_redundant_semantic_cache_indexes.py — cleanup",
+        "alembic/env.py — model import",
+        "requirements.txt — pgvector==0.3.6",
+        "tests/test_semantic_cache.py — 13 unit tests"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "pgvector extension enabled on Railway Postgres",
+          "semantic_cache table created via migration",
+          "SemanticCache.embed() returns 1536-dim vector from OpenAI",
+          "SemanticCache.store() inserts row with correct expires_at and ttl_tier",
+          "SemanticCache.lookup() returns cached row when cosine distance < 0.20, None otherwise",
+          "SemanticCache.invalidate_ticker() deletes all rows for ticker",
+          "TTL tier detection covers: HISTORICAL, RECENT, MARKET with regex tests"
+        ],
+        "verification": {
+          "smoke_test": "All verified against prod DB: store → paraphrase hit → unrelated miss → wrong ticker miss → invalidate → post-invalidation miss. 13 unit tests pass. Lint clean.",
+          "what_to_measure": "embed() latency (expect ~100ms), lookup() latency (expect <20ms), store() latency (expect <5ms)"
+        }
+      },
+      "learnings": {
+        "threshold_calibration": "PRD threshold of 0.08 was too tight for text-embedding-3-small. Real paraphrase distances: identical=0.00, paraphrases=0.10-0.18, different tickers=0.35. Raised to 0.20.",
+        "no_normalize_before_embed": "Lowercasing before embedding degrades similarity (0.25 vs 0.10 for paraphrases). 'Apple' vs 'AAPL' diverge more when both lowercased. Embed raw text, normalize only for display/storage.",
+        "pgvector_cast_required": "Raw SQL with str(embedding) silently returns wrong distances. Must use cast(:embedding as vector) or use pgvector's ORM cosine_distance() method.",
+        "hnsw_over_ivfflat": "IVFFlat with lists=100 on an empty table is useless — needs training data. HNSW works from zero rows with better recall.",
+        "index_cleanup": "Dropped standalone ticker and expires_at indexes — composite (ticker, expires_at) covers both lookup and invalidation queries."
+      },
+      "pr": "https://github.com/vinhlee95/stonkie_backend/pull/15"
+    },
+    {
+      "id": "cache-integration",
+      "sort_order": 2,
+      "impact_level": "HIGH",
+      "state": "complete",
+      "title": "Integrate semantic cache into /analyze pipeline",
+      "completed_at": "2026-04-18",
+      "estimated_effect": "5-15s saved per request on cache hit (skips entire pipeline)",
+      "definition": "Wire SemanticCache into the analyze endpoint. On request: embed question → lookup → if hit, re-stream cached response as SSE. On miss: run full pipeline, then background-store the response for future hits.",
+      "explanation_for_agents": "Implemented: main.py analyze_financial_data() calls services/semantic_analysis_cache.SemanticAnalysisCache (no FinancialAnalyzer/ETFAnalyzer imports in the cache module). Flow: (1) Eligibility gate — cache only when ticker present, not deepAnalysis, not useUrlContext, no URL in question text. (2) lookup_hit uses asyncio.to_thread for embed+lookup against pgvector. (3) On HIT: yield conversation + append_user_message already done; append_assistant_message with full cached answer_text BEFORE streaming replay so disconnect mid-SSE does not leave an orphan user turn in Redis; stream_hit_replay emits thinking_status, VisualAnswerStreamSplitter output (answer + answer_visual_* for fenced charts), sources, cache_meta { semantic_cache_hit: true }, model_used. (4) On MISS: stream analyzer; buffer text for background SemanticCache.store via asyncio.create_task. Replay uses paced delays for natural SSE feel.",
+      "files_modified": [
+        "main.py — eligibility, SemanticAnalysisCache lookup/replay/store scheduling, conversation persistence; cache hit persists assistant before replay",
+        "services/semantic_analysis_cache.py — SemanticAnalysisCache class (lookup, stream_hit_replay, schedule_background_store)",
+        "utils/visual_stream.py — VisualAnswerStreamSplitter (replay path for rich answers)",
+        "connectors/semantic_cache.py — SemanticCache (unchanged contract; used by SemanticAnalysisCache)",
+        "tests/test_analyze_semantic_cache.py — integration tests for hit/miss/replay",
+        "tests/test_semantic_analysis_cache.py — unit test for stream_hit_replay",
+        "ANALYZE_ENDPOINT.md — endpoint documentation (companion)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["pgvector-setup"],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Cache hit re-streams SSE compatible with FE: thinking_status, answer / answer_visual_*, sources, cache_meta, model_used",
+          "Cache miss runs full FinancialAnalyzer/ETFAnalyzer pipeline; background embed+store after successful stream",
+          "Conversation store: user message + assistant message on hit (assistant persisted before replay to avoid orphan user row on disconnect)",
+          "cache_meta SSE event carries semantic_cache_hit: true (frontend uses this; model_used is the stored model name, not a boolean cached flag as originally sketched)",
+          "ETF and company paths share same cache logic (ticker-scoped)",
+          "Background store errors are logged only; never fail the user response",
+          "Semantic cache disabled for deepAnalysis, useUrlContext, or URL embedded in question"
+        ],
+        "verification": {
+          "smoke_test": "Manual + automated: pytest tests/test_analyze_semantic_cache.py; live POST with row in semantic_cache shows Serving cached answer... and cache_meta; miss stores row and subsequent near-duplicate question may hit if distance <= 0.20.",
+          "what_to_measure": "Wall-clock cold vs warm; optional: log embed+lookup latency",
+          "step_metric": {
+            "total_duration_cold_seconds": null,
+            "total_duration_cache_hit_seconds": null,
+            "seconds_saved_on_hit": null,
+            "embed_lookup_latency_ms": null,
+            "notes": "Formal A/B timings not captured in PRD metrics table; qualitative hit latency ~2–4s including embed+replay on dev"
+          }
+        }
+      },
+      "learnings": {
+        "module_boundaries": "Keep services/semantic_analysis_cache.py free of analyzer imports. main.py owns orchestration so the cache layer stays testable and does not duplicate ETF vs company behavior.",
+        "replay_not_raw_chunking": "Re-streaming used VisualAnswerStreamSplitter so fenced HTML/charts emit answer_visual_* events; naive character chunking would break the rich UI.",
+        "hit_signal": "Used dedicated cache_meta { semantic_cache_hit: true } rather than overloading model_used; clearer for clients.",
+        "threshold_vs_human_paraphrase": "Cosine distance threshold 0.20 rejects some questions that read similar to humans (e.g. shorter phrasing dropping explicit Apple context measured ~0.29 vs a stored row). Raising threshold or hybrid retrieval increases hit rate at cost of false positives — tune with telemetry (see cache-lookup-distance-telemetry phase).",
+        "conversation_integrity": "Appending assistant message before cache replay prevents Redis inconsistency if the client disconnects during SSE (Graphite review).",
+        "async_embedding": "embed + DB lookup run in thread pool from async handler to limit event-loop blocking vs pure sync embed in the request path.",
+        "prd_delta": "Original DoD mentioned model_used.cached; shipped design uses cache_meta instead."
+      },
+      "pr": "https://github.com/vinhlee95/stonkie_backend/pull/16"
+    },
+    {
+      "id": "crawl-invalidation",
+      "sort_order": 3,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Invalidate semantic cache on crawl completion",
+      "estimated_effect": "Correctness improvement — prevents stale analysis after new financial data arrives",
+      "definition": "When a crawl job persists new financial data for a ticker, delete all semantic_cache rows for that ticker so subsequent questions get fresh analysis.",
+      "explanation_for_agents": "Find where crawl tasks commit new financial data to Postgres (likely in tasks/ or connectors/). After the successful DB commit, call semantic_cache.invalidate_ticker(ticker). This deletes all cached rows for that ticker regardless of TTL tier — the tiered TTL handles time-based expiry, but crawl invalidation handles data-change-based expiry. This is a simple DELETE WHERE ticker = $1 query. Make it fire-and-forget with try/except logging — crawl should never fail because cache invalidation failed. HISTORICAL tier questions (e.g. '2023 revenue') technically don't need invalidation since historical data doesn't change, but it's simpler to invalidate everything than to filter by tier.",
+      "files_to_modify": [
+        "Crawl task completion handlers — add invalidate_ticker() call after data persist",
+        "connectors/semantic_cache.py — invalidate_ticker() already built in phase 1"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["pgvector-setup"],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "After crawl completes for AAPL, all semantic_cache rows with ticker='AAPL' are deleted",
+          "Invalidation is fire-and-forget (crawl doesn't fail if Postgres delete fails)",
+          "Logged when invalidation runs and how many rows deleted"
+        ],
+        "verification": {
+          "smoke_test": "Populate semantic cache by running /analyze for AAPL. Verify rows exist: SELECT count(*) FROM semantic_cache WHERE ticker='AAPL'. Trigger or simulate crawl completion for AAPL. Verify count is 0. Run /analyze again — full pipeline runs (cache miss).",
+          "what_to_measure": "Row count before/after invalidation, verify next request is a cache miss"
+        }
+      }
+    },
+    {
+      "id": "precomputed-snippets",
+      "sort_order": 4,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Pre-computed analysis snippets for popular tickers",
+      "estimated_effect": "Improved quality + 2-5s faster generation (LLM gets pre-analyzed data points in context, less reasoning needed)",
+      "definition": "Background job generates common financial analysis snippets for most-viewed tickers after each crawl. Snippets are injected into the analysis prompt as pre-computed context. The LLM still generates a custom response but with pre-verified calculations available.",
+      "explanation_for_agents": "This is NOT a cache — it's context enrichment. Snippets are compact summaries (< 200 tokens each) of common financial data points, pre-calculated correctly. They reduce hallucination risk for numerical data and speed up generation because the LLM can reference pre-computed figures instead of deriving them from raw financial statements. Flow: crawl completes for ticker → Celery task generates snippets → stored in Redis as precomputed:{ticker}:{snippet_type} → context builders inject them into prompt. Snippet types: (1) revenue_trend — last 4Q revenue + YoY growth rates; (2) profitability — gross/operating/net margins for last 4Q; (3) balance_sheet — debt-to-equity, current ratio, cash position. Generation: run standardized queries through the financial data connectors (NOT through LLM — pure computation from DB data). Most-viewed tickers available via existing endpoint. TTL = until next crawl (Redis key overwritten on regeneration).",
+      "files_to_modify": [
+        "New: services/precompute.py — snippet generation from DB data (pure computation, no LLM)",
+        "New: tasks/precompute_snippets.py — Celery task triggered after crawl",
+        "services/question_analyzer/context_builders/ — inject snippets into prompt when available",
+        "connectors/cache.py — get/set for precomputed:{ticker}:{type} Redis keys"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["crawl-invalidation"],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Snippets generated from DB data, no LLM calls (pure computation)",
+          "3 snippet types: revenue_trend, profitability, balance_sheet",
+          "Each snippet < 200 tokens",
+          "Injected into context builder as 'Pre-computed data points' section",
+          "Missing snippets are graceful — analysis works fine without them",
+          "Generated for top 10 most-viewed tickers after each crawl"
+        ],
+        "verification": {
+          "smoke_test": "Trigger snippet generation for AAPL. Verify Redis keys exist. Run /analyze with AAPL revenue question. Check Langfuse to confirm snippets in prompt. Run same question without snippets (delete Redis keys). Compare: (1) generation duration with vs without, (2) numerical accuracy on 5 test questions (spot-check revenue figures, margin calculations).",
+          "what_to_measure": "Main LLM generation duration with vs without snippets. Qualitative: numerical accuracy.",
+          "step_metric": {
+            "generation_duration_without_snippets_seconds": null,
+            "generation_duration_with_snippets_seconds": null,
+            "seconds_saved": null,
+            "quality_notes": null
+          }
+        }
+      }
+    },
+    {
+      "id": "llm-ttl-classification",
+      "sort_order": 5,
+      "impact_level": "LOW",
+      "state": "not-started",
+      "title": "LLM-based TTL tier classification",
+      "estimated_effect": "Better cache expiry accuracy for ambiguous questions",
+      "definition": "Replace regex-based detect_ttl_tier() with an LLM classifier that understands temporal intent. Regex misses nuanced cases like 'before the pandemic' (HISTORICAL), 'right now' (MARKET), or 'compare last quarter to the one before' (RECENT).",
+      "explanation_for_agents": "Current detect_ttl_tier() in connectors/semantic_cache.py uses regex patterns to match year/quarter (HISTORICAL), price/market keywords (MARKET), or defaults to RECENT. This works for ~80% of questions but fails on indirect temporal references. Replace with a lightweight LLM call (gemini-2.5-flash or similar fast model) that classifies the question into one of three tiers. Key tradeoff: adds ~200ms latency + cost per cache store operation. Since TTL tier only affects cache expiry duration (not correctness), misclassification is low-impact — a wrong tier just means slightly earlier/later expiry. Implementation: (1) keep regex as fast path for obvious patterns, (2) fall back to LLM only when regex returns default RECENT and the question contains temporal language that regex can't parse. This hybrid approach limits LLM calls to ambiguous cases only.",
+      "files_to_modify": [
+        "connectors/semantic_cache.py — add LLM fallback in detect_ttl_tier()",
+        "Prompt template for TTL classification (few-shot, constrained output)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["pgvector-setup"],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Regex still handles obvious patterns without LLM call",
+          "LLM fallback only triggers for ambiguous questions",
+          "Classification accuracy > 95% on a test set of 20 temporal questions",
+          "Latency impact < 300ms on LLM fallback path"
+        ],
+        "verification": {
+          "smoke_test": "Test with ambiguous questions: 'How did Apple do before the pandemic?', 'What's happening with AAPL right now?', 'Compare last quarter to the one before'. Verify correct tier classification. Measure latency overhead.",
+          "what_to_measure": "Classification accuracy on ambiguous questions, latency of LLM fallback path",
+          "prerequisite": "Collect real usage data showing regex misclassification rates before prioritizing this phase"
+        }
+      }
+    },
+    {
+      "id": "cache-lookup-distance-telemetry",
+      "sort_order": 6,
+      "impact_level": "LOW",
+      "state": "not-started",
+      "title": "Expose semantic cache distance for hits and near-misses (debug / tuning)",
+      "estimated_effect": "Easier threshold tuning and production debugging when investigating false hits or misses",
+      "definition": "Optional follow-up: extend semantic cache lookup so callers can read the best-match cosine distance (hits and near-misses) without duplicating DB queries. Use for structured logs, cache_meta SSE field, or admin metrics — not required for core cache behavior.",
+      "explanation_for_agents": "Today SemanticCache.lookup() returns only SemanticCacheEntry | None; distance is computed internally then discarded. If product wants visibility: (1) add lookup_with_distance() or optional return_distance on lookup, (2) on cache hit emit distance in cache_meta or logs only, (3) on miss optionally log best distance when below a debug-only second threshold to spot 'almost hits'. Keep lookup() unchanged for simple callers if adding a parallel method.",
+      "files_to_modify": [
+        "connectors/semantic_cache.py — optional lookup_with_distance or extended return type",
+        "main.py — include distance in cache_meta or debug logs when cache-integration is present"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["cache-integration"],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Hit path can attach best-match distance to logs or cache_meta without second round-trip to Postgres",
+          "Near-miss logging optional and gated (log level or env flag) to avoid noise",
+          "Default lookup API remains sufficient for production if team skips telemetry"
+        ],
+        "verification": {
+          "smoke_test": "Run paraphrase pair from default_measurement_context; confirm logged or streamed distance matches manual SQL cosine distance check on semantic_cache row.",
+          "what_to_measure": "Log volume, correctness of reported distance vs pgvector query"
+        }
+      }
+    }
+  ]
+}

@@ -37,6 +37,7 @@ from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.search_decision_engine import SearchDecisionEngine
+from services.semantic_analysis_cache import SemanticAnalysisCache
 from utils.logging import setup_local_logging, setup_production_logging
 
 load_dotenv()
@@ -233,42 +234,40 @@ async def analyze_financial_data(ticker: str, request: Request):
         else:
             logger.debug(f"🔐 Using existing anonymous user ID: {anon_user_id[:8]}...")
 
-        # Generate conversation ID if not provided
+        conv_id = conversation_id or generate_conversation_id()
         if not conversation_id:
-            conversation_id = generate_conversation_id()
-            logger.info(f"💬 Generated new conversation ID: {conversation_id} (ticker: {normalized_ticker or 'none'})")
+            logger.info(f"💬 Generated new conversation ID: {conv_id} (ticker: {normalized_ticker or 'none'})")
         else:
-            logger.info(f"💬 Using existing conversation ID: {conversation_id} (ticker: {normalized_ticker or 'none'})")
+            logger.info(f"💬 Using existing conversation ID: {conv_id} (ticker: {normalized_ticker or 'none'})")
 
-        # Load conversation history (use appropriate namespace for ETF vs company)
         storage_ticker = normalized_ticker or "none"
         if is_etf and normalized_ticker:
             storage_ticker = f"etf_{normalized_ticker}"
 
-        conversation_messages = get_conversation_history_for_prompt(anon_user_id, storage_ticker, conversation_id)
+        conversation_messages = get_conversation_history_for_prompt(anon_user_id, storage_ticker, conv_id)
         if conversation_messages:
             num_pairs = len(conversation_messages) // 2
             logger.info(
                 f"📚 Retrieved {num_pairs} Q/A pair(s) from conversation history "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conversation_id[:8]}...)"
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conv_id[:8]}...)"
             )
         else:
             logger.info(
                 f"📚 No conversation history found (new conversation) "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conversation_id[:8]}...)"
+                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conv_id[:8]}...)"
             )
-
-        # Append user message to conversation before generation
-        append_user_message(anon_user_id, storage_ticker, conversation_id, question)
-        logger.debug(f"💾 Stored user message in conversation {conversation_id[:8]}...")
 
         async def generate_analysis():
             try:
-                yield json.dumps({"type": "conversation", "body": {"conversationId": conversation_id}}) + "\n\n"
+                append_user_message(anon_user_id, storage_ticker, conv_id, question)
+                logger.debug(f"💾 Stored user message in conversation {conv_id[:8]}...")
+                yield json.dumps({"type": "conversation", "body": {"conversationId": conv_id}}) + "\n\n"
 
-                assistant_output_buffer = []
+                assistant_output_buffer: list[str] = []
+                last_sources_payload: dict | list | None = None
+                last_model_used: str | None = None
 
-                def append_assistant_output(event: dict):
+                def append_assistant_output(event: dict) -> None:
                     event_type = event.get("type")
                     body = event.get("body", "")
 
@@ -283,6 +282,45 @@ async def analyze_financial_data(ticker: str, request: Request):
                             assistant_output_buffer.append(f"```{lang}\n{content}```")
                         return
 
+                def track_stream_meta(event: dict) -> None:
+                    nonlocal last_sources_payload, last_model_used
+                    et = event.get("type")
+                    body = event.get("body")
+                    if et == "sources" and isinstance(body, (dict, list)):
+                        last_sources_payload = body
+                    elif et == "sources_grouped" and isinstance(body, dict):
+                        last_sources_payload = body
+                    elif et == "model_used" and isinstance(body, str):
+                        last_model_used = body
+
+                cache_ticker = normalized_ticker.strip().upper() if normalized_ticker else ""
+                use_semantic_cache = SemanticAnalysisCache.use_semantic_cache_enabled(
+                    cache_ticker,
+                    deep_analysis=deep_analysis,
+                    use_url_context=use_url_context,
+                    question=question,
+                )
+
+                cached_entry = None
+                if use_semantic_cache:
+                    cached_entry = await SemanticAnalysisCache.lookup_hit(cache_ticker, question)
+
+                if cached_entry is not None:
+                    # Persist assistant reply before streaming so a mid-stream disconnect does not
+                    # leave user message without a matching assistant turn in conversation store.
+                    answer_text = cached_entry.answer_text or ""
+                    if answer_text.strip():
+                        append_assistant_message(anon_user_id, storage_ticker, conv_id, answer_text)
+                        logger.debug(
+                            f"💾 Stored cached assistant response in conversation {conv_id[:8]}... "
+                            f"({len(answer_text)} chars)"
+                        )
+                    async for event in SemanticAnalysisCache.stream_hit_replay(request, cached_entry):
+                        if await request.is_disconnected():
+                            return
+                        yield json.dumps(event) + "\n\n"
+                    return
+
                 analyzer = etf_analyzer if is_etf else financial_analyzer
                 analyzer_generator = analyzer.analyze_question(
                     normalized_ticker or ticker,
@@ -291,7 +329,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                     deep_analysis=deep_analysis,
                     preferred_model=preferred_model,
                     conversation_messages=conversation_messages,
-                    conversation_id=conversation_id,
+                    conversation_id=conv_id,
                     anon_user_id=anon_user_id,
                 )
 
@@ -300,14 +338,23 @@ async def analyze_financial_data(ticker: str, request: Request):
                         return
 
                     append_assistant_output(chunk)
+                    track_stream_meta(chunk)
                     yield json.dumps(chunk) + "\n\n"
 
                 if assistant_output_buffer:
                     assistant_full_text = "".join(assistant_output_buffer)
-                    append_assistant_message(anon_user_id, storage_ticker, conversation_id, assistant_full_text)
+                    append_assistant_message(anon_user_id, storage_ticker, conv_id, assistant_full_text)
                     logger.debug(
-                        f"💾 Stored assistant response in conversation {conversation_id[:8]}... "
+                        f"💾 Stored assistant response in conversation {conv_id[:8]}... "
                         f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
+                    )
+                    SemanticAnalysisCache.schedule_background_store(
+                        use_semantic_cache=use_semantic_cache,
+                        cache_ticker=cache_ticker,
+                        question=question,
+                        assistant_full_text=assistant_full_text,
+                        last_sources_payload=last_sources_payload,
+                        last_model_used=last_model_used,
                     )
 
             except asyncio.CancelledError:
