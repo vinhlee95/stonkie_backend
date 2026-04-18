@@ -19,3 +19,4 @@ celery==5.4.0
 redis==5.0.1
 langfuse==3.10.5
 yfinance==1.2.0
+pgvector==0.3.6
