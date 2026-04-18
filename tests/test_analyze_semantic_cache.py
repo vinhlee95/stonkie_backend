@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main as main_module
+import services.semantic_analysis_cache as sac_module
 
 
 @pytest.fixture
@@ -38,7 +39,7 @@ def test_semantic_cache_hit_skips_analyzer(client):
         patch.object(main_module, "append_user_message"),
         patch.object(main_module, "append_assistant_message") as append_asst,
         patch.object(main_module, "get_conversation_history_for_prompt", return_value=[]),
-        patch.object(main_module, "SemanticCache") as mock_sc,
+        patch.object(sac_module, "SemanticCache") as mock_sc,
         patch.object(main_module.financial_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
         patch.object(main_module.etf_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
         patch.object(main_module, "get_etf_by_ticker", return_value=None),
@@ -84,7 +85,7 @@ def test_semantic_cache_hit_emits_answer_visual_for_fenced_html(client):
         patch.object(main_module, "append_user_message"),
         patch.object(main_module, "append_assistant_message"),
         patch.object(main_module, "get_conversation_history_for_prompt", return_value=[]),
-        patch.object(main_module, "SemanticCache") as mock_sc,
+        patch.object(sac_module, "SemanticCache") as mock_sc,
         patch.object(main_module.financial_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
         patch.object(main_module.etf_analyzer, "analyze_question", side_effect=analyzer_should_not_run),
         patch.object(main_module, "get_etf_by_ticker", return_value=None),
@@ -123,10 +124,10 @@ def test_semantic_cache_miss_runs_analyzer_and_schedules_store(client):
         patch.object(main_module, "append_user_message"),
         patch.object(main_module, "append_assistant_message"),
         patch.object(main_module, "get_conversation_history_for_prompt", return_value=[]),
-        patch.object(main_module, "SemanticCache") as mock_sc,
+        patch.object(sac_module, "SemanticCache") as mock_sc,
         patch.object(main_module.financial_analyzer, "analyze_question", side_effect=fake_analyze),
         patch.object(main_module, "get_etf_by_ticker", return_value=None),
-        patch("main.asyncio.create_task", side_effect=capture_task),
+        patch("services.semantic_analysis_cache.asyncio.create_task", side_effect=capture_task),
     ):
         inst = MagicMock()
         inst.embed.return_value = [0.02] * 1536
@@ -160,10 +161,10 @@ def test_semantic_cache_disabled_when_url_in_question(client):
         patch.object(main_module, "append_user_message"),
         patch.object(main_module, "append_assistant_message"),
         patch.object(main_module, "get_conversation_history_for_prompt", return_value=[]),
-        patch.object(main_module, "SemanticCache") as mock_sc,
+        patch.object(sac_module, "SemanticCache") as mock_sc,
         patch.object(main_module.financial_analyzer, "analyze_question", side_effect=fake_analyze),
         patch.object(main_module, "get_etf_by_ticker", return_value=None),
-        patch("main.asyncio.create_task") as create_task,
+        patch("services.semantic_analysis_cache.asyncio.create_task") as create_task,
     ):
         with client.stream(
             "POST",
