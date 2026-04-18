@@ -306,10 +306,8 @@ async def analyze_financial_data(ticker: str, request: Request):
                     cached_entry = await SemanticAnalysisCache.lookup_hit(cache_ticker, question)
 
                 if cached_entry is not None:
-                    async for event in SemanticAnalysisCache.stream_hit_replay(request, cached_entry):
-                        if await request.is_disconnected():
-                            return
-                        yield json.dumps(event) + "\n\n"
+                    # Persist assistant reply before streaming so a mid-stream disconnect does not
+                    # leave user message without a matching assistant turn in conversation store.
                     answer_text = cached_entry.answer_text or ""
                     if answer_text.strip():
                         append_assistant_message(anon_user_id, storage_ticker, conv_id, answer_text)
@@ -317,6 +315,10 @@ async def analyze_financial_data(ticker: str, request: Request):
                             f"💾 Stored cached assistant response in conversation {conv_id[:8]}... "
                             f"({len(answer_text)} chars)"
                         )
+                    async for event in SemanticAnalysisCache.stream_hit_replay(request, cached_entry):
+                        if await request.is_disconnected():
+                            return
+                        yield json.dumps(event) + "\n\n"
                     return
 
                 analyzer = etf_analyzer if is_etf else financial_analyzer
