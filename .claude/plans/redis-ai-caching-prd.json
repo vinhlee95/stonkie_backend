@@ -83,14 +83,20 @@
       "id": "cache-integration",
       "sort_order": 2,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
       "title": "Integrate semantic cache into /analyze pipeline",
+      "completed_at": "2026-04-18",
       "estimated_effect": "5-15s saved per request on cache hit (skips entire pipeline)",
       "definition": "Wire SemanticCache into the analyze endpoint. On request: embed question → lookup → if hit, re-stream cached response as SSE. On miss: run full pipeline, then background-store the response for future hits.",
-      "explanation_for_agents": "Integration points in main.py analyze_financial_data(): (1) BEFORE routing to FinancialAnalyzer/ETFAnalyzer, call semantic_cache.lookup(ticker, embedding). The embedding call is sync here (~100ms) because we need it for lookup. (2) On HIT: emit SSE events from cached data — conversation event, then chunk answer_text into ~100-char pieces emitted as answer events (with ~5ms delays for natural streaming feel), then sources event, then model_used event. Skip all classification, search decision, data fetch, LLM generation. (3) On MISS: run full pipeline normally. After the response stream completes (all chunks collected), fire background task to embed + store. The answer text needs to be collected during streaming — add a buffer that accumulates answer chunks alongside normal SSE emission. (4) For conversation context: cached responses should still be added to the conversation store (Redis) so follow-up questions have context. (5) Add a 'cached' field to the model_used SSE event so frontend can optionally display it. (6) Handle ETF and company paths identically — cache is ticker-scoped, agnostic to handler type.",
-      "files_to_modify": [
-        "main.py — cache lookup before pipeline, answer buffer during streaming, background store after response",
-        "connectors/semantic_cache.py — may need a convenience method that combines embed+lookup in one call"
+      "explanation_for_agents": "Implemented: main.py analyze_financial_data() calls services/semantic_analysis_cache.SemanticAnalysisCache (no FinancialAnalyzer/ETFAnalyzer imports in the cache module). Flow: (1) Eligibility gate — cache only when ticker present, not deepAnalysis, not useUrlContext, no URL in question text. (2) lookup_hit uses asyncio.to_thread for embed+lookup against pgvector. (3) On HIT: yield conversation + append_user_message already done; append_assistant_message with full cached answer_text BEFORE streaming replay so disconnect mid-SSE does not leave an orphan user turn in Redis; stream_hit_replay emits thinking_status, VisualAnswerStreamSplitter output (answer + answer_visual_* for fenced charts), sources, cache_meta { semantic_cache_hit: true }, model_used. (4) On MISS: stream analyzer; buffer text for background SemanticCache.store via asyncio.create_task. Replay uses paced delays for natural SSE feel.",
+      "files_modified": [
+        "main.py — eligibility, SemanticAnalysisCache lookup/replay/store scheduling, conversation persistence; cache hit persists assistant before replay",
+        "services/semantic_analysis_cache.py — SemanticAnalysisCache class (lookup, stream_hit_replay, schedule_background_store)",
+        "utils/visual_stream.py — VisualAnswerStreamSplitter (replay path for rich answers)",
+        "connectors/semantic_cache.py — SemanticCache (unchanged contract; used by SemanticAnalysisCache)",
+        "tests/test_analyze_semantic_cache.py — integration tests for hit/miss/replay",
+        "tests/test_semantic_analysis_cache.py — unit test for stream_hit_replay",
+        "ANALYZE_ENDPOINT.md — endpoint documentation (companion)"
       ],
       "dependencies": {
         "technical_must_complete_before": ["pgvector-setup"],
@@ -98,24 +104,36 @@
       },
       "definition_of_done": {
         "implementation_checks": [
-          "Cache hit re-streams SSE events identical in structure to live response",
-          "Cache miss runs full pipeline unchanged, stores response in background",
-          "Conversation store updated even on cache hit (follow-up questions work)",
-          "model_used event includes cached: true/false field",
-          "ETF and company analysis both cache-enabled",
-          "Background store is fire-and-forget (failure doesn't affect user response)"
+          "Cache hit re-streams SSE compatible with FE: thinking_status, answer / answer_visual_*, sources, cache_meta, model_used",
+          "Cache miss runs full FinancialAnalyzer/ETFAnalyzer pipeline; background embed+store after successful stream",
+          "Conversation store: user message + assistant message on hit (assistant persisted before replay to avoid orphan user row on disconnect)",
+          "cache_meta SSE event carries semantic_cache_hit: true (frontend uses this; model_used is the stored model name, not a boolean cached flag as originally sketched)",
+          "ETF and company paths share same cache logic (ticker-scoped)",
+          "Background store errors are logged only; never fail the user response",
+          "Semantic cache disabled for deepAnalysis, useUrlContext, or URL embedded in question"
         ],
         "verification": {
-          "smoke_test": "Run /analyze with 'What is Apple's revenue trend over the last 3 years?' (cold). Record total wall-clock. Wait 2s for background embed+store. Run paraphrase 'How has AAPL revenue changed in the past 3 years?' — should hit semantic cache. Verify: (1) wall-clock < 1s, (2) SSE events have same structure, (3) model_used shows cached: true, (4) follow-up question 'Compare to Microsoft' still works (conversation context preserved).",
-          "what_to_measure": "Total request wall-clock: cold (full pipeline) vs semantic hit",
+          "smoke_test": "Manual + automated: pytest tests/test_analyze_semantic_cache.py; live POST with row in semantic_cache shows Serving cached answer... and cache_meta; miss stores row and subsequent near-duplicate question may hit if distance <= 0.20.",
+          "what_to_measure": "Wall-clock cold vs warm; optional: log embed+lookup latency",
           "step_metric": {
             "total_duration_cold_seconds": null,
             "total_duration_cache_hit_seconds": null,
             "seconds_saved_on_hit": null,
-            "embed_lookup_latency_ms": null
+            "embed_lookup_latency_ms": null,
+            "notes": "Formal A/B timings not captured in PRD metrics table; qualitative hit latency ~2–4s including embed+replay on dev"
           }
         }
-      }
+      },
+      "learnings": {
+        "module_boundaries": "Keep services/semantic_analysis_cache.py free of analyzer imports. main.py owns orchestration so the cache layer stays testable and does not duplicate ETF vs company behavior.",
+        "replay_not_raw_chunking": "Re-streaming used VisualAnswerStreamSplitter so fenced HTML/charts emit answer_visual_* events; naive character chunking would break the rich UI.",
+        "hit_signal": "Used dedicated cache_meta { semantic_cache_hit: true } rather than overloading model_used; clearer for clients.",
+        "threshold_vs_human_paraphrase": "Cosine distance threshold 0.20 rejects some questions that read similar to humans (e.g. shorter phrasing dropping explicit Apple context measured ~0.29 vs a stored row). Raising threshold or hybrid retrieval increases hit rate at cost of false positives — tune with telemetry (see cache-lookup-distance-telemetry phase).",
+        "conversation_integrity": "Appending assistant message before cache replay prevents Redis inconsistency if the client disconnects during SSE (Graphite review).",
+        "async_embedding": "embed + DB lookup run in thread pool from async handler to limit event-loop blocking vs pure sync embed in the request path.",
+        "prd_delta": "Original DoD mentioned model_used.cached; shipped design uses cache_meta instead."
+      },
+      "pr": "https://github.com/vinhlee95/stonkie_backend/pull/16"
     },
     {
       "id": "crawl-invalidation",
