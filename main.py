@@ -60,6 +60,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+# Cache-hit replay: brief pauses between SSE events so the stream feels naturally fast vs instant dump.
+_CACHE_REPLAY_PACE_DEFAULT_SEC = 0.01
+_CACHE_REPLAY_PACE_VISUAL_DELTA_SEC = 0.004
+
 # Shared search decision engine
 search_decision_engine = SearchDecisionEngine()
 
@@ -316,6 +320,15 @@ async def analyze_financial_data(ticker: str, request: Request):
                         cached_entry = None
 
                 if cached_entry is not None:
+
+                    async def _pace_after_cache_event(ev: dict) -> None:
+                        delay = (
+                            _CACHE_REPLAY_PACE_VISUAL_DELTA_SEC
+                            if ev.get("type") == "answer_visual_delta"
+                            else _CACHE_REPLAY_PACE_DEFAULT_SEC
+                        )
+                        await asyncio.sleep(delay)
+
                     yield (
                         json.dumps(
                             thinking_status(
@@ -327,6 +340,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                         )
                         + "\n\n"
                     )
+                    await asyncio.sleep(_CACHE_REPLAY_PACE_DEFAULT_SEC)
                     # Match live pipeline: split ```html``` / ```svg``` into answer_visual_* events
                     # so the frontend renders charts/iframes instead of raw markup in plain answer chunks.
                     answer_text = cached_entry.answer_text or ""
@@ -335,10 +349,12 @@ async def analyze_financial_data(ticker: str, request: Request):
                         if await request.is_disconnected():
                             return
                         yield json.dumps(visual_event) + "\n\n"
+                        await _pace_after_cache_event(visual_event)
                     for visual_event in visual_splitter.finalize():
                         if await request.is_disconnected():
                             return
                         yield json.dumps(visual_event) + "\n\n"
+                        await _pace_after_cache_event(visual_event)
 
                     raw_sources = cached_entry.sources
                     sources_out = None
@@ -350,8 +366,10 @@ async def analyze_financial_data(ticker: str, request: Request):
                         sources_out = raw_sources
                     if sources_out:
                         yield json.dumps({"type": "sources", "body": sources_out}) + "\n\n"
+                        await asyncio.sleep(_CACHE_REPLAY_PACE_DEFAULT_SEC)
 
                     yield json.dumps({"type": "cache_meta", "body": {"semantic_cache_hit": True}}) + "\n\n"
+                    await asyncio.sleep(_CACHE_REPLAY_PACE_DEFAULT_SEC)
                     model_name = cached_entry.model_used or "unknown"
                     yield json.dumps({"type": "model_used", "body": model_name}) + "\n\n"
 
