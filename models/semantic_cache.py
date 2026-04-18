@@ -16,5 +16,6 @@ class SemanticCacheEntry(Base):
     answer_text = Column(Text, nullable=False)
     sources = Column(JSONB)
     model_used = Column(String)
+    ttl_tier = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

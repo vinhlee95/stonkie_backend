@@ -89,6 +89,7 @@ class SemanticCache:
             answer_text=answer,
             sources=sources,
             model_used=model_used,
+            ttl_tier=tier,
             expires_at=expires_at,
         )
 

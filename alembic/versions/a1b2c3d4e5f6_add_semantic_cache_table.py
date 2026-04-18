@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("answer_text", sa.Text(), nullable=False),
         sa.Column("sources", JSONB(), nullable=True),
         sa.Column("model_used", sa.String(), nullable=True),
+        sa.Column("ttl_tier", sa.String(), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
