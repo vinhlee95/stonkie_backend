@@ -18,8 +18,10 @@ from connectors.conversation_store import (
     generate_conversation_id,
     get_conversation_history_for_prompt,
 )
+from connectors.semantic_cache import SemanticCache
 from core.financial_statement_type import FinancialStatementType
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
+from services.analysis_progress import AnalysisPhase, thinking_status
 from services.company import (
     PeriodType,
     get_all_companies,
@@ -38,6 +40,7 @@ from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
 from services.search_decision_engine import SearchDecisionEngine
 from utils.logging import setup_local_logging, setup_production_logging
+from utils.url_helper import extract_first_url
 
 load_dotenv()
 
@@ -55,6 +58,9 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+_SEMANTIC_CACHE_ANSWER_CHUNK_CHARS = 100
+_SEMANTIC_CACHE_CHUNK_DELAY_SEC = 0.005
 
 # Shared search decision engine
 search_decision_engine = SearchDecisionEngine()
@@ -262,11 +268,18 @@ async def analyze_financial_data(ticker: str, request: Request):
         append_user_message(anon_user_id, storage_ticker, conversation_id, question)
         logger.debug(f"💾 Stored user message in conversation {conversation_id[:8]}...")
 
+        cache_ticker = normalized_ticker.strip().upper() if normalized_ticker else ""
+        use_semantic_cache = (
+            bool(cache_ticker) and not deep_analysis and not use_url_context and extract_first_url(question) is None
+        )
+
         async def generate_analysis():
             try:
                 yield json.dumps({"type": "conversation", "body": {"conversationId": conversation_id}}) + "\n\n"
 
-                assistant_output_buffer = []
+                assistant_output_buffer: list[str] = []
+                last_sources_payload: dict | list | None = None
+                last_model_used: str | None = None
 
                 def append_assistant_output(event: dict):
                     event_type = event.get("type")
@@ -282,6 +295,71 @@ async def analyze_financial_data(ticker: str, request: Request):
                         if isinstance(lang, str) and isinstance(content, str):
                             assistant_output_buffer.append(f"```{lang}\n{content}```")
                         return
+
+                def track_stream_meta(event: dict) -> None:
+                    nonlocal last_sources_payload, last_model_used
+                    et = event.get("type")
+                    body = event.get("body")
+                    if et == "sources" and isinstance(body, (dict, list)):
+                        last_sources_payload = body
+                    elif et == "sources_grouped" and isinstance(body, dict):
+                        last_sources_payload = body
+                    elif et == "model_used" and isinstance(body, str):
+                        last_model_used = body
+
+                cached_entry = None
+                if use_semantic_cache:
+                    try:
+                        sc = SemanticCache()
+                        embedding = await asyncio.to_thread(sc.embed, question)
+                        cached_entry = await asyncio.to_thread(sc.lookup, cache_ticker, embedding)
+                    except Exception:
+                        logger.exception("Semantic cache lookup failed; continuing with live pipeline")
+                        cached_entry = None
+
+                if cached_entry is not None:
+                    yield (
+                        json.dumps(
+                            thinking_status(
+                                "Serving cached answer...",
+                                phase=AnalysisPhase.ANALYZE,
+                                step=1,
+                                total_steps=1,
+                            )
+                        )
+                        + "\n\n"
+                    )
+                    answer_text = cached_entry.answer_text or ""
+                    for i in range(0, len(answer_text), _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS):
+                        if await request.is_disconnected():
+                            return
+                        piece = answer_text[i : i + _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS]
+                        yield json.dumps({"type": "answer", "body": piece}) + "\n\n"
+                        if i + _SEMANTIC_CACHE_ANSWER_CHUNK_CHARS < len(answer_text):
+                            await asyncio.sleep(_SEMANTIC_CACHE_CHUNK_DELAY_SEC)
+
+                    raw_sources = cached_entry.sources
+                    sources_out = None
+                    if isinstance(raw_sources, dict) and isinstance(raw_sources.get("sources"), list):
+                        sources_out = raw_sources["sources"] or None
+                    elif isinstance(raw_sources, list) and raw_sources:
+                        sources_out = raw_sources
+                    elif isinstance(raw_sources, dict):
+                        sources_out = raw_sources
+                    if sources_out:
+                        yield json.dumps({"type": "sources", "body": sources_out}) + "\n\n"
+
+                    yield json.dumps({"type": "cache_meta", "body": {"semantic_cache_hit": True}}) + "\n\n"
+                    model_name = cached_entry.model_used or "unknown"
+                    yield json.dumps({"type": "model_used", "body": model_name}) + "\n\n"
+
+                    if answer_text.strip():
+                        append_assistant_message(anon_user_id, storage_ticker, conversation_id, answer_text)
+                        logger.debug(
+                            f"💾 Stored cached assistant response in conversation {conversation_id[:8]}... "
+                            f"({len(answer_text)} chars)"
+                        )
+                    return
 
                 analyzer = etf_analyzer if is_etf else financial_analyzer
                 analyzer_generator = analyzer.analyze_question(
@@ -300,6 +378,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                         return
 
                     append_assistant_output(chunk)
+                    track_stream_meta(chunk)
                     yield json.dumps(chunk) + "\n\n"
 
                 if assistant_output_buffer:
@@ -309,6 +388,28 @@ async def analyze_financial_data(ticker: str, request: Request):
                         f"💾 Stored assistant response in conversation {conversation_id[:8]}... "
                         f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
                     )
+                    if use_semantic_cache and assistant_full_text.strip():
+
+                        async def _store_semantic_cache_background() -> None:
+                            try:
+
+                                def _do_store() -> None:
+                                    sc2 = SemanticCache()
+                                    emb2 = sc2.embed(question)
+                                    sc2.store(
+                                        cache_ticker,
+                                        question,
+                                        assistant_full_text,
+                                        last_sources_payload,
+                                        last_model_used or "unknown",
+                                        emb2,
+                                    )
+
+                                await asyncio.to_thread(_do_store)
+                            except Exception:
+                                logger.exception("Semantic cache background store failed")
+
+                        asyncio.create_task(_store_semantic_cache_background())
 
             except asyncio.CancelledError:
                 logger.info("Client cancelled request to analyze financial data", {"ticker": ticker})
