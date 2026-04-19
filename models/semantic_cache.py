@@ -15,6 +15,7 @@ class SemanticCacheEntry(Base):
     question_embedding = Column(Vector(1536), nullable=False)
     answer_text = Column(Text, nullable=False)
     sources = Column(JSONB)
+    related_questions = Column(JSONB)  # list[str] of follow-up questions, nullable for legacy rows
     model_used = Column(String)
     ttl_tier = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

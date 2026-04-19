@@ -30,6 +30,7 @@ def test_semantic_cache_hit_skips_analyzer(client):
     entry.answer_text = "short reply"
     entry.sources = [{"name": "SEC", "url": "https://example.com"}]
     entry.model_used = "google/gemini-flash"
+    entry.related_questions = ["Follow-up one?", "Follow-up two?", "Follow-up three?"]
 
     async def analyzer_should_not_run(*_a, **_kw):
         raise AssertionError("analyzer should not run on cache hit")
@@ -67,6 +68,7 @@ def test_semantic_cache_hit_skips_analyzer(client):
     meta = events[types.index("cache_meta")]["body"]
     assert meta.get("semantic_cache_hit") is True
     assert "model_used" in types
+    assert types.count("related_question") == 3
     append_asst.assert_called_once_with(ANY, "AAPL", "conv-test-1", "short reply")
 
 
@@ -76,6 +78,7 @@ def test_semantic_cache_hit_emits_answer_visual_for_fenced_html(client):
     entry.answer_text = 'Summary line.\n\n```html\n<div id="c">ok</div>\n```\n'
     entry.sources = None
     entry.model_used = "m"
+    entry.related_questions = ["rq1?", "rq2?", "rq3?"]
 
     async def analyzer_should_not_run(*_a, **_kw):
         raise AssertionError("analyzer should not run on cache hit")
@@ -107,12 +110,16 @@ def test_semantic_cache_hit_emits_answer_visual_for_fenced_html(client):
     assert "answer_visual_start" in types
     assert "answer_visual_delta" in types
     assert "answer_visual_done" in types
+    assert types.count("related_question") == 3
 
 
 def test_semantic_cache_miss_runs_analyzer_and_schedules_store(client):
     async def fake_analyze(*_a, **_kw):
         yield {"type": "answer", "body": "live"}
         yield {"type": "model_used", "body": "m1"}
+        yield {"type": "related_question", "body": "Related margin question one?"}
+        yield {"type": "related_question", "body": "Related margin question two?"}
+        yield {"type": "related_question", "body": "Related margin question three?"}
 
     captured: list = []
 
@@ -150,6 +157,12 @@ def test_semantic_cache_miss_runs_analyzer_and_schedules_store(client):
         assert args[1] == "What is margin?"
         assert args[2] == "live"
         assert args[4] == "m1"
+        _args, kwargs = inst.store.call_args
+        assert kwargs.get("related_questions") == [
+            "Related margin question one?",
+            "Related margin question two?",
+            "Related margin question three?",
+        ]
 
 
 def test_semantic_cache_disabled_when_url_in_question(client):

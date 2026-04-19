@@ -266,6 +266,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                 assistant_output_buffer: list[str] = []
                 last_sources_payload: dict | list | None = None
                 last_model_used: str | None = None
+                last_related_questions: list[str] = []
 
                 def append_assistant_output(event: dict) -> None:
                     event_type = event.get("type")
@@ -283,7 +284,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                         return
 
                 def track_stream_meta(event: dict) -> None:
-                    nonlocal last_sources_payload, last_model_used
+                    nonlocal last_sources_payload, last_model_used, last_related_questions
                     et = event.get("type")
                     body = event.get("body")
                     if et == "sources" and isinstance(body, (dict, list)):
@@ -292,6 +293,8 @@ async def analyze_financial_data(ticker: str, request: Request):
                         last_sources_payload = body
                     elif et == "model_used" and isinstance(body, str):
                         last_model_used = body
+                    elif et == "related_question" and isinstance(body, str) and body.strip():
+                        last_related_questions.append(body.strip())
 
                 cache_ticker = normalized_ticker.strip().upper() if normalized_ticker else ""
                 use_semantic_cache = SemanticAnalysisCache.use_semantic_cache_enabled(
@@ -355,6 +358,7 @@ async def analyze_financial_data(ticker: str, request: Request):
                         assistant_full_text=assistant_full_text,
                         last_sources_payload=last_sources_payload,
                         last_model_used=last_model_used,
+                        related_questions=last_related_questions or None,
                     )
 
             except asyncio.CancelledError:
