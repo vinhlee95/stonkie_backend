@@ -78,6 +78,7 @@ class SemanticCache:
         sources: dict | list | None,
         model_used: str,
         embedding: list[float],
+        related_questions: list[str] | None = None,
     ) -> SemanticCacheEntry:
         tier = detect_ttl_tier(question)
         now = datetime.now(timezone.utc)
@@ -89,6 +90,7 @@ class SemanticCache:
             question_embedding=embedding,
             answer_text=answer,
             sources=sources,
+            related_questions=related_questions if related_questions else None,
             model_used=model_used,
             ttl_tier=tier,
             expires_at=expires_at,
