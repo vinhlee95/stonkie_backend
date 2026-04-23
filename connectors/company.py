@@ -20,6 +20,8 @@ class Company(BaseModel):
     ticker: str
     logo_url: str = ""
     sector: str = ""
+    country: str = ""
+    exchange: str = ""
 
 
 @dataclass(frozen=True)
@@ -114,9 +116,23 @@ class CompanyConnector:
                 ticker = str(getattr(item, "company_symbol", ""))
                 logo_url = item_data.get("logo_url") or self.get_company_logo_url(ticker)
                 sector = item_data.get("sector", "") or ""
+                country = item_data.get("country", "") or ""
+                exchange = item_data.get("exchange", "") or ""
                 market_cap = safe_int(item_data.get("market_cap"))
 
-                companies.append((market_cap, Company(name=name, ticker=ticker, logo_url=logo_url, sector=sector)))
+                companies.append(
+                    (
+                        market_cap,
+                        Company(
+                            name=name,
+                            ticker=ticker,
+                            logo_url=logo_url,
+                            sector=sector,
+                            country=country,
+                            exchange=exchange,
+                        ),
+                    )
+                )
             companies.sort(key=lambda c: c[0], reverse=True)
             return [company for _, company in companies]
 

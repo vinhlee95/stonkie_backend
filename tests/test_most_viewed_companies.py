@@ -44,7 +44,11 @@ def test_get_most_viewed_companies_has_required_fields():
         assert "ticker" in company
         assert "logo_url" in company
         assert "sector" in company
+        assert "country" in company
+        assert "exchange" in company
         assert isinstance(company["name"], str)
         assert isinstance(company["ticker"], str)
         assert isinstance(company["logo_url"], str)
         assert isinstance(company["sector"], str)
+        assert isinstance(company["country"], str)
+        assert isinstance(company["exchange"], str)
