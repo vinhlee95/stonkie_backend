@@ -9,6 +9,7 @@ from langfuse import observe
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 
+from .context_builders.components import ETFPromptComponents
 from .ticker_extractor import ETFTickerExtractor
 from .types import ETFDataRequirement, ETFQuestionType
 
@@ -54,7 +55,9 @@ class ETFQuestionClassifier:
         # Normalize ticker for single-ETF classification
         has_ticker = ticker and ticker.strip() and ticker.upper() not in ["UNDEFINED", "NULL", "NONE"]
 
-        prompt = f"""Classify this ETF question into a category and data requirement level.
+        prompt = f"""{ETFPromptComponents.current_date()}
+
+Classify this ETF question into a category and data requirement level.
 
 Question: "{question}"
 ETF Ticker: {ticker if has_ticker else "none (general question)"}

@@ -281,6 +281,8 @@ class BaseQuestionHandler:
         """
         try:
             prompt = f"""
+                {PromptComponents.current_date()}
+
                 Based on this original question: "{original_question}"
 
                 Generate exactly 3 high-quality follow-up questions that a curious investor might naturally ask next.

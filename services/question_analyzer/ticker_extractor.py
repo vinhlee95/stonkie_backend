@@ -10,6 +10,8 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 
+from .context_builders.components import PromptComponents
+
 logger = logging.getLogger(__name__)
 
 # Common English words that are also valid tickers — exclude from regex extraction
@@ -95,7 +97,9 @@ class StockTickerExtractor:
 
         Handles: "this stock", "this company", "this one", "it" → current ticker
         """
-        prompt = f"""You are helping resolve contextual references in stock comparison questions.
+        prompt = f"""{PromptComponents.current_date()}
+
+You are helping resolve contextual references in stock comparison questions.
 
 Current context: User is viewing stock ticker "{current_ticker}"
 
@@ -214,7 +218,9 @@ Return ONLY the rewritten question, no explanation."""
         - "How does Nvidia compare to AMD?"
         - Mixed: "Compare AAPL to Microsoft"
         """
-        prompt = f"""Extract stock ticker symbols from this comparison question.
+        prompt = f"""{PromptComponents.current_date()}
+
+Extract stock ticker symbols from this comparison question.
 
 Question: "{question}"
 

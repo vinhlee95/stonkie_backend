@@ -15,8 +15,17 @@ class ETFPromptComponents:
         formatted = today.strftime("%B %d, %Y")
         current_year = today.year
         prior_year = current_year - 1
+        current_quarter_num = (today.month - 1) // 3 + 1
+        current_quarter = f"{current_year}-Q{current_quarter_num}"
+        if current_quarter_num == 1:
+            last_completed_quarter = f"{prior_year}-Q4"
+        else:
+            last_completed_quarter = f"{current_year}-Q{current_quarter_num - 1}"
         return (
             f"Today's date is {formatted}. Current year is {current_year}. "
+            f"Current (in-progress) quarter is {current_quarter}; most recently completed reporting quarter is approximately {last_completed_quarter}. "
+            f'When the user uses temporal words like "recently", "lately", "latest", "most recent", "current", "this quarter", "last quarter" WITHOUT specifying a year or quarter, they mean the most recently completed quarter ({last_completed_quarter} or newer if available), NOT the prior full fiscal year. Prefer quarterly data at the latest available period. '
+            f'When the user says "this year" or "year to date", they mean {current_year}, not {prior_year}. '
             f"Unless the user explicitly asks for historical periods, only use data from {current_year} or {prior_year}. "
             "If fresh numeric ETF data cannot be verified, provide a qualitative best-effort answer and state the limitation."
         )

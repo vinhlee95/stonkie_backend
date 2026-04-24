@@ -95,7 +95,9 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
             conversation_context = format_conversation_context(
                 conversation_messages, ticker or "the company", company_name
             )
-            prompt = f"""Based on our previous conversation, answer this follow-up question:
+            prompt = f"""{PromptComponents.current_date()}
+
+Based on our previous conversation, answer this follow-up question:
 
 {conversation_context}
 
@@ -212,7 +214,9 @@ Provide a helpful, general answer that builds on what we discussed before. If th
             conversation_context = format_conversation_context(
                 conversation_messages, ticker or "the company", company_name
             )
-            prompt = f"""Based on our previous conversation, answer this follow-up question:
+            prompt = f"""{PromptComponents.current_date()}
+
+Based on our previous conversation, answer this follow-up question:
 
 {conversation_context}
 

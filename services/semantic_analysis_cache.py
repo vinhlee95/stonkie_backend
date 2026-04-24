@@ -14,6 +14,7 @@ from ai_models.openrouter_client import get_openrouter_model_name
 from connectors.semantic_cache import SemanticCache
 from models.semantic_cache import SemanticCacheEntry
 from services.analysis_progress import AnalysisPhase, thinking_status
+from services.question_analyzer.context_builders.components import PromptComponents
 from utils.url_helper import extract_first_url
 from utils.visual_stream import VisualAnswerStreamSplitter
 
@@ -26,6 +27,8 @@ _CACHE_REPLAY_PACE_VISUAL_DELTA_SEC = 0.004
 def _legacy_related_prompt(original_question: str) -> str:
     """Same shape as BaseQuestionHandler._generate_related_questions for non-ETF flows."""
     return f"""
+                {PromptComponents.current_date()}
+
                 Based on this original question: "{original_question}"
 
                 Generate exactly 3 high-quality follow-up questions that a curious investor might naturally ask next.

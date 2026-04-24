@@ -218,6 +218,8 @@ class CompanyComparisonHandler:
             num_questions = 2 if short_analysis else 3
 
             prompt = f"""
+                {PromptComponents.current_date()}
+
                 Based on this stock comparison question: "{original_question}"
 
                 Generate exactly {num_questions} high-quality follow-up questions for comparing stocks.

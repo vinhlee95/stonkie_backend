@@ -14,6 +14,7 @@ from connectors.etf_fundamental import ETFFundamentalConnector
 from services.analysis_progress import AnalysisPhase, thinking_status
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
+from .context_builders.components import ETFPromptComponents
 
 logger = logging.getLogger(__name__)
 langfuse = get_client()
@@ -201,6 +202,8 @@ class ETFComparisonHandler:
             num_questions = 2 if short_analysis else 3
 
             prompt = f"""
+                {ETFPromptComponents.current_date()}
+
                 Based on this ETF comparison question: "{original_question}"
 
                 Generate exactly {num_questions} high-quality follow-up questions for comparing ETFs.

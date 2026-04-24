@@ -12,6 +12,7 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from core.financial_statement_type import FinancialStatementType
 
+from .context_builders.components import PromptComponents
 from .ticker_extractor import StockTickerExtractor
 from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 
@@ -125,7 +126,9 @@ class QuestionClassifier:
         if not has_ticker:
             ticker_context_note = "\n\nNOTE: No valid ticker provided (ticker is empty/undefined). Do NOT force company-specific-finance classification. If the question is about general financial concepts or strategy, classify as general-finance even if it mentions 'reinvest' or similar terms."
 
-        prompt = f"""Classify the following question into one of these three categories.
+        prompt = f"""{PromptComponents.current_date()}
+
+        Classify the following question into one of these three categories.
         NOTE: The question may be in any language. Classify based on the meaning regardless of language.
 
         1. '{QuestionType.GENERAL_FINANCE.value}' - for general financial concepts, market trends, strategy questions, or questions about individuals that don't require specific company financial statements
@@ -217,7 +220,9 @@ class QuestionClassifier:
             IMPORTANT: The database does NOT contain segment breakdowns, geographic splits, product-line revenue, revenue by source/category, or any granular sub-categories. If the question asks for data that cannot be derived from the metrics listed above (e.g., "breakdown revenue sources", "revenue by segment", "how does the company make money in detail"), return data_requirement='none'.
 """
 
-        prompt = f"""Analyze this question about {ticker.upper()} and decide (a) what level of financial data is needed, (b) which financial periods are needed, and (c) which statement types are relevant.
+        prompt = f"""{PromptComponents.current_date()}
+
+            Analyze this question about {ticker.upper()} and decide (a) what level of financial data is needed, (b) which financial periods are needed, and (c) which statement types are relevant.
             NOTE: The question may be in any language. Classify based on the meaning regardless of language.
 
             Question: "{question}"
@@ -262,7 +267,8 @@ class QuestionClassifier:
             - If no specific year/quarter mentioned, use num_periods with a reasonable number (3-5)
             - Quarters should be in format "YYYY-Q#" (e.g., "2024-Q1")
             - Only fill specific_years OR specific_quarters OR num_periods, not multiple — EXCEPT when specific_quarters is ["latest"], where you must also set num_periods: 1
-            - Default to annual unless quarterly is explicitly mentioned
+            - Default to annual unless quarterly is explicitly mentioned OR the question uses temporal words (see date context at top) that mean the most recently completed quarter
+            - Temporal adjectives like "recently", "lately", "latest", "most recent", "current", "this quarter", "last quarter" WITHOUT a specific year/quarter → use {{"period_type": "quarterly", "specific_quarters": ["latest"], "num_periods": 1}}
 
             ===== Part C: relevant_statements =====
             If data_requirement is 'detailed', you MUST return a JSON array of which statement types are needed.

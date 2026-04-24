@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import get_openrouter_model_name
+from services.question_analyzer.context_builders.components import PromptComponents
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,8 @@ Financial data already available in our database for {ticker}:
 """
 
         prompt = f"""
+{PromptComponents.current_date()}
+
 You are a strict JSON classifier deciding if live web search is needed for a finance assistant answer.
 
 Question: {question}

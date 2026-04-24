@@ -7,6 +7,8 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector
 
+from .context_builders.components import ETFPromptComponents
+
 logger = logging.getLogger(__name__)
 
 # Regex pattern detecting comparison intent in a question
@@ -175,7 +177,9 @@ Return ONLY the rewritten question, no explanation."""
         Returns:
             List of validated tickers resolved from names/tickers
         """
-        prompt = f"""Extract ETF tickers or names from this question.
+        prompt = f"""{ETFPromptComponents.current_date()}
+
+Extract ETF tickers or names from this question.
 
 Question: "{question}"
 
