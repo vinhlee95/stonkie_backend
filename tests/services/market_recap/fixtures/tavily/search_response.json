@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "title": "S&P 500 wraps week higher",
+      "url": "https://www.reuters.com/markets/us/sp500-wraps-week-higher",
+      "content": "US equities ended the week higher on Friday.",
+      "published_date": "2026-04-24T20:30:00Z",
+      "raw_content": "Long-form Reuters content",
+      "score": 0.91
+    },
+    {
+      "title": "Another market recap",
+      "url": "https://www.cnbc.com/2026/04/24/market-recap.html",
+      "content": "Another summary",
+      "published_date": "2026-04-24T21:00:00Z",
+      "score": 0.74
+    }
+  ]
+}

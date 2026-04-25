@@ -1,12 +1,12 @@
-"""Manual smoke test for Tavily /search — not a pytest.
+"""Manual smoke test for TavilyClient — not a pytest.
 
 Usage:
     source venv/bin/activate
     PYTHONPATH=. python scripts/test_tavily_search.py
     PYTHONPATH=. python scripts/test_tavily_search.py --query "Fed rate decision"
 
-TAVILY_API_KEY is loaded from .env. Full JSON response is always written to
-scripts/tavily_response.json (or the path passed via --out) for inspection.
+TAVILY_API_KEY is loaded from .env. Normalized candidate JSON is always written
+to scripts/tavily_response.json (or the path passed via --out) for inspection.
 """
 
 from __future__ import annotations
@@ -18,10 +18,9 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 
-TAVILY_URL = "https://api.tavily.com/search"
+from services.market_recap.tavily_client import TavilyClient
 
 DEFAULT_ALLOWLIST = [
     "reuters.com",
@@ -42,34 +41,24 @@ def prior_business_week() -> tuple[date, date]:
     return last_monday, last_friday
 
 
-def run(query: str, start: date, end: date, allowlist: list[str] | None) -> dict:
+def run(query: str, start: date, end: date, allowlist: list[str] | None) -> list[dict]:
     load_dotenv()
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
         sys.exit("TAVILY_API_KEY not set (looked in env and .env)")
 
-    payload = {
-        "api_key": api_key,
-        "query": query,
-        "topic": "news",
-        "search_depth": "advanced",
-        "max_results": 10,
-        "include_answer": False,
-        "include_raw_content": True,
-        "start_date": start.isoformat(),
-        "end_date": end.isoformat(),
-    }
-    if allowlist:
-        payload["include_domains"] = allowlist
-
-    resp = requests.post(TAVILY_URL, json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    client = TavilyClient(api_key=api_key)
+    candidates = client.search(
+        query=query,
+        period_start=start,
+        period_end=end,
+        include_domains=allowlist,
+    )
+    return [candidate.model_dump(mode="json") for candidate in candidates]
 
 
-def summarize(data: dict) -> None:
-    results = data.get("results", [])
-    print(f"\n=== {len(results)} results in {data.get('response_time')}s ===\n")
+def summarize(results: list[dict]) -> None:
+    print(f"\n=== {len(results)} normalized candidates ===\n")
     for i, r in enumerate(results):
         raw = r.get("raw_content") or ""
         print(f"[{i}] {r.get('title')}")
@@ -100,7 +89,7 @@ def main() -> None:
     args = parser.parse_args()
 
     allowlist = None if args.no_allowlist else DEFAULT_ALLOWLIST
-    data = run(
+    candidates = run(
         query=args.query,
         start=date.fromisoformat(args.start),
         end=date.fromisoformat(args.end),
@@ -108,9 +97,9 @@ def main() -> None:
     )
 
     out_path = Path(args.out)
-    out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    summarize(data)
-    print(f"\nfull response written to: {out_path}")
+    out_path.write_text(json.dumps(candidates, indent=2, ensure_ascii=False))
+    summarize(candidates)
+    print(f"\nnormalized candidates written to: {out_path}")
 
 
 if __name__ == "__main__":

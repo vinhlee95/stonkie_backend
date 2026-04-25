@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
+
+from services.market_recap.url_utils import canonicalize_url, source_id_for
 
 
 class Source(BaseModel):
@@ -40,3 +42,42 @@ class RecapPayload(BaseModel):
         if unknown_ids:
             raise ValueError(f"unknown source_id citations: {', '.join(sorted(unknown_ids))}")
         return self
+
+
+class PlannedQuery(BaseModel):
+    query: str
+    include_domains: list[str] = Field(default_factory=list)
+
+
+class Candidate(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+    published_date: datetime | None = None
+    raw_content: str = ""
+    score: float = 0.0
+    provider: str
+
+    @computed_field
+    @property
+    def canonical_url(self) -> str:
+        return canonicalize_url(self.url)
+
+    @computed_field
+    @property
+    def source_id(self) -> str:
+        return source_id_for(self.url)
+
+
+class RetrievalStats(BaseModel):
+    queries_total: int
+    results_total: int
+    deduped: int
+    with_raw_content: int
+    allowlisted: int
+    ranked_top_k: int
+
+
+class RetrievalResult(BaseModel):
+    candidates: list[Candidate]
+    stats: RetrievalStats
