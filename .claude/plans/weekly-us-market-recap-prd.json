@@ -104,7 +104,7 @@
       "id": "phase-1-data-contract-and-storage-foundation",
       "sort_order": 1,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
       "title": "Data contract and storage foundation",
       "objective": "Establish persistent schema and canonical source data shape that all downstream phases depend on.",
       "scope_includes": [
@@ -162,7 +162,48 @@
             "Gate C: lint/health baseline pass"
           ]
         }
-      }
+      },
+      "validation_summary": {
+        "summary": "Implemented Phase 1 data contract and storage foundation: canonical URL/source_id utilities, reusable Pydantic recap payload schemas, MarketRecap ORM model, Alembic migration, and focused unit/DB coverage. Phase-specific tests, healthcheck, ruff, and the market_recap migration up/down/up round trip passed against stonkie_test.",
+        "commands_executed": [
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_url_utils.py -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_schemas.py -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_market_recap_model.py -v",
+          "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/stonkie_test alembic stamp d4e5f6a7b8c9 && alembic upgrade head && alembic downgrade -1 && alembic upgrade head",
+          "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+          "source venv/bin/activate && ruff check ."
+        ],
+        "result": "pass"
+      },
+      "learnings": [
+        "source_id is the first 16 chars of sha256(canonical_url).hexdigest(); canonicalization normalizes scheme/host/default ports/trailing slash and strips utm_*, fbclid, gclid, mc_cid, mc_eid, ref, and ref_src.",
+        "RecapPayload enforces citation integrity at schema level: every bullet must have at least one citation and every citation.source_id must exist in sources[].id.",
+        "MarketRecap stores public payload pieces in bullets/sources JSON columns and keeps raw_sources as internal free-form JSON.",
+        "A historical root migration attempted to drop company_financials objects that may not exist on a fresh DB; it was made idempotent with DROP IF EXISTS so fresh test DB migration can proceed further.",
+        "Local blank-DB replay still requires the pgvector Postgres extension for the existing semantic_cache migration. Phase 1 tests therefore stamp stonkie_test at the previous revision and validate the new market_recap migration up/down/up from there."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: migration integrity pass",
+          "status": "pass",
+          "notes": "market_recap migration upgraded from d4e5f6a7b8c9 to e5f6a7b8c9d0, downgraded -1, then upgraded again on stonkie_test. Full blank-chain replay remains environment-dependent on pgvector."
+        },
+        {
+          "gate": "Gate B: schema determinism pass",
+          "status": "pass",
+          "notes": "URL/source_id, schema round-trip, citation min_length, and cross-reference tests passed."
+        },
+        {
+          "gate": "Gate C: lint/health baseline pass",
+          "status": "pass",
+          "notes": "tests/test_healthcheck.py passed and ruff check . passed."
+        }
+      ],
+      "next_phase_considerations": [
+        "Phase 2 retrieval should use canonicalize_url/source_id_for for dedupe and stable source identity before candidate ranking.",
+        "Generator/validator phases should consume RecapPayload rather than redefining citation/source contracts.",
+        "Install pgvector in local Postgres or use an already-migrated dev DB when validating the entire historical Alembic chain from an empty database."
+      ]
     },
     {
       "id": "phase-2-retrieval-and-source-policy-layer",

@@ -35,9 +35,9 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_company_financial_statement_company_symbol'), 'company_financial_statement', ['company_symbol'], unique=False)
     op.create_index(op.f('ix_company_financial_statement_id'), 'company_financial_statement', ['id'], unique=False)
-    op.drop_index('ix_company_financials_company_symbol', table_name='company_financials')
-    op.drop_index('ix_company_financials_id', table_name='company_financials')
-    op.drop_table('company_financials')
+    op.execute('DROP INDEX IF EXISTS ix_company_financials_company_symbol')
+    op.execute('DROP INDEX IF EXISTS ix_company_financials_id')
+    op.execute('DROP TABLE IF EXISTS company_financials')
     # ### end Alembic commands ###
 
 
