@@ -672,7 +672,7 @@
       "id": "phase-6-observability-and-operational-readiness",
       "sort_order": 6,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
       "title": "Structured observability and operational diagnostics",
       "objective": "Ensure every run is diagnosable via structured logs and quality counters before enabling unattended schedule.",
       "scope_includes": [
@@ -727,7 +727,48 @@
             "Gate C: baseline lint/health pass"
           ]
         }
-      }
+      },
+      "validation_summary": {
+        "summary": "Implemented Phase 6 structured observability via TDD: added services/market_recap/logging.py (new_run_id + log_event helpers using stdlib logging extra), wired recap.run.start and recap.run.outcome events into orchestrator with run_id correlation across all four return sites (success, generation_failed early-exit, validation_failed terminal, generation_failed exhausted-loop), and authored docs/market_recap_operations.md operator guide. All required PRD outcome fields present including run_id, market, cadence, period_start, period_end, queries_total, results_total, fetched_ok, date_in_window_count, allowlisted_count, cited_count, validation_fail_reason, inserted, status. RunResult shape unchanged (run_id intentionally internal to logs).",
+        "commands_executed": [
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_observability.py -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_orchestrator.py -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/ tests/scripts/ tests/api/ -v",
+          "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+          "source venv/bin/activate && ruff check ."
+        ],
+        "result": "pass"
+      },
+      "learnings": [
+        "alembic/env.py was calling logging.config.fileConfig without disable_existing_loggers=False, which silently disabled the orchestrator's module-level logger after the test session-scoped alembic upgrade ran. Changed env.py to pass disable_existing_loggers=False — preserves alembic/sqlalchemy logger config from alembic.ini while keeping app loggers alive. Without this fix caplog captured zero records from any orchestrator-emitted event.",
+        "Naming the new helper services/market_recap/logging.py is safe in Python 3 because absolute imports route bare `import logging` to stdlib; we still import the helper by explicit symbols (`from services.market_recap.logging import log_event, new_run_id`) to avoid shadowing.",
+        "Tavily start_date/end_date is the authoritative phase-2 date filter, so `date_in_window_count` is currently equal to `results_total`; documented in operations doc so future phases can diverge them only if a post-Tavily date re-check is added.",
+        "Using stdlib `logging.info(event, extra={...})` keeps the implementation dependency-free and lets Cloud Logging surface `extra` as `jsonPayload` without a custom formatter."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: observability tests pass",
+          "status": "pass",
+          "notes": "tests/services/market_recap/test_observability.py 4/4 passed: success start+outcome with all required fields, validation-failure logs reason and skip, generation-failure logs zero cited and skip, run_id stable hex correlation across events."
+        },
+        {
+          "gate": "Gate B: success/failure log completeness pass",
+          "status": "pass",
+          "notes": "Test asserts REQUIRED_FIELDS set (run_id, market, cadence, period_start, period_end, queries_total, results_total, fetched_ok, date_in_window_count, allowlisted_count, cited_count, validation_fail_reason, inserted) is a subset of outcome event fields and that fields dict is JSON-serializable. inserted=true correlates with persisted DB row in success test."
+        },
+        {
+          "gate": "Gate C: baseline lint/health pass",
+          "status": "pass",
+          "notes": "tests/test_healthcheck.py 3/3 passed; ruff check . clean. Full regression sweep across tests/services/market_recap/ tests/scripts/ tests/api/ = 67 passed."
+        }
+      ],
+      "next_phase_considerations": [
+        "Before starting Phase 7, read backend/docs/market_recap_operations.md end-to-end — it is the canonical reference for event names, field semantics, status values, log-based diagnostics, and the rollback/rerun procedure that the production dry-run must validate.",
+        "Phase 7 deploy/scheduler should rely on these structured events for dry-run validation; verify Cloud Run picks up `extra` as jsonPayload in shipped logs (no custom formatter needed in stdlib path).",
+        "Phase 7 must extend backend/docs/market_recap_operations.md with the deploy/runbook section (Cloud Run job name, scheduler enable/disable, dry-run procedure, rollback drill) rather than creating a parallel doc.",
+        "If a future phase introduces post-Tavily date re-validation, split `date_in_window_count` from `results_total` and update backend/docs/market_recap_operations.md accordingly.",
+        "When adding alerting (deferred per PRD), prefer log-based metrics keyed off `event=recap.run.outcome AND inserted=false` rather than introducing a new emission path."
+      ]
     },
     {
       "id": "phase-7-scheduler-deployment-and-first-production-dry-run",

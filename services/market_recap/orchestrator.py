@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -5,11 +6,17 @@ from datetime import date
 from typing import Callable, Literal
 
 from connectors.database import SessionLocal
+from services.market_recap.logging import log_event, new_run_id
 from services.market_recap.persistence import PersistenceResult, persist_recap
 from services.market_recap.recap_generator import GeneratorError, GeneratorResult, generate_recap
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.tavily_client import TavilyClient
 from services.market_recap.validator import ValidationResult, validate_recap
+
+logger = logging.getLogger(__name__)
+
+EVENT_RUN_START = "recap.run.start"
+EVENT_RUN_OUTCOME = "recap.run.outcome"
 
 
 @dataclass(frozen=True)
@@ -42,6 +49,41 @@ def run_market_recap(
     validate_fn: Callable = validate_recap,
     persist_fn: Callable = persist_recap,
 ) -> RunResult:
+    run_id = new_run_id()
+    base_fields = {
+        "run_id": run_id,
+        "market": market,
+        "cadence": cadence,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+    }
+    log_event(logger, EVENT_RUN_START, dict(base_fields))
+
+    def _outcome(
+        *,
+        status: str,
+        inserted: bool,
+        cited_count: int,
+        validation_fail_reason: str | None,
+    ) -> None:
+        stats = retrieval.stats
+        log_event(
+            logger,
+            EVENT_RUN_OUTCOME,
+            {
+                **base_fields,
+                "status": status,
+                "queries_total": stats.queries_total,
+                "results_total": stats.results_total,
+                "fetched_ok": stats.with_raw_content,
+                "date_in_window_count": stats.results_total,
+                "allowlisted_count": stats.allowlisted,
+                "cited_count": cited_count,
+                "validation_fail_reason": validation_fail_reason,
+                "inserted": inserted,
+            },
+        )
+
     if retrieve_fn is retrieve_candidates:
         api_key = os.getenv("TAVILY_API_KEY")
         if not api_key:
@@ -57,6 +99,7 @@ def run_market_recap(
 
     last_failures: list[str] = []
     last_warnings: list[str] = []
+    last_cited_count = 0
     for attempt in range(1, max_attempts + 1):
         try:
             generated: GeneratorResult = generate_fn(
@@ -67,6 +110,12 @@ def run_market_recap(
             )
         except GeneratorError:
             if attempt == max_attempts:
+                _outcome(
+                    status="generation_failed",
+                    inserted=False,
+                    cited_count=0,
+                    validation_fail_reason=None,
+                )
                 return RunResult(
                     status="generation_failed",
                     inserted=False,
@@ -77,6 +126,7 @@ def run_market_recap(
                 )
             continue
 
+        last_cited_count = len(generated.payload.sources)
         validation: ValidationResult = validate_fn(
             payload=generated.payload,
             period_start=period_start,
@@ -87,6 +137,12 @@ def run_market_recap(
         last_warnings = list(validation.warnings)
         if not validation.ok:
             if attempt == max_attempts:
+                _outcome(
+                    status="validation_failed",
+                    inserted=False,
+                    cited_count=last_cited_count,
+                    validation_fail_reason=";".join(last_failures) if last_failures else None,
+                )
                 return RunResult(
                     status="validation_failed",
                     inserted=False,
@@ -115,6 +171,12 @@ def run_market_recap(
             status = "replaced" if persisted.replaced else "inserted"
         else:
             status = "skipped_existing"
+        _outcome(
+            status=status,
+            inserted=persisted.inserted,
+            cited_count=last_cited_count,
+            validation_fail_reason=None,
+        )
         return RunResult(
             status=status,
             inserted=persisted.inserted,
@@ -124,6 +186,12 @@ def run_market_recap(
             recap_id=persisted.recap_id,
         )
 
+    _outcome(
+        status="generation_failed",
+        inserted=False,
+        cited_count=last_cited_count,
+        validation_fail_reason=None,
+    )
     return RunResult(
         status="generation_failed",
         inserted=False,
