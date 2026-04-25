@@ -564,7 +564,7 @@
       "id": "phase-5-public-api-contract-and-frontend-citation-mapping",
       "sort_order": 5,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
       "title": "Public API contract and citation mapping usability",
       "objective": "Expose recap data via stable API envelope with explicit freshness metadata and deterministic citation mapping fields.",
       "scope_includes": [
@@ -622,7 +622,51 @@
             "Gate C: baseline lint/health pass"
           ]
         }
-      }
+      },
+      "validation_summary": {
+        "summary": "Implemented Phase 5 public recap API with strict TDD slices: new markets router endpoint, DB-backed recap query path, stable metadata+items envelope, and deterministic citation/source_id compatibility for frontend rendering. Endpoint now returns latest available persisted rows with order/limit controls and keeps raw_sources internal-only.",
+        "commands_executed": [
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_tracer_bullet -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_orders_by_latest_period_start -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_applies_limit_without_reordering -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_exposes_latest_created_at_for_returned_items -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_does_not_expose_raw_sources -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_returns_latest_available_when_current_week_missing -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py::test_get_market_recaps_returns_empty_envelope_when_no_rows -v",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py -v",
+          "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+          "source venv/bin/activate && ruff check .",
+          "curl -sS \"http://localhost:8080/api/markets/US/recaps?cadence=weekly&limit=1\""
+        ],
+        "result": "pass"
+      },
+      "learnings": [
+        "Injecting DB session via FastAPI dependency (`get_db`) in the markets endpoint is essential for deterministic API integration tests; direct SessionLocal usage makes test seeding and endpoint reads diverge.",
+        "Normalizing datetime output to UTC Z-format in the API layer avoids timezone-offset drift in client contracts and keeps latest_created_at deterministic.",
+        "Phase 5 behavior requirements (ordering, limit, latest_available, raw_sources exclusion) can be fully specified as public HTTP tests without mocking market_recap internals."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: API contract test pass",
+          "status": "pass",
+          "notes": "tests/api/test_markets_recaps.py passed with 7/7 green, covering envelope fields, empty-state response, latest-available behavior, and order/limit semantics."
+        },
+        {
+          "gate": "Gate B: citation mapping test pass",
+          "status": "pass",
+          "notes": "Tracer-bullet and full API tests assert bullets[].citations[].source_id values map to sources[].id in response payload."
+        },
+        {
+          "gate": "Gate C: baseline lint/health pass",
+          "status": "pass",
+          "notes": "tests/test_healthcheck.py passed and ruff check . passed (including import-order fix in main.py)."
+        }
+      ],
+      "next_phase_considerations": [
+        "Phase 6 observability should emit structured API read metrics (market, cadence, limit, item_count) without leaking raw_sources.",
+        "If frontend needs stricter response typing, introduce explicit response models while preserving current field names and source_id join semantics.",
+        "Keep timezone normalization in one shared serializer helper if additional recap endpoints are introduced."
+      ]
     },
     {
       "id": "phase-6-observability-and-operational-readiness",

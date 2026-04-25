@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
+from api.markets import router as markets_router
 from connectors.conversation_store import (
     append_assistant_message,
     append_user_message,
@@ -66,6 +67,7 @@ etf_analyzer = ETFAnalyzer(search_decision_engine=search_decision_engine)
 
 # FastAPI application instance
 app = FastAPI()
+app.include_router(markets_router)
 
 
 # Add logging middleware
