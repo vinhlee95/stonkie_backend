@@ -211,13 +211,20 @@
       "impact_level": "HIGH",
       "state": "not-started",
       "title": "Retrieval pipeline and source-policy controls",
-      "objective": "Implement query planning, Google CSE retrieval, fetching/extraction, and candidate ranking under soft allowlist policy.",
+      "objective": "Implement query planning, Tavily retrieval, fetching/extraction, and candidate ranking under soft allowlist policy.",
+      "provider_decision": {
+        "primary": "Tavily",
+        "rejected": ["Google CSE (closed to new customers; sunset 2027-01-01)", "Perplexity Sonar (pre-synthesizes answers; violates grounding contract)"],
+        "future_fallbacks_considered": ["Brave Search", "Exa"],
+        "rationale": "Tavily collapses search + content extraction into one call, has native date/domain/news filters that map to our query planner and source-policy layers, and shrinks the trafilatura fetch path to fallback-only. Single provider keeps Phase 2 small.",
+        "decision_doc": ".claude/plans/search-provider-decision.md"
+      },
       "scope_includes": [
         "Implement query planner with open queries + selected site-scoped queries.",
-        "Implement Google CSE client and response normalization.",
-        "Implement fetch/extract pipeline (httpx + trafilatura) with concurrency/timeouts.",
-        "Implement source allowlist in code and registrable-domain matching.",
-        "Implement candidate filtering by publish date window in America/New_York semantics.",
+        "Implement Tavily search client and response normalization (single provider; client interface designed to allow future providers without touching ranking/source-policy).",
+        "Use Tavily-extracted content when present; keep httpx + trafilatura fetcher as fallback only for sources Tavily could not extract.",
+        "Implement source allowlist in code and registrable-domain matching (consider passing as Tavily include_domains as an optimization, but enforcement stays in code).",
+        "Implement candidate filtering by publish date window in America/New_York semantics (belt-and-suspenders on top of Tavily's start_date/end_date).",
         "Implement canonical dedupe and ranking priorities (freshness, allowlist preference, diversity, relevance).",
         "Store/carry raw candidate metadata for internal debugging."
       ],
@@ -229,15 +236,19 @@
       "files_expected": [
         "backend/services/market_recap/query_planner.py",
         "backend/services/market_recap/search_client.py",
+        "backend/services/market_recap/tavily_client.py",
         "backend/services/market_recap/fetcher.py",
         "backend/services/market_recap/source_policy.py",
         "backend/services/market_recap/ranking.py",
         "backend/tests/services/market_recap/test_query_planner.py",
+        "backend/tests/services/market_recap/test_tavily_client.py",
         "backend/tests/services/market_recap/test_source_policy.py",
         "backend/tests/services/market_recap/test_ranking.py",
         "backend/.env.example",
         "backend/requirements.txt"
       ],
+      "env_vars_required": ["TAVILY_API_KEY"],
+      "env_vars_removed": ["GOOGLE_CSE_API_KEY", "GOOGLE_CSE_ENGINE_ID"],
       "dependencies": {
         "technical_must_complete_before": [
           "phase-1-data-contract-and-storage-foundation"
@@ -247,9 +258,11 @@
       "definition_of_done": {
         "implementation_checks": [
           "Query planner emits both open and site-scoped query sets.",
+          "Tavily client returns normalized candidate objects (title, url, snippet, published_date, extracted_content) and is mockable in tests with no live calls.",
+          "Search-client interface is provider-shaped so a future fallback (e.g. Brave) can be added without touching ranking or source-policy code.",
           "Source-policy correctly identifies allowlisted domains via normalized registrable domains.",
-          "Fetcher enforces timeout and skips failures safely.",
-          "Date-window filtering excludes out-of-week content from citation eligibility.",
+          "Fallback fetcher (httpx + trafilatura) only triggers when Tavily extracted_content is missing; enforces timeout and skips failures safely.",
+          "Date-window filtering excludes out-of-week content from citation eligibility (independent of Tavily's date filter).",
           "Ranking and dedupe are deterministic for identical input sets."
         ],
         "verification": {
@@ -260,14 +273,16 @@
           ],
           "required_commands": [
             "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_query_planner.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_tavily_client.py -v",
             "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_source_policy.py -v",
             "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_ranking.py -v",
             "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
             "source venv/bin/activate && ruff check ."
           ],
           "required_evidence": [
+            "Tavily response fixture normalized into candidate objects with required fields",
             "fixture showing allowlisted and non-allowlisted domain classification",
-            "fixture showing out-of-window date exclusion",
+            "fixture showing out-of-window date exclusion (independent of Tavily date filter)",
             "stage counter snapshot: results_total -> fetched_ok -> in_window -> ranked_top_k",
             "deterministic dedupe/ranking output for stable test input"
           ],
