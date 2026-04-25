@@ -1,0 +1,640 @@
+{
+  "prd_meta": {
+    "title": "Weekly US Market Recap PRD (Phased, Isolated Implementation)",
+    "description": "Build a trust-first weekly US market recap pipeline (search -> fetch -> grounded LLM -> validation -> persistence -> API) with strict source auditability, deterministic citation mapping, and explicit phase-level autonomous validation so implementation agents can verify success independently and report outcomes.",
+    "source_documents": [
+      ".claude/plans/weekly-us-market-recap-plan.md (finalized design decisions)",
+      "chat decisions on source trust, validation policy, API contract, and operational semantics"
+    ],
+    "related_documents": {
+      "design_plan_markdown": ".claude/plans/weekly-us-market-recap-plan.md",
+      "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with any clarifications and phase learnings."
+    },
+    "scope": {
+      "market": "US",
+      "cadence": "weekly",
+      "run_day": "Saturday",
+      "week_semantics_timezone": "America/New_York",
+      "week_window": "prior Mon-Fri",
+      "api_endpoint": "GET /api/markets/{market}/recaps?cadence=weekly&limit=N"
+    },
+    "sorting_rule": "phases ordered by technical dependency chain; each phase should be independently mergeable and verifiable",
+    "allowed_states": [
+      "not-started",
+      "inprogress",
+      "complete",
+      "blocked",
+      "skipped"
+    ],
+    "core_non_negotiables": {
+      "grounding": "LLM must consume only fetched corpus passed by backend; no online model mode",
+      "citation_contract": "LLM output references source_indices only; backend resolves to canonical source metadata",
+      "trust_fail_policy": "Hard validation failures after retries must skip DB insert entirely",
+      "idempotency": "ON CONFLICT (market, cadence, period_start) DO NOTHING in default mode",
+      "source_identity": "deterministic source_id derived from canonical URL hash",
+      "public_citations": "Public API exposes user-facing citations only (bullet citations + deduped sources)",
+      "raw_sources_visibility": "Internal/debug storage only; not part of public API"
+    },
+    "agent_validation_protocol": {
+      "purpose": "Allow an implementation agent to prove phase success without human hand-holding.",
+      "phase_transition_policy": {
+        "mode": "manual_approval_required",
+        "rule": "Agent must stop after each phase and wait for explicit user approval before starting the next phase, even when all gates pass."
+      },
+      "learning_feedback_policy": {
+        "rule": "After each phase, agent must write validation summary and implementation learnings back into this same PRD file under that phase.",
+        "required_fields_per_phase_update": [
+          "state",
+          "validation_summary",
+          "learnings",
+          "gates_result_snapshot",
+          "next_phase_considerations"
+        ],
+        "next_phase_requirement": "Before starting a phase, agent must explicitly review and incorporate previous phase learnings and next_phase_considerations."
+      },
+      "requirements_for_every_phase": [
+        "Run phase-specific automated tests and mandatory project baseline checks relevant to touched code.",
+        "Collect objective evidence artifacts (command outputs, API samples, DB assertions, structured logs).",
+        "Evaluate pass/fail against phase gates; do not mark complete if any mandatory gate fails.",
+        "Produce a concise end-of-phase report with: implemented changes, commands run, evidence, gate results, residual risks, and rollback note.",
+        "Update this PRD phase entry with validation_summary, learnings, and next_phase_considerations before requesting user approval."
+      ],
+      "report_persistence_policy": {
+        "mode": "prd_only",
+        "rule": "No separate report artifact file is required. Updating this PRD with phase validation and learnings is sufficient."
+      },
+      "baseline_check_policy": {
+        "mode": "strict_must_pass",
+        "rule": "Baseline checks are mandatory hard gates. healthcheck and ruff must pass to complete a phase; no pass-with-exception path."
+      },
+      "standard_report_schema": {
+        "phase_id": "string",
+        "state": "complete|blocked|inprogress",
+        "summary": "1-2 paragraphs",
+        "files_changed": [
+          "path"
+        ],
+        "commands_executed": [
+          "command string"
+        ],
+        "evidence": [
+          {
+            "name": "artifact name",
+            "type": "test|api|db|log|screenshot|other",
+            "result": "pass|fail|info",
+            "details": "short details"
+          }
+        ],
+        "gates": [
+          {
+            "gate": "gate name",
+            "status": "pass|fail|partial",
+            "notes": "short notes"
+          }
+        ],
+        "known_risks": [
+          "risk"
+        ],
+        "next_phase_ready": true
+      }
+    }
+  },
+  "phases": [
+    {
+      "id": "phase-1-data-contract-and-storage-foundation",
+      "sort_order": 1,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Data contract and storage foundation",
+      "objective": "Establish persistent schema and canonical source data shape that all downstream phases depend on.",
+      "scope_includes": [
+        "Create MarketRecap model and Alembic migration.",
+        "Include columns: market, cadence, period_start, period_end, summary, bullets, sources, raw_sources, model, created_at.",
+        "Add unique constraint on (market, cadence, period_start).",
+        "Add index for latest queries: (market, period_start DESC).",
+        "Define source object schema with deterministic source_id.",
+        "Codify canonical URL utility and source_id generation utility (hash of canonical URL)."
+      ],
+      "scope_excludes": [
+        "No search/fetch/LLM orchestration yet.",
+        "No API endpoint yet.",
+        "No scheduler/deployment."
+      ],
+      "files_expected": [
+        "backend/models/market_recap.py",
+        "backend/alembic/versions/<rev>_add_market_recap.py",
+        "backend/services/market_recap/schemas.py",
+        "backend/services/market_recap/url_utils.py",
+        "backend/services/market_recap/__init__.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Migration applies cleanly up and down in local dev DB.",
+          "ORM model matches migration columns and constraints.",
+          "Canonical URL + source_id utility has deterministic behavior.",
+          "JSON schema contracts for bullets and citations are explicit and reusable by validator/API layers."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run migration up/down cycle in local environment.",
+            "Run model/schema unit tests for serialization and source_id determinism.",
+            "Run baseline checks for touched backend files."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_schemas.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_url_utils.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "passing schema/unit tests",
+            "migration success log (upgrade + downgrade + upgrade)",
+            "example canonicalization input/output fixture",
+            "example source_id stability fixture"
+          ],
+          "phase_gates": [
+            "Gate A: migration integrity pass",
+            "Gate B: schema determinism pass",
+            "Gate C: lint/health baseline pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-2-retrieval-and-source-policy-layer",
+      "sort_order": 2,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Retrieval pipeline and source-policy controls",
+      "objective": "Implement query planning, Google CSE retrieval, fetching/extraction, and candidate ranking under soft allowlist policy.",
+      "scope_includes": [
+        "Implement query planner with open queries + selected site-scoped queries.",
+        "Implement Google CSE client and response normalization.",
+        "Implement fetch/extract pipeline (httpx + trafilatura) with concurrency/timeouts.",
+        "Implement source allowlist in code and registrable-domain matching.",
+        "Implement candidate filtering by publish date window in America/New_York semantics.",
+        "Implement canonical dedupe and ranking priorities (freshness, allowlist preference, diversity, relevance).",
+        "Store/carry raw candidate metadata for internal debugging."
+      ],
+      "scope_excludes": [
+        "No LLM generation yet.",
+        "No persistence insert decisions yet.",
+        "No public API changes yet."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/query_planner.py",
+        "backend/services/market_recap/search_client.py",
+        "backend/services/market_recap/fetcher.py",
+        "backend/services/market_recap/source_policy.py",
+        "backend/services/market_recap/ranking.py",
+        "backend/tests/services/market_recap/test_query_planner.py",
+        "backend/tests/services/market_recap/test_source_policy.py",
+        "backend/tests/services/market_recap/test_ranking.py",
+        "backend/.env.example",
+        "backend/requirements.txt"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-1-data-contract-and-storage-foundation"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Query planner emits both open and site-scoped query sets.",
+          "Source-policy correctly identifies allowlisted domains via normalized registrable domains.",
+          "Fetcher enforces timeout and skips failures safely.",
+          "Date-window filtering excludes out-of-week content from citation eligibility.",
+          "Ranking and dedupe are deterministic for identical input sets."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run unit tests with mocked search/fetch responses.",
+            "Run one controlled dry-run fixture through retrieval pipeline and capture candidate counts per stage.",
+            "Confirm allowlist and date filters with explicit edge-case fixtures."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_query_planner.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_source_policy.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_ranking.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "fixture showing allowlisted and non-allowlisted domain classification",
+            "fixture showing out-of-window date exclusion",
+            "stage counter snapshot: results_total -> fetched_ok -> in_window -> ranked_top_k",
+            "deterministic dedupe/ranking output for stable test input"
+          ],
+          "phase_gates": [
+            "Gate A: retrieval policy tests pass",
+            "Gate B: date/source policy tests pass",
+            "Gate C: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-3-grounded-generation-and-hard-validation",
+      "sort_order": 3,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Grounded recap generation and trust-critical validation",
+      "objective": "Implement LLM generation contract and hard validator so only trustworthy recaps are eligible for persistence.",
+      "scope_includes": [
+        "Implement recap generator with existing MultiAgent (offline context only; no online mode).",
+        "Prompt design enforcing source_indices-only references and neutral tone best effort.",
+        "Resolve source_indices into canonical source objects with source_id mapping.",
+        "Implement validator hard checks: schema, source existence, date in window, per-bullet min sources, recap-wide unique source floor, allowlist expectation logic.",
+        "Implement split policy: style/length/tone are prompt-only and not hard-fail conditions."
+      ],
+      "scope_excludes": [
+        "No DB insert orchestration retries yet.",
+        "No scheduler/task wiring yet."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/recap_generator.py",
+        "backend/services/market_recap/validator.py",
+        "backend/tests/services/market_recap/test_recap_generator.py",
+        "backend/tests/services/market_recap/test_validator.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-2-retrieval-and-source-policy-layer"
+        ],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Generator accepts only provided corpus and emits strict JSON parseable payload.",
+          "No free-form URL acceptance from model output path.",
+          "Validator rejects unknown/hallucinated source references.",
+          "Validator rejects unparseable or out-of-window cited dates.",
+          "Validator enforces trust rules while allowing style constraints to remain non-blocking."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run unit tests for positive and negative validator paths.",
+            "Run mocked generator contract tests to ensure source_indices mapping works.",
+            "Prove at least one intentionally malformed payload is rejected for each hard rule class."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_recap_generator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_validator.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "contract test proving free-form URL output is ignored/rejected",
+            "validator test proving unknown URL reference fails",
+            "validator test proving out-of-window date fails",
+            "validator test proving minimum source-count rules are enforced",
+            "validator test proving recap-wide unique source floor is enforced"
+          ],
+          "phase_gates": [
+            "Gate A: generator contract tests pass",
+            "Gate B: trust-validator negative/positive matrix pass",
+            "Gate C: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-4-runner-persistence-and-idempotent-execution",
+      "sort_order": 4,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "End-to-end run orchestration, persistence, retries, and backfill controls",
+      "objective": "Wire complete weekly recap run path with idempotent persistence semantics and operator-safe execution modes.",
+      "scope_includes": [
+        "Implement orchestration service combining retrieval, generation, validation, and persistence.",
+        "Add task-level retry behavior (max retries with delay).",
+        "Persist success rows with ON CONFLICT DO NOTHING default behavior.",
+        "Skip insert on hard validation failure after retries; structured error logging required.",
+        "Add CLI runner with default latest completed week mode (America/New_York).",
+        "Add backfill mode with explicit range and safety span guard.",
+        "Add guarded --replace mode for exact period correction workflow."
+      ],
+      "scope_excludes": [
+        "No public API endpoint yet.",
+        "No Cloud Run scheduler deployment yet."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/persistence.py",
+        "backend/services/market_recap/orchestrator.py",
+        "backend/tasks/market_recap.py",
+        "backend/scripts/run_market_recap.py",
+        "backend/celery_app.py",
+        "backend/tests/services/market_recap/test_orchestrator.py",
+        "backend/tests/scripts/test_run_market_recap.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-3-grounded-generation-and-hard-validation"
+        ],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Successful run inserts one recap row for target period.",
+          "Repeat run same period does not overwrite row in default mode.",
+          "Failure run does not insert partial/degraded row.",
+          "CLI default computes latest completed week correctly in US market timezone.",
+          "Backfill and replace flags behave safely and predictably."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Execute local run for fixed historical week and assert DB insert.",
+            "Re-run same week and assert idempotent no-op insert.",
+            "Force validation failure fixture and assert insert skip + error log emission.",
+            "Execute backfill one-week and explicit range commands.",
+            "Execute replace flow on exact period in controlled local fixture."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. python scripts/run_market_recap.py --market US --period-start 2026-04-20 --period-end 2026-04-24",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_orchestrator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/scripts/test_run_market_recap.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "DB query evidence: inserted row exists after success run",
+            "DB query evidence: row count unchanged on rerun default mode",
+            "log evidence: validation fail path emits structured error and skips insert",
+            "CLI help/usage evidence for default, backfill range, and replace modes"
+          ],
+          "phase_gates": [
+            "Gate A: orchestration E2E pass",
+            "Gate B: idempotency and failure semantics pass",
+            "Gate C: CLI operational safety pass",
+            "Gate D: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-5-public-api-contract-and-frontend-citation-mapping",
+      "sort_order": 5,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Public API contract and citation mapping usability",
+      "objective": "Expose recap data via stable API envelope with explicit freshness metadata and deterministic citation mapping fields.",
+      "scope_includes": [
+        "Implement markets router endpoint for recaps retrieval.",
+        "Return metadata + items envelope, with latest_created_at convenience field.",
+        "Per item include period_start, period_end, created_at.",
+        "Expose bullets and top-level deduped sources with shared source_id mapping compatibility.",
+        "Return latest available rows when latest week is missing.",
+        "Keep raw_sources out of public response."
+      ],
+      "scope_excludes": [
+        "No frontend implementation required in this backend PRD.",
+        "No scheduler/deploy concerns."
+      ],
+      "files_expected": [
+        "backend/api/markets.py",
+        "backend/main.py",
+        "backend/tests/api/test_markets_recaps.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-4-runner-persistence-and-idempotent-execution"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Endpoint returns envelope with metadata and items.",
+          "Freshness fields are present and correct.",
+          "Citation mapping via source_id is deterministic and frontend-friendly.",
+          "raw_sources is not exposed in API response.",
+          "Limit/order behavior returns latest periods first."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Seed at least two recap rows and query endpoint with varying limits.",
+            "Validate response schema and field presence.",
+            "Validate source_id mapping consistency between bullets and top-level sources.",
+            "Validate behavior when a recent period is absent (returns latest available silently)."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/api/test_markets_recaps.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "sample API JSON response with metadata + items",
+            "assertions proving source_id joins bullets->sources",
+            "assertion proving raw_sources absent from public payload",
+            "assertion proving descending period ordering"
+          ],
+          "phase_gates": [
+            "Gate A: API contract test pass",
+            "Gate B: citation mapping test pass",
+            "Gate C: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-6-observability-and-operational-readiness",
+      "sort_order": 6,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Structured observability and operational diagnostics",
+      "objective": "Ensure every run is diagnosable via structured logs and quality counters before enabling unattended schedule.",
+      "scope_includes": [
+        "Emit structured run-level counters and dimensions.",
+        "Include required fields: run_id, market, cadence, period_start, period_end, queries_total, results_total, fetched_ok, date_in_window_count, allowlisted_count, cited_count, validation_fail_reason, inserted.",
+        "Ensure logs capture both success and failure paths clearly.",
+        "Document log interpretation guide for operators/agents."
+      ],
+      "scope_excludes": [
+        "No alert integration (logs-only v1).",
+        "No additional monitoring platform integration required."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/orchestrator.py",
+        "backend/services/market_recap/logging.py",
+        "backend/tests/services/market_recap/test_observability.py",
+        "backend/docs/market_recap_operations.md"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-4-runner-persistence-and-idempotent-execution"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Structured log events emitted for run start, run outcome, and key stage transitions.",
+          "Failure logs include explicit reason code and context.",
+          "Success logs include enough counters to support quality tuning without rerun."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run one successful local recap and capture structured log object.",
+            "Run one forced-failure local recap and capture structured failure log object.",
+            "Verify required fields and value types are present.",
+            "Cross-check cited_count and inserted flags align with DB reality."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_observability.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "success log JSON sample",
+            "failure log JSON sample",
+            "field-level checklist proving required counters exist",
+            "DB/log consistency note for inserted and cited_count"
+          ],
+          "phase_gates": [
+            "Gate A: observability tests pass",
+            "Gate B: success/failure log completeness pass",
+            "Gate C: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-7-scheduler-deployment-and-first-production-dry-run",
+      "sort_order": 7,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "Cloud Run job, scheduler wiring, and production dry-run validation",
+      "objective": "Ship operational execution path with one controlled dry run before enabling recurring Saturday automation.",
+      "scope_includes": [
+        "Add Dockerfile.market-recap aligned with existing job patterns.",
+        "Define Cloud Run job and Cloud Scheduler trigger at Saturday cadence.",
+        "Document deployment/runbook steps in existing cronjob docs.",
+        "Execute one manual production dry-run and verify inserted row + API visibility + logs."
+      ],
+      "scope_excludes": [
+        "No alerting integration beyond logs-only policy.",
+        "No multi-market expansion in this phase."
+      ],
+      "files_expected": [
+        "backend/Dockerfile.market-recap",
+        "backend/docs/gcp_cronjobs.md",
+        "backend/docs/market_recap_operations.md"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-5-public-api-contract-and-frontend-citation-mapping",
+          "phase-6-observability-and-operational-readiness"
+        ],
+        "parallelizable": false
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Cloud Run job deploys and executes successfully.",
+          "Scheduler config exists but recurring trigger is enabled only after dry-run signoff.",
+          "Manual production dry-run inserts expected recap row and endpoint serves it.",
+          "Operational docs include rollback and rerun guidance."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Build/deploy job image and run manual trigger in production/staging target.",
+            "Confirm job exit status and structured run logs.",
+            "Confirm DB row insertion for target period.",
+            "Confirm API returns inserted row with expected metadata/citations.",
+            "Capture rollback drill note (disable schedule and/or rerun behavior)."
+          ],
+          "required_commands": [
+            "gcloud run jobs deploy ...",
+            "gcloud run jobs execute ...",
+            "curl http://localhost:8080/api/markets/US/recaps?limit=1",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Cloud Run execution result snapshot",
+            "structured logs from dry-run",
+            "DB assertion for inserted recap row",
+            "API response sample proving row visibility",
+            "documented enable/disable scheduler procedure"
+          ],
+          "phase_gates": [
+            "Gate A: deploy/run pass",
+            "Gate B: data/API verification pass",
+            "Gate C: operations runbook completeness pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-8-optional-fetched-corpus-staging-with-ttl",
+      "sort_order": 8,
+      "impact_level": "LOW",
+      "state": "not-started",
+      "title": "Optional fetched-corpus staging persistence (pre-generation) with TTL",
+      "objective": "Persist fetched/parsed corpus before LLM generation for short-term replay and auditability, while avoiding permanent storage bloat and legal risk.",
+      "scope_includes": [
+        "Add staging store for fetched corpus payload before LLM generation step.",
+        "Persist per-source extracted text + metadata for one run_id/week context.",
+        "Attach retention policy with strict TTL (recommended 7-14 days).",
+        "Add cleanup mechanism (scheduled purge or DB TTL job).",
+        "Wire generator to read staged corpus by run_id when enabled.",
+        "Add feature flag to keep default v1 behavior available (ephemeral-only mode)."
+      ],
+      "scope_excludes": [
+        "No change to public API payload.",
+        "No long-term permanent raw full-text retention."
+      ],
+      "files_expected": [
+        "backend/models/market_recap_corpus_staging.py",
+        "backend/alembic/versions/<rev>_add_market_recap_corpus_staging.py",
+        "backend/services/market_recap/corpus_staging.py",
+        "backend/services/market_recap/orchestrator.py",
+        "backend/tests/services/market_recap/test_corpus_staging.py",
+        "backend/docs/market_recap_operations.md"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-4-runner-persistence-and-idempotent-execution"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Corpus staging write succeeds before generation when feature flag is enabled.",
+          "Generator can consume staged corpus by run_id without behavior regression.",
+          "TTL purge reliably removes expired staged payloads.",
+          "Feature flag off preserves existing ephemeral flow."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run one recap with staging enabled and verify staged payload exists.",
+            "Run generation replay from staged payload (without re-fetch) in local test mode.",
+            "Run TTL purge job simulation and verify expired rows are deleted.",
+            "Run with staging disabled and verify default path unchanged."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_corpus_staging.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_orchestrator.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "DB evidence: staged rows inserted with run_id and expires_at",
+            "DB evidence: staged rows deleted after TTL purge",
+            "test evidence: replay from staging path passes",
+            "test evidence: feature flag off path unchanged"
+          ],
+          "phase_gates": [
+            "Gate A: staging persistence tests pass",
+            "Gate B: TTL cleanup tests pass",
+            "Gate C: backward compatibility pass",
+            "Gate D: baseline lint/health pass"
+          ]
+        }
+      }
+    }
+  ],
+  "open_questions_for_user": []
+}
