@@ -23,6 +23,7 @@ if config.config_file_name is not None:
 from connectors.database import Base
 
 # Import all models for autogenerate to detect them
+from models.market_recap import MarketRecap  # noqa: F401
 from models.semantic_cache import SemanticCacheEntry  # noqa: F401
 
 target_metadata = Base.metadata
