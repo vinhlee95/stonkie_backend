@@ -62,6 +62,7 @@ def test_retrieve_candidates_drops_empty_raw_content_before_ranking():
     )
 
     result = retrieve_candidates(
+        market="US",
         period_start=date(2026, 4, 20),
         period_end=date(2026, 4, 24),
         search_provider=provider,
@@ -159,6 +160,7 @@ def test_retrieve_candidates_returns_top_five_and_stats():
     )
 
     result = retrieve_candidates(
+        market="US",
         period_start=date(2026, 4, 20),
         period_end=date(2026, 4, 24),
         search_provider=provider,
@@ -176,3 +178,37 @@ def test_retrieve_candidates_returns_top_five_and_stats():
     assert all(candidate.raw_content for candidate in result.candidates)
     assert result.candidates[0].title == "reuters duplicate higher"
     assert result.candidates[-1].title != "open non allowlisted"
+
+
+def test_retrieve_candidates_prioritizes_allowlisted_for_vn_market():
+    provider = FakeSearchProvider(
+        payload_by_domain={
+            "open": [
+                _candidate(
+                    title="non-vn domain",
+                    url="https://example.com/world/china/a",
+                    score=0.9,
+                    raw_content="x",
+                    published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+                ),
+                _candidate(
+                    title="vn domain",
+                    url="https://cafef.vn/thi-truong-chung-khoan.chn",
+                    score=0.5,
+                    raw_content="x",
+                    published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+                ),
+            ]
+        }
+    )
+
+    result = retrieve_candidates(
+        market="VN",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        search_provider=provider,
+        planned_queries=plan_queries(date(2026, 4, 20), date(2026, 4, 24), market="VN")[:1],
+        top_k=5,
+    )
+
+    assert [candidate.title for candidate in result.candidates][0] == "vn domain"

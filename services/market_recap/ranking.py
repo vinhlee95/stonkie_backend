@@ -22,11 +22,11 @@ def _published_timestamp(candidate: Candidate) -> float:
     return published_date.timestamp()
 
 
-def rank(candidates: list[Candidate]) -> list[Candidate]:
+def rank(candidates: list[Candidate], market: str = "US") -> list[Candidate]:
     return sorted(
         candidates,
         key=lambda candidate: (
-            not is_allowlisted(candidate.url),
+            not is_allowlisted(candidate.url, market=market),
             -_published_timestamp(candidate),
             -candidate.score,
             candidate.canonical_url,

@@ -8,13 +8,14 @@ from services.market_recap.source_policy import is_allowlisted
 
 
 def retrieve_candidates(
+    market: str,
     period_start: date,
     period_end: date,
     search_provider: SearchProvider,
     planned_queries: list[PlannedQuery] | None = None,
     top_k: int = 5,
 ) -> RetrievalResult:
-    queries = planned_queries if planned_queries is not None else plan_queries(period_start, period_end)
+    queries = planned_queries if planned_queries is not None else plan_queries(period_start, period_end, market=market)
     fetched_candidates = []
     for planned_query in queries:
         fetched_candidates.extend(
@@ -28,8 +29,9 @@ def retrieve_candidates(
 
     deduped = dedupe(fetched_candidates)
     with_raw_content = [candidate for candidate in deduped if candidate.raw_content.strip()]
-    allowlisted_count = sum(1 for candidate in with_raw_content if is_allowlisted(candidate.url))
-    ranked = rank(with_raw_content)
+    allowlisted = [candidate for candidate in with_raw_content if is_allowlisted(candidate.url, market=market)]
+    allowlisted_count = len(allowlisted)
+    ranked = rank(with_raw_content, market=market)
     top_candidates = ranked[:top_k]
 
     return RetrievalResult(

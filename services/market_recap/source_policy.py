@@ -1,6 +1,6 @@
 from urllib.parse import urlsplit
 
-ALLOWLIST = {
+ALLOWLIST_US = {
     "apnews.com",
     "barrons.com",
     "bea.gov",
@@ -19,6 +19,23 @@ ALLOWLIST = {
     "wsj.com",
 }
 
+ALLOWLIST_BY_MARKET = {
+    "US": ALLOWLIST_US,
+    "VN": {
+        "cafef.vn",
+        "vietstock.vn",
+        "vneconomy.vn",
+        "vnexpress.net",
+        "tinnhanhchungkhoan.vn",
+        "vietnamfinance.vn",
+        "simplize.vn",
+        "fireant.vn",
+        "stockbiz.vn",
+        "investing.com",
+        "reuters.com",
+    },
+}
+
 
 def registrable_domain(url: str) -> str:
     hostname = (urlsplit(url).hostname or "").lower()
@@ -32,5 +49,7 @@ def registrable_domain(url: str) -> str:
     return ".".join(labels[-2:])
 
 
-def is_allowlisted(url: str) -> bool:
-    return registrable_domain(url) in ALLOWLIST
+def is_allowlisted(url: str, market: str = "US") -> bool:
+    market_key = market.upper()
+    allowlist = ALLOWLIST_BY_MARKET.get(market_key, ALLOWLIST_BY_MARKET["US"])
+    return registrable_domain(url) in allowlist

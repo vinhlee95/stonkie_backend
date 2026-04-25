@@ -65,6 +65,9 @@ def test_prompt_contains_period_and_indexed_corpus():
     assert "Source [1]" in prompt
     assert "https://www.reuters.com/markets/a" in prompt
     assert "Body B" in prompt
+    assert '"summary"' in prompt
+    assert '"bullets"' in prompt
+    assert '"source_indices"' in prompt
     assert agent.calls[0]["use_google_search"] is False
 
 
@@ -188,3 +191,26 @@ def test_returns_model_name_for_audit():
         agent=agent,
     )
     assert result.model == "openrouter/test-model"
+
+
+def test_prompt_mentions_selected_market():
+    from services.market_recap.recap_generator import generate_recap
+
+    agent = FakeAgent(chunks=['[RECAP_JSON]{"summary":"s","bullets":[{"text":"b","source_indices":[0]}]}[/RECAP_JSON]'])
+    generate_recap(
+        _retrieval(),
+        market="VN",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        agent=agent,
+    )
+    prompt = agent.calls[0]["prompt"]
+    assert "Vietnam market recap" in prompt
+    assert "VN-Index" in prompt
+    assert "money flow" in prompt
+    assert "macroeconomic" in prompt
+    assert "MUST fail safe" in prompt
+    assert "If you cannot satisfy all required VN sections" in prompt
+    assert "Phân tích thị trường chứng khoán Việt Nam trong tuần vừa qua" in prompt
+    assert "dòng tiền và thanh khoản" in prompt
+    assert "nhóm ngành dẫn dắt/tụt hậu" in prompt

@@ -17,13 +17,48 @@ class GeneratorError(Exception):
     pass
 
 
-def _build_prompt(retrieval: RetrievalResult, period_start: date, period_end: date) -> str:
+def _market_label(market: str) -> str:
+    market_key = market.upper()
+    if market_key == "VN":
+        return "Vietnam"
+    if market_key == "US":
+        return "US"
+    return market_key
+
+
+def _build_prompt(retrieval: RetrievalResult, market: str, period_start: date, period_end: date) -> str:
+    market_label = _market_label(market)
+    market_key = market.upper()
     lines = [
-        "Generate a weekly US market recap JSON.",
+        f"Generate a weekly {market_label} market recap JSON.",
         f"Period start: {period_start.isoformat()}",
         f"Period end: {period_end.isoformat()}",
+        "Use ONLY this schema:",
+        '{"summary":"string","bullets":[{"text":"string","source_indices":[0]}]}',
+        "Rules:",
+        "- summary must be non-empty plain text.",
+        "- bullets must contain 3-6 items.",
+        "- each bullet must include at least one integer index in source_indices.",
+        "- source_indices must reference only provided Source [i] blocks.",
+        "- do not emit keys outside summary/bullets/text/source_indices.",
+        "- avoid generic global-market-only narrative; ground claims in provided market-specific sources.",
         "Return JSON wrapped in [RECAP_JSON]...[/RECAP_JSON].",
     ]
+    if market_key == "VN":
+        lines.extend(
+            [
+                "Phân tích thị trường chứng khoán Việt Nam trong tuần vừa qua.",
+                "Tập trung vào: dòng tiền và thanh khoản thị trường, nhóm ngành dẫn dắt/tụt hậu, và bối cảnh vĩ mô.",
+                "For Vietnam market recaps, coverage MUST explicitly include:",
+                "- VN-Index trend for the week (direction and key driver).",
+                "- macroeconomic context (inflation, FX, rates, policy, or growth data if available).",
+                "- market money flow / liquidity behavior (foreign net buy-sell, sector rotation, or turnover).",
+                "If you cannot satisfy all required VN sections from provided sources, output MUST fail safe.",
+                'MUST fail safe format: {"summary":"","bullets":[]}',
+                "Do not fabricate VN-specific metrics or entities not grounded in provided sources.",
+                "If you cannot satisfy all required VN sections, do not output partial recap.",
+            ]
+        )
     for idx, candidate in enumerate(retrieval.candidates):
         lines.extend(
             [
@@ -50,12 +85,13 @@ def _extract_json_block(raw_text: str) -> str:
 def generate_recap(
     retrieval: RetrievalResult,
     *,
+    market: str = "US",
     period_start: date,
     period_end: date,
     agent: MultiAgent | None = None,
 ) -> GeneratorResult:
     llm = agent or MultiAgent()
-    prompt = _build_prompt(retrieval, period_start, period_end)
+    prompt = _build_prompt(retrieval, market, period_start, period_end)
     chunks = llm.generate_content(prompt=prompt, use_google_search=False)
     raw_text = "".join(chunk for chunk in chunks if isinstance(chunk, str))
     payload_json = json.loads(_extract_json_block(raw_text))
