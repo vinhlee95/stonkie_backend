@@ -1050,6 +1050,79 @@
       }
     },
     {
+      "id": "phase-6-7-llm-semantic-validation",
+      "sort_order": 6.7,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "LLM-based semantic validation for recap content quality",
+      "objective": "Replace brittle keyword-based content checks with deterministic LLM semantic validation for recap narrative quality, applicable to both Vietnamese and English outputs while preserving existing trust-critical deterministic checks.",
+      "scope_includes": [
+        "Add a new semantic validator module that evaluates recap summary/bullets for required content dimensions (index context, macro context, and money-flow context) using a pinned model and strict JSON schema output.",
+        "Support multilingual validation prompts and scoring for at least VN and US/English recaps.",
+        "Keep trust-critical deterministic checks unchanged in validator.py (source existence, date window, allowlist checks, VN allowlist floor).",
+        "Add config/feature flag path to enable semantic validation per market/cadence without breaking existing runs.",
+        "Capture semantic validator evidence in structured logs (pass/fail, reasons, confidence, and short evidence quotes).",
+        "Add tests for semantic validator success/failure/invalid-JSON fallback behavior and validator integration coverage for VN and US."
+      ],
+      "scope_excludes": [
+        "No changes to retrieval provider routing (Brave/Tavily selection remains as-is).",
+        "No public API schema change for recaps.",
+        "No additional scheduler/deployment work beyond phase 7."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/semantic_validator.py",
+        "backend/services/market_recap/validator.py",
+        "backend/services/market_recap/orchestrator.py",
+        "backend/tests/services/market_recap/test_semantic_validator.py",
+        "backend/tests/services/market_recap/test_validator.py",
+        "backend/tests/services/market_recap/test_observability.py",
+        "backend/docs/market_recap_operations.md"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-6-5-brave-vn-and-daily-cadence",
+          "phase-6-observability-and-operational-readiness"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Semantic validation pass/fail output is deterministic in shape and parseable from strict JSON schema.",
+          "VN and US recap content can be validated semantically without relying on language-specific keyword literals.",
+          "When semantic validation fails or model output is invalid, the pipeline emits actionable failure reasons and does not silently pass.",
+          "Existing deterministic trust checks remain unchanged and continue to gate insertion.",
+          "Structured logs include semantic validation outcome fields for run diagnostics."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run semantic validator unit tests with mocked model responses for pass/fail/invalid-output cases.",
+            "Run validator integration tests for VN and US payloads that previously depended on keyword matching.",
+            "Run orchestrator/observability tests to verify semantic validation fields are logged and failures block insertion.",
+            "Run baseline lint and health checks."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_semantic_validator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_validator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_observability.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "semantic pass/fail fixture matrix for VN and US summaries",
+            "invalid-JSON model output fallback test evidence",
+            "structured log sample containing semantic validation fields",
+            "proof deterministic trust checks still gate hard-fail conditions"
+          ],
+          "phase_gates": [
+            "Gate A: semantic validator unit tests pass",
+            "Gate B: validator integration for VN/US semantic checks pass",
+            "Gate C: observability logs semantic fields correctly",
+            "Gate D: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
       "id": "phase-8-optional-fetched-corpus-staging-with-ttl",
       "sort_order": 8,
       "impact_level": "LOW",
