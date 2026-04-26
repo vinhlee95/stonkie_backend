@@ -1,8 +1,12 @@
 from datetime import UTC, date, datetime
 
+import pytest
+
+from services.market_recap.brave_client import BraveClient
 from services.market_recap.query_planner import plan_queries
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.schemas import Candidate
+from services.market_recap.tavily_client import TavilyClient
 
 
 class FakeSearchProvider:
@@ -212,3 +216,41 @@ def test_retrieve_candidates_prioritizes_allowlisted_for_vn_market():
     )
 
     assert [candidate.title for candidate in result.candidates][0] == "vn domain"
+
+
+@pytest.mark.parametrize(
+    ("market", "expected_cls"),
+    [
+        ("US", TavilyClient),
+        ("VN", BraveClient),
+    ],
+)
+def test_retrieve_candidates_default_provider_routing(monkeypatch, market, expected_cls):
+    captured = {}
+
+    class _Provider:
+        def search(self, **kwargs):
+            return []
+
+    class _TavilyStub(_Provider):
+        def __init__(self, api_key):
+            captured["provider"] = self
+            captured["api_key"] = api_key
+
+    class _BraveStub(_Provider):
+        def __init__(self, api_key):
+            captured["provider"] = self
+            captured["api_key"] = api_key
+
+    monkeypatch.setenv("TAVILY_API_KEY", "t-key")
+    monkeypatch.setenv("BRAVE_API_KEY", "b-key")
+    monkeypatch.setattr("services.market_recap.retrieval.TavilyClient", _TavilyStub)
+    monkeypatch.setattr("services.market_recap.retrieval.BraveClient", _BraveStub)
+
+    result = retrieve_candidates(
+        market=market,
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+    )
+    assert isinstance(captured["provider"], _TavilyStub if expected_cls is TavilyClient else _BraveStub)
+    assert result.stats.results_total == 0

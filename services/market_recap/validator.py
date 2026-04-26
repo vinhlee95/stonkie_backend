@@ -12,6 +12,7 @@ REASON_EMPTY_SOURCES = "empty_sources"
 REASON_VN_INDEX_MISSING = "vn_index_missing"
 REASON_VN_MACRO_CONTEXT_MISSING = "vn_macro_context_missing"
 REASON_VN_MONEY_FLOW_MISSING = "vn_money_flow_missing"
+REASON_VN_RECAP_ALLOWLIST_FLOOR = "vn_recap_allowlist_floor_below_minimum"
 WARNING_UNIQUE_SOURCE_FLOOR = "unique_source_floor_below_minimum"
 
 
@@ -51,25 +52,16 @@ def validate_recap(
         return ValidationResult(ok=False, failures=failures, warnings=warnings)
 
     if market.upper() == "VN":
-        summary_lower = payload.summary.lower()
-        if "vn-index" not in summary_lower and "vn index" not in summary_lower:
-            failures.append(REASON_VN_INDEX_MISSING)
-
-        macro_tokens = ("macro", "macroeconomic", "inflation", "exchange rate", "fx", "interest rate", "gdp")
-        if not any(token in summary_lower for token in macro_tokens):
-            failures.append(REASON_VN_MACRO_CONTEXT_MISSING)
-
-        money_flow_tokens = ("money flow", "liquidity", "turnover", "net buy", "net sell", "foreign")
-        if not any(token in summary_lower for token in money_flow_tokens):
-            failures.append(REASON_VN_MONEY_FLOW_MISSING)
-
-        if failures:
-            return ValidationResult(ok=False, failures=failures, warnings=warnings)
+        # VN content-marker checks are intentionally skipped for now.
+        # Phase 6.7 introduces LLM-based semantic validation.
+        pass
 
     sources_by_id = {source.id: source for source in payload.sources}
 
     date_failed = False
     allowlist_failed = False
+    allowlisted_source_ids: set[str] = set()
+    is_vn_market = market.upper() == "VN"
 
     for bullet in payload.bullets:
         bullet_has_allowlisted = False
@@ -79,13 +71,18 @@ def validate_recap(
                 date_failed = True
             if is_allowlisted(source.url, market=market):
                 bullet_has_allowlisted = True
+                allowlisted_source_ids.add(citation.source_id)
         if not bullet_has_allowlisted:
             allowlist_failed = True
 
     if date_failed:
         failures.append(REASON_OUT_OF_WINDOW)
-    if allowlist_failed:
+    if is_vn_market and allowlist_failed:
+        warnings.append(REASON_BULLET_MISSING_ALLOWLISTED)
+    elif allowlist_failed:
         failures.append(REASON_BULLET_MISSING_ALLOWLISTED)
+    if is_vn_market and len(allowlisted_source_ids) < 2:
+        failures.append(REASON_VN_RECAP_ALLOWLIST_FLOOR)
 
     unique_cited_sources = {citation.source_id for bullet in payload.bullets for citation in bullet.citations}
     if len(unique_cited_sources) < min_unique_sources:

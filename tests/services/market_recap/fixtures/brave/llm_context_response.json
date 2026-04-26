@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "title": "VN-Index closes mixed",
+      "url": "https://www.cafef.vn/thi-truong/vn-index-1.chn",
+      "description": "Market recap snippet."
+    },
+    {
+      "title": "Broker note",
+      "url": "https://www.ssi.com.vn/analysis/vn-market",
+      "description": "Broker update."
+    }
+  ],
+  "grounding": {
+    "generic": [
+      {
+        "url": "https://www.cafef.vn/thi-truong/vn-index-1.chn",
+        "snippets": [
+          "VN-Index fluctuated in the afternoon session.",
+          "Liquidity improved versus the prior day."
+        ]
+      },
+      {
+        "url": "https://www.ssi.com.vn/analysis/vn-market",
+        "snippets": [
+          "Foreign investors were net buyers.",
+          "Financials outperformed."
+        ]
+      }
+    ]
+  },
+  "sources": {
+    "https://www.cafef.vn/thi-truong/vn-index-1.chn": {
+      "age": [
+        "3 hours ago",
+        "2026-04-24"
+      ]
+    },
+    "https://www.ssi.com.vn/analysis/vn-market": {
+      "age": [
+        "yesterday",
+        "unknown"
+      ]
+    }
+  }
+}

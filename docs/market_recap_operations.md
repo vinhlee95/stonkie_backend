@@ -1,4 +1,4 @@
-# Weekly Market Recap — Operations Guide
+# Market Recap — Operations Guide
 
 Operator-facing reference for the `services.market_recap` pipeline (orchestrator + CLI in `scripts/run_market_recap.py`).
 
@@ -15,6 +15,7 @@ Fired once at the top of every `run_market_recap` call.
 | `run_id` | str (32-char hex) | Unique per run; correlates start with outcome. |
 | `market` | str | e.g. `"US"`. |
 | `cadence` | str | e.g. `"weekly"`. |
+| `provider` | str | `"tavily"` for US, `"brave"` for VN. |
 | `period_start` | str (ISO date) | Inclusive Monday of the recap week. |
 | `period_end` | str (ISO date) | Inclusive Friday of the recap week. |
 
@@ -27,10 +28,11 @@ All `recap.run.start` fields plus:
 | Field | Type | Meaning |
 |---|---|---|
 | `status` | str | One of `inserted`, `replaced`, `skipped_existing`, `validation_failed`, `generation_failed`. |
-| `queries_total` | int | Planned queries issued to Tavily. |
+| `provider` | str | `"tavily"` for US, `"brave"` for VN. |
+| `queries_total` | int | Planned queries issued to the selected provider. |
 | `results_total` | int | Total candidate results returned across all queries. |
-| `fetched_ok` | int | Candidates with non-empty Tavily `extracted_content` (eligible for grounding). |
-| `date_in_window_count` | int | Candidates inside the period window. Equals `results_total` because Tavily `start_date`/`end_date` is the authoritative phase-2 filter (see `weekly-us-market-recap-prd.json`). Will diverge only if a future phase adds post-Tavily date re-validation. |
+| `fetched_ok` | int | Candidates with non-empty provider `raw_content` (eligible for grounding). |
+| `date_in_window_count` | int | Candidates inside the provider-filtered period window. Equals `results_total` because provider-side date filter is authoritative in v1. |
 | `allowlisted_count` | int | Candidates whose registrable domain is in the allowlist. |
 | `cited_count` | int | Unique sources in the recap payload (`len(payload.sources)`). `0` on generation failure. |
 | `validation_fail_reason` | str \| null | `;`-joined validator failure codes when `status == "validation_failed"`; `null` otherwise. |
@@ -64,12 +66,27 @@ Common log/DB consistency check: if `inserted=true` then `SELECT COUNT(*) FROM m
 
 ## Rerun and rollback
 
+## Provider + cadence notes
+
+- US retrieval uses Tavily.
+- VN retrieval uses Brave LLM Context with:
+  - endpoint `https://api.search.brave.com/res/v1/llm/context`
+  - header `X-Subscription-Token: BRAVE_API_KEY`
+  - params `country=ALL`, `search_lang=vi`, `count=30`, `freshness=<start>to<end>`, `goggles=<inline>`
+- VN allowlist includes expanded broker/exchange/regulator/state-media domains and uses VN multi-suffix registrable-domain handling for `.com.vn`, `.gov.vn`, `.org.vn`, `.net.vn`, `.edu.vn`.
+- VN validator policy:
+  - per-bullet missing allowlisted source => warning
+  - recap-wide distinct allowlisted sources `< 2` => hard failure (`vn_recap_allowlist_floor_below_minimum`)
+
+## Cadence runbook
+
 CLI: `scripts/run_market_recap.py` (see `--help`).
 
 - Rerun current week: default invocation with no flags.
 - Rerun explicit period: `--period-start YYYY-MM-DD --period-end YYYY-MM-DD`.
 - Replace an existing row (rare, exact period required): `--replace --period-start ... --period-end ...`.
-- Backfill a bounded range: `--backfill --period-start ... --period-end ...` (CLI rejects spans beyond the configured maximum).
+- Backfill a bounded range: `--backfill-start ... --backfill-end ...` (CLI rejects spans beyond the configured maximum).
+- Daily cadence is currently accepted as a no-op (reserved for future rollout).
 
 To roll back a single bad recap, delete the row and rerun:
 

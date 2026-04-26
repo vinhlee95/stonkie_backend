@@ -73,6 +73,8 @@ def main(argv: list[str] | None = None, *, runner=run_market_recap) -> int:
     parser.add_argument("--backfill-end")
     parser.add_argument("--replace", action="store_true")
     args = parser.parse_args(argv)
+    if args.cadence.lower() == "daily":
+        return 0
 
     explicit_period = bool(args.period_start or args.period_end)
     explicit_backfill = bool(args.backfill_start or args.backfill_end)

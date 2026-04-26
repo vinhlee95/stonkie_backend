@@ -127,3 +127,42 @@ def test_run_market_recap_generation_failure_retries_and_skips_insert(db_session
     assert result.attempts == 2
     assert result.validation_failures == []
     assert db_session.query(MarketRecap).count() == 0
+
+
+def test_run_market_recap_vn_daily_path_succeeds_with_mocked_brave(db_session):
+    retrieval = RetrievalResult(
+        candidates=[
+            Candidate(
+                title="VN source",
+                url="https://cafef.vn/thi-truong/a",
+                snippet="s",
+                published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+                raw_content="body",
+                score=0.0,
+                provider="brave",
+            )
+        ],
+        stats=RetrievalStats(
+            queries_total=1,
+            results_total=1,
+            deduped=1,
+            with_raw_content=1,
+            allowlisted=1,
+            ranked_top_k=1,
+        ),
+    )
+
+    result = run_market_recap(
+        market="VN",
+        cadence="daily",
+        period_start=date(2026, 4, 24),
+        period_end=date(2026, 4, 24),
+        session_factory=_session_factory(db_session),
+        retrieve_fn=lambda **_: retrieval,
+        generate_fn=lambda **kwargs: GeneratorResult(
+            payload=_payload(summary="VN-Index macro money flow"), model="test-model", raw_model_output="raw"
+        ),
+        validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+    )
+    assert result.status == "inserted"
+    assert result.inserted is True

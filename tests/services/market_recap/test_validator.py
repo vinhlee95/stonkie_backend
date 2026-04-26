@@ -30,6 +30,13 @@ def _payload(*, bullets: list[Bullet], sources: list[Source]) -> RecapPayload:
     )
 
 
+def _vn_summary() -> str:
+    return (
+        "VN-Index moved in a narrow range as macro context reflected inflation and exchange rate concerns. "
+        "Money flow and liquidity stayed selective with foreign net buy in large caps."
+    )
+
+
 def test_well_formed_payload_passes():
     from services.market_recap.validator import validate_recap
 
@@ -237,30 +244,31 @@ def test_vn_allowlisted_source_passes_when_market_is_vn():
     assert REASON_BULLET_MISSING_ALLOWLISTED not in result.failures
 
 
-def test_vn_summary_requires_index_macro_and_money_flow_markers():
-    from services.market_recap.validator import (
-        REASON_VN_INDEX_MISSING,
-        REASON_VN_MACRO_CONTEXT_MISSING,
-        REASON_VN_MONEY_FLOW_MISSING,
-        validate_recap,
-    )
+def test_vn_summary_content_markers_are_skipped():
+    from services.market_recap.validator import validate_recap
 
     s1 = _source(
         source_id="src-1",
         url="https://vietstock.vn/chung-khoan.htm",
         published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
     )
+    s2 = _source(
+        source_id="src-2",
+        url="https://cafef.vn/thi-truong-chung-khoan.chn",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
     bad_payload = RecapPayload(
         period_start=date(2026, 4, 20),
         period_end=date(2026, 4, 24),
         summary="Thi truong bien dong, tam ly than trong.",
-        bullets=[Bullet(text="b1", citations=[Citation(source_id="src-1")])],
-        sources=[s1],
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+        ],
+        sources=[s1, s2],
     )
     bad = validate_recap(bad_payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
-    assert REASON_VN_INDEX_MISSING in bad.failures
-    assert REASON_VN_MACRO_CONTEXT_MISSING in bad.failures
-    assert REASON_VN_MONEY_FLOW_MISSING in bad.failures
+    assert bad.failures == []
 
     good_payload = RecapPayload(
         period_start=date(2026, 4, 20),
@@ -269,10 +277,101 @@ def test_vn_summary_requires_index_macro_and_money_flow_markers():
             "VN-Index declined as macroeconomic concerns on inflation and exchange rate persisted. "
             "Money flow and liquidity weakened with lower turnover and selective sector rotation."
         ),
-        bullets=[Bullet(text="b1", citations=[Citation(source_id="src-1")])],
-        sources=[s1],
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+        ],
+        sources=[s1, s2],
     )
     good = validate_recap(good_payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
-    assert REASON_VN_INDEX_MISSING not in good.failures
-    assert REASON_VN_MACRO_CONTEXT_MISSING not in good.failures
-    assert REASON_VN_MONEY_FLOW_MISSING not in good.failures
+    assert good.failures == []
+
+
+def test_vn_per_bullet_missing_allowlist_is_warning_only():
+    from services.market_recap.validator import REASON_BULLET_MISSING_ALLOWLISTED, validate_recap
+
+    vn_allowlisted = _source(
+        source_id="src-1",
+        url="https://cafef.vn/thi-truong-chung-khoan.chn",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    random_source = _source(
+        source_id="src-2",
+        url="https://random-blog.example/post",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    vn_allowlisted_two = _source(
+        source_id="src-3",
+        url="https://vietstock.vn/chung-khoan.htm",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    payload = RecapPayload(
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        summary=_vn_summary(),
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+            Bullet(text="b3", citations=[Citation(source_id="src-3")]),
+        ],
+        sources=[vn_allowlisted, random_source, vn_allowlisted_two],
+    )
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
+    assert result.ok is True
+    assert REASON_BULLET_MISSING_ALLOWLISTED not in result.failures
+    assert REASON_BULLET_MISSING_ALLOWLISTED in result.warnings
+
+
+def test_vn_distinct_allowlisted_floor_is_hard_fail_when_below_two():
+    from services.market_recap.validator import REASON_VN_RECAP_ALLOWLIST_FLOOR, validate_recap
+
+    vn_allowlisted = _source(
+        source_id="src-1",
+        url="https://cafef.vn/thi-truong-chung-khoan.chn",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    random_source = _source(
+        source_id="src-2",
+        url="https://random-blog.example/post",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    payload = RecapPayload(
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        summary=_vn_summary(),
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+        ],
+        sources=[vn_allowlisted, random_source],
+    )
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
+    assert result.ok is False
+    assert REASON_VN_RECAP_ALLOWLIST_FLOOR in result.failures
+
+
+def test_vn_distinct_allowlisted_floor_passes_with_two_or_more():
+    from services.market_recap.validator import REASON_VN_RECAP_ALLOWLIST_FLOOR, validate_recap
+
+    s1 = _source(
+        source_id="src-1",
+        url="https://cafef.vn/thi-truong-chung-khoan.chn",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    s2 = _source(
+        source_id="src-2",
+        url="https://vietstock.vn/chung-khoan.htm",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    payload = RecapPayload(
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        summary=_vn_summary(),
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+        ],
+        sources=[s1, s2],
+    )
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
+    assert REASON_VN_RECAP_ALLOWLIST_FLOOR not in result.failures

@@ -121,6 +121,7 @@ def test_success_emits_start_and_outcome_with_required_fields(db_session, caplog
     assert start_fields["run_id"] == outcome_fields["run_id"]
     assert start_fields["market"] == "US"
     assert start_fields["cadence"] == "weekly"
+    assert start_fields["provider"] == "tavily"
     assert start_fields["period_start"] == "2026-04-20"
     assert start_fields["period_end"] == "2026-04-24"
 
@@ -134,6 +135,7 @@ def test_success_emits_start_and_outcome_with_required_fields(db_session, caplog
     assert outcome_fields["validation_fail_reason"] is None
     assert outcome_fields["inserted"] is True
     assert outcome_fields["status"] == "inserted"
+    assert outcome_fields["provider"] == "tavily"
 
     json.dumps(outcome_fields)
 
@@ -200,3 +202,21 @@ def test_run_id_is_stable_hex_across_events(db_session, caplog):
     assert isinstance(start["run_id"], str)
     int(start["run_id"], 16)
     assert len(start["run_id"]) == 32
+
+
+def test_vn_daily_logs_provider_brave_and_daily_cadence(db_session, caplog):
+    run_market_recap(
+        market="VN",
+        cadence="daily",
+        period_start=date(2026, 4, 24),
+        period_end=date(2026, 4, 24),
+        session_factory=_session_factory(db_session),
+        retrieve_fn=lambda **_: _retrieval_result(),
+        generate_fn=lambda **_: GeneratorResult(payload=_payload(), model="test-model", raw_model_output="raw"),
+        validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+    )
+    start = _fields(_events(caplog, "recap.run.start")[0])
+    outcome = _fields(_events(caplog, "recap.run.outcome")[0])
+    assert start["provider"] == "brave"
+    assert outcome["provider"] == "brave"
+    assert outcome["cadence"] == "daily"

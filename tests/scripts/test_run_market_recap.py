@@ -94,3 +94,15 @@ def test_main_runs_multiple_markets_in_one_call():
     )
     assert exit_code == 0
     assert [call["market"] for call in calls] == ["US", "VN"]
+
+
+def test_main_accepts_daily_cadence_as_noop_without_runner_calls():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return {"status": "inserted"}
+
+    exit_code = main(["--market", "VN", "--cadence", "daily"], runner=fake_runner)
+    assert exit_code == 0
+    assert calls == []

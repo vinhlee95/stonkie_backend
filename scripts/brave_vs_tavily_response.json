@@ -1,0 +1,254 @@
+{
+  "params": {
+    "market": "VN",
+    "query": "thị trường chứng khoán Việt Nam tuần qua",
+    "period_start": "2026-04-20",
+    "period_end": "2026-04-24",
+    "tavily_include_domains": null
+  },
+  "tavily": {
+    "eval": {
+      "count": 5,
+      "allowlisted": 1,
+      "allowlist_rate": 0.2,
+      "with_date": 5,
+      "fresh_in_window": 5,
+      "fresh_in_window_rate": 1.0
+    },
+    "hits": [
+      {
+        "title": "Decoding the Story Behind VinFast's Impressive Figures – Company Announcement - Financial Times",
+        "url": "https://markets.ft.com/data/announce/detail?dockey=600-202604221131PR_NEWS_USPRX____LA41027-1",
+        "snippet": "# Decoding the Story Behind VinFast's Impressive Figures – Company Announcement - FT.com. HA NOI, Vietnam, April 22, 2026 /PRNewswire/ -- On April 22, 2026,VinFast released its first-quarter delivery figures, reporting 58,577 electric vehicles handed over globally, a 61% year-over-year increase. The Limo Green and VF 3 emerged as the best-selling models, reaching 12,693 and 11,088 units respectively, underscoring VinFast's strength in accessible, urban-oriented segments. At the core of VinFast's global aspiration lies a principle often underestimated in the electric vehicle race: Manufacturing is a strategic control layer. It also positions the company to participate in emerging mobility segments such as robotaxi services, where the convergence of autonomy, electrification, and platform economics is expected to reshape urban transportation. If manufacturing defines capability and autonomy defines direction, ecosystem integration defines VinFast's long-term differentiation. Unlike many automakers that operate within narrowly defined value chains, VinFast benefits from the broader architecture of Vingroup, where adjacent sectors are developed in parallel and designed to interconnect. Image 3: Cision View original content to download multimedia:https://www.prnewswire.com/news-releases/decoding-the-story-behind-vinfasts-impressive-figures-302750532.html.",
+        "published_date": "2026-04-22T15:31:00+00:00",
+        "score": 0.24732824,
+        "provider": "tavily"
+      },
+      {
+        "title": "Here’s How Adobe (ADBE) Plans to Fire Up Its Stock with AI - TipRanks",
+        "url": "https://www.tipranks.com/news/heres-how-adobe-adbe-plans-to-fire-up-its-stock-with-ai",
+        "snippet": "Newsletter CenterSmart InvestorSmart Dividends New. Image 3: Eddie Pan[Premium Vance’s Pakistan Trip Stalled as U.S.-Iran Talks Remain in Limbo Eddie Pan1h ago DIAQQQ](https://www.tipranks.com/news/vances-pakistan-trip-stalled-as-u-s-iran-talks-remain-in-limbo \"DIA | QQQ | SPY\"). Image 28: Eddie Pan[Premium ### Dick’s Sporting Goods Stock (DKS) Is a Slam Dunk, Says Top Analyst Joel Baglole5d ago DKS](https://www.tipranks.com/news/dicks-sporting-goods-stock-dks-is-a-slam-dunk-says-top-analyst \"DKS\"). Image 32: Eddie Pan[Premium ### Vance’s Pakistan Trip Stalled as U.S.-Iran Talks Remain in Limbo Eddie Pan1h ago DIAQQQ](https://www.tipranks.com/news/vances-pakistan-trip-stalled-as-u-s-iran-talks-remain-in-limbo \"DIA | QQQ | SPY\"). Image 33: Eddie Pan[Premium ### S&P 500 Price Target Boosted to 7,600 by JPMorgan on AI Tailwinds Eddie Pan3h ago DIAQQQ](https://www.tipranks.com/news/sp-500-price-target-boosted-to-7600-by-jpmorgan-on-ai-tailwinds \"DIA | QQQ | SPY\"). Image 38: Eddie Pan[Premium ### “More and More Unlocked SKUs Over Time”: Intel Stock (NASDAQ:INTC) Opens Up Overclocking, Shares Decline Steve Anderson1h ago INTC](https://www.tipranks.com/news/more-and-more-unlocked-skus-over-time-intel-stock-nasdaqintc-opens-up-overclocking-shares-decline \"INTC\"). Image 39: Eddie Pan[Premium ### Vance’s Pakistan Trip Stalled as U.S.-Iran Talks Remain in Limbo Eddie Pan1h ago DIAQQQ](https://www.tipranks.com/news/vances-pakistan-trip-stalled-as-u-s-iran-talks-remain-in-limbo \"DIA | QQQ | SPY\"). Image 46: Eddie Pan[Premium ### 3 Best Tech Stocks to Buy this Week 04/21/26 David Craik2h ago MSTRNAVN](https://www.tipranks.com/news/3-best-tech-stocks-to-buy-this-week-04-21-26 \"MSTR | NAVN | ONTO\").",
+        "published_date": "2026-04-21T18:23:01+00:00",
+        "score": 0.117541954,
+        "provider": "tavily"
+      },
+      {
+        "title": "Three Major A-share Indices Rebound in Afternoon; SHCI Closes Above 4,100 with Turnover Support; China Unicom Down Over 3% Post-results; Semiconductor-related Stocks Rally - AASTOCKS.com",
+        "url": "https://www.aastocks.com/en/mobile/news.aspx?newsid=NOW.1519453&newssource=AAFN",
+        "snippet": "| Three Major A-share Indices Rebound in Afternoon; SHCI Closes Above 4,100 with Turnover Support; China Unicom Down Over 3% Post-results; Semiconductor-related Stocks Rally  Recommend  1  Positive  0  Negative  0    aacat by AASTOCKS Open a new trading account to get NVDA share! The Peoples Bank of China conducted RMB6 billion seven-day reverse repos in the open market today (22nd), with the operation rate unchanged at 1.4%. China Unicom (600050.SH) declined 3.4% after its 1Q26 net profit fell 17.6% YoY. Related NewsChina Unicom (00762.HK) 1Q26 Net Profit Falls 17.6% YoY to RMB4.885B; Computing Power Business Revenue Up 8.3% Leading chipmakers stabilized. Hua Hong Semiconductor (688347.SH) A-shares rose 0.6%. Rockchip (603893.SH) climbed 2.3% after reporting 1Q26 net profit of RMB329 million, up 57.15% YoY. In addition, Foxconn Industrial Internet (601138.SH) surged 8.9%, while Sharetronic Data Technology (300857.SZ) also hit limit-up. Related NewsM Stanley: CHINA UNICOM (00762.HK) 1Q Results Slightly Miss; Maintains Equalweight Rating Enlight Media (300251.SZ) slumped 7.8% after its 1Q26 net profit plunged 98.85% YoY.",
+        "published_date": "2026-04-22T07:00:00+00:00",
+        "score": 0.09522337,
+        "provider": "tavily"
+      },
+      {
+        "title": "Stocks retreat and oil tops $100 despite fresh records on Wall St - San Francisco Chronicle",
+        "url": "https://www.sfchronicle.com/news/world/article/asian-stocks-retreat-and-oil-tops-100-despite-22221542.php",
+        "snippet": "# Stocks retreat and oil tops $100 despite fresh records on Wall St. HONG KONG (AP) — Shares retreated in Europe and Asia on Thursday after an initial jump that pushed Japan's Nikkei 225 index above 60,000 for the first time, while oil prices climbed above $100 a barrel as investors reacted to shaky prospects for more talks on ending the war with Iran. Markets in Japan and South Korea briefly touched new records, driven by buying of tech shares. As hopes for a resolution between the U.S. and Iran fade and peace talks stall, the oil market “is having to reprice expectations,” ING Bank strategists Warren Patterson and Ewa Manthey said in a research note. Wall Street set more records Wednesday following a series of strong corporate earnings and an extension of the Iran war ceasefire, with the benchmark S&P 500 jumping 1% to 7,137.90, eclipsing its previous record high set on Friday. The Bay Area’s new Japanese food wonderland has it all.",
+        "published_date": "2026-04-23T09:07:18+00:00",
+        "score": 0.08431933,
+        "provider": "tavily"
+      },
+      {
+        "title": "Wall St Week Ahead Surging record-high US stocks to wade deeper into earnings season - Reuters",
+        "url": "https://www.reuters.com/business/wall-st-week-ahead-surging-record-high-us-stocks-wade-deeper-into-earnings-2026-04-20/",
+        "snippet": "NEW YORK, April 17 (Reuters) - Investors will look to a heavy week of U.S. corporate results to further fuel a stunning rebound in the U.S. stock market, which has shaken off war-related concerns to ​reach record peaks. The benchmark S&P 500(.SPX), opens new tab on Wednesday posted its first record-high close since Jan 27, while the Nasdaq Composite(.IXIC), opens new tab on the same day notched its first all-time-high close since Oct 29. Investors are eyeing signs of frothiness, including the surge in shares of Allbirds(BIRD.O), opens new tab after the footwear maker said it was pivoting to AI computing infrastructure. Heavyweights such as Microsoft (MSFT.O), opens new tab, Alphabet and Meta report the following week. Our Standards: The Thomson Reuters Trust Principles., opens new tab. *   About Reuters, opens new tab. *   Media Center, opens new tab. *   Reuters News Agency, opens new tab. *   Reuters and AI, opens new tab. *   Reuters Leadership, opens new tab. *   Reuters Diversity Report, opens new tab. *   #### World-Check, opens new tab.",
+        "published_date": "2026-04-20T01:29:33+00:00",
+        "score": 0.07046373,
+        "provider": "tavily"
+      }
+    ]
+  },
+  "brave": {
+    "eval": {
+      "count": 7,
+      "allowlisted": 5,
+      "allowlist_rate": 0.7142857142857143,
+      "with_date": 7,
+      "fresh_in_window": 7,
+      "fresh_in_window_rate": 1.0
+    },
+    "hits": [
+      {
+        "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+        "url": "https://www.dnse.com.vn/senses/tin-tuc/thi-truong-ieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-35220206",
+        "snippet": "{\"@type\": \"NewsArticle\", \"description\": \"\", \"mainEntityOfPage\": {\"@type\": \"WebPage\", \"@id\": \"https://www.dnse.com.vn/senses/tin-tuc/thi-truong-ieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-35220206\"}, \"headline\": \"Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index vẫn giữ chuỗi 5 tuần tăng\", \"articleSection\": \"stocks\", \"dateCreated\": \"2026-04-24T08:36:00Z\", \"datePublished\": \"2026-04-24T08:36:00Z\", \"dateModified\": \"2026-04-24T08:36:00Z\", \"publisher\": {\"@type\": \"Organizati",
+        "published_date": "2026-04-24T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+        "url": "https://www.tinnhanhchungkhoan.vn/thi-truong-dieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-post389471.html",
+        "snippet": "# \nThị trường điều chỉnh trong phiên chiều 24/4, VN-Index vẫn giữ chuỗi 5 tuần tăng\n\nTác giả Lạc Nhạn\n\n24/04/2026 15:36\n\n**\n\nIn bài\n\n**\n\nChia sẻ\n\n*[Image]*\n\nChia sẻ\n\n**\n\n**\n\n0:00\n/\n0:00\n\n0:00\n\n**\nNam miền Bắc\n\n*\n\n**\nNam miền Bắc\n\n*\n\n**\nNữ miền Bắc\n\n*\n\n**\nNữ miền Nam\n\n*\n\n**\nNam miền Nam\n\n(ĐTCK) Áp lực bán gia tăng trước kỳ nghỉ lễ khiến VN-Index lùi về gần ngưỡng 1.850 điểm. Dù rung lắc mạnh, chỉ số vẫn tích lũy mức tăng hơn 36 điểm trong tuần, nối dài chuỗi tuần tăng điểm thứ năm liên tiếp.\n\nPhi",
+        "published_date": "2026-04-24T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "Thị trường chứng khoán phiên giao dịch 20/4: Họ VIN ...",
+        "url": "https://bongdaplus.vn/bong-da-cuoc-song/thi-truong-chung-khoan-phien-giao-dich-20-4-ho-vin-lai-khuay-dao-vn-index-5015742604.html",
+        "snippet": "Phiên giao dịch đầu tuần ngày 20/4 chứng kiến diễn biến tích cực của thị trường chứng khoán Việt Nam khi lực kéo mạnh từ nhóm cổ phiếu họ Vingroup giúp VN-Index duy trì đà hưng phấn và chinh phục mốc cao nhất kể từ cuối tháng 2. Chốt phiên, VN-Index tăng gần 20 điểm (hơn 1%) lên 1.837 điểm. Đáng chú ý, chỉ số có thời điểm giảm tới 15 điểm trong phiên sáng do áp lực chốt lời gia tăng, đặc biệt ở nhóm cổ phiếu liên quan đến Vingroup. Tuy nhiên, lực cầu nhanh chóng nhập cuộc giúp thị trường đảo chi",
+        "published_date": "2026-04-20T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "[Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong ...",
+        "url": "https://nhandan.vn/infographic-chung-khoan-tuan-20-244-thanh-khoan-trong-tuan-giam-khoi-luong-giao-dich-giam-66-so-tuan-truoc-post958265.html",
+        "snippet": "# [Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước\nTrong tuần giao dịch 20-24/4, VN-Index có 4 phiên tăng điểm và chịu áp lực điều chỉnh trong phiên cuối tuần. Kết tuần VN-Index tăng 1,99% lên mức 1.853,29 điểm, chịu áp lực bán ở vùng kháng cự quanh 1.890 điểm.\n\nThứ Sáu, ngày 24/04/2026 - 22:35   ** ** ** **  **\n\nĐộ rộng thị trường khá tiêu cực, phân hóa mạnh. Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trướ",
+        "published_date": "2026-04-24T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch ...",
+        "url": "https://cafef.vn/chung-khoan-20-4-ly-do-co-phieu-vinhomes-bat-tang-kich-tran-188260420161239867.chn",
+        "snippet": "# Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch trần\n## Khép lại phiên giao dịch ngày 20-4, thị trường chứng khoán Việt Nam tiếp tục nối dài đà tăng điểm đầy ấn tượng\nTIN MỚI\n\nTình trạng \"xanh vỏ đỏ lòng\" tiếp diễn khi dòng tiền chỉ dồn lực kéo nhóm cổ phiếu Vingroup, khiến tài khoản của phần lớn nhà đầu tư \"đứng im\", trong bối cảnh khối ngoại vẫn miệt mài xả ròng.\n\nĐóng cửa ngày giao dịch đầu tuần (20-4), chỉ số VN-Index tăng mạnh 19,94 điểm (tương ứng mức tăng 1,10%), tự tin vươn lên",
+        "published_date": "2026-04-20T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "Các công ty chứng khoán Việt Nam chuẩn bị cho bước ...",
+        "url": "https://www.vietnamplus.vn/nganh-chung-khoan-dat-muc-tieu-tang-truong-dot-pha-don-song-nang-hang-thi-truong-post1106007.vnp",
+        "snippet": "Thị trường chứng khoán Việt Nam vừa ghi nhận phiên giao dịch bùng nổ với đà tăng ấn tượng sau thông tin về lộ trình nâng hạng của FTSE Russell. ... Token hóa là việc đưa các tài sản tài chính (như cổ phiếu, trái phiếu…) lên nền tảng công nghệ chuỗi khối (blockchain) nhờ đó việc mua bán có thể thực hiện nhanh chóng, mọi lúc, mọi nơi. ... VN-Index nối dài chuỗi tăng sang tuần thứ tư, vượt 1.817 điểm và hướng tới mốc 1.850 điểm, song dòng tiền vẫn tập trung vào cổ phiếu trụ khiến thị trường tiềm ẩn",
+        "published_date": "2026-04-20T00:00:00",
+        "score": null,
+        "provider": "brave"
+      },
+      {
+        "title": "VN-Index giảm điểm, giao dịch thị trường ảm đạm",
+        "url": "https://www.vietnam.vn/vn-index-giam-diem-giao-dich-thi-truong-am-dam",
+        "snippet": "# VN-Index giảm điểm, giao dịch thị trường ảm đạm\n### Thị trường chứng khoán tiếp tục rung lắc mạnh, thanh khoản sụt giảm, giao dịch ảm đạm khi tâm lý thận trọng bao trùm trước kỳ nghỉ lễ dài ngày.\n*[Image: Báo Nghệ An]*\n\nBáo Nghệ An•24/04/2026\n\n---\n\nTheo dõi Vietnam.vn trênGoogle\n\nNews\n\n0\n\nMở cửa phiên giao dịch sáng nay, thị trường giao dịch khá ảm đạm, thanh khoản thấp và hầu như không nhóm ngành cổ phiếu nào có diễn biến đáng chú ý.\n\nMặt khác, cổ phiếu PC1 sau phiên bán tháo hôm qua đã tiếp ",
+        "published_date": "2026-04-24T00:00:00",
+        "score": null,
+        "provider": "brave"
+      }
+    ],
+    "raw": {
+      "grounding": {
+        "generic": [
+          {
+            "url": "https://www.dnse.com.vn/senses/tin-tuc/thi-truong-ieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-35220206",
+            "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+            "snippets": [
+              "{\"@type\": \"NewsArticle\", \"description\": \"\", \"mainEntityOfPage\": {\"@type\": \"WebPage\", \"@id\": \"https://www.dnse.com.vn/senses/tin-tuc/thi-truong-ieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-35220206\"}, \"headline\": \"Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index vẫn giữ chuỗi 5 tuần tăng\", \"articleSection\": \"stocks\", \"dateCreated\": \"2026-04-24T08:36:00Z\", \"datePublished\": \"2026-04-24T08:36:00Z\", \"dateModified\": \"2026-04-24T08:36:00Z\", \"publisher\": {\"@type\": \"Organization\", \"name\": \"DNSE\", \"logo\": {\"@type\": \"ImageObject\", \"url\": \"https://cdn.dnse.com.vn/dnse-senses//svg/logo.svg\"}}, \"articleBody\": \"Phiên giao dịch hôm qua kết thúc với việc VN-Index tăng áp sát vùng kháng cự 1.880-1.890 điểm với diễn biến giằng co khá mạnh và thanh khoản gia tăng vượt trội cho thấy áp lực chốt lời đang dần mạnh lên.Dự báo tình trạng rung lắc ngắn hạn sẽ còn tiếp diễn, trong bối cảnh chỉ báo Stochastic Oscillator tiếp tục suy yếu sau khi cho tín hiệu tiêu cực.Mặt khác, thị trường sẽ có kỳ nghĩ lễ kéo dài, giao dịch chỉ có hai phiên trong tuần sau, nên nhiều khả năng sẽ kích hoạt những lệnh bán hạ tỷ trọng cổ phiếu trong ngắn hạn.Diễn biến rung lắc đúng như đoán đã diễn ra ngay từ sớm trong phiên hôm nay ngày 24/4 với sắc đỏ có phần chiếm ưu thế trên bảng điện tử.Trong khi đó, thanh khoản cũng chậm lại và các nhóm trụ phần lớn đảo chiều giảm về cuối phiên đã khiến VN-Index có lúc thủng mốc 1.850 điểm vào đầu phiên chiều, trước khi bật trở lại ngưỡng điểm trên ở những phút cuối.Đóng cửa, sàn HOSE có 135 mã tăng và 188 mã giảm, VN-Index giảm 17,07 điểm (-0,91%), xuống 1.853,29 điểm. Tổng khối lượng giao dịch đạt hơn 673,8 triệu đơn vị, giá trị 19.347,9 tỷ đồng, giảm 35% về khối lượng và 34% về giá trị so với phiên hôm qua. Giao dịch thỏa thuận đóng góp hơn 105 triệu đơn vị, giá trị 2.002 tỷ đồng.Như vậy, kết thúc tuần giao dịch, chỉ số VN-Index vẫn ghi nhận mức tăng 36,12 điểm, tương đương +1,98% và ghi nhận tuần tăng điểm thứ năm liên tiếp.Các cổ phiếu gây áp lực lớn nhất đến chỉ số là những mã VHM, VIC, VCB khi lấy đi tổng cộng hơn 14 điểm của chỉ số. Theo đó, cổ phiếu VHM giảm mạnh nhất -5,2% xuống 141.200 đồng, VCB -3,5% xuống 60.600 đồng, VIC -1,1% xuống 212.100 đồng.Sắc đỏ khác cũng lan rộng hơn ở rổ VN30, với BID, VPL, SAB giảm hơn 2%, các mã MBB, SSI, VNM, MSN, CTG, MWG, FPT cũng kết phiên dưới tham chiếu.Ở chiều ngược lại, chỉ một số ít cổ phiếu tăng, với VJC tích cực nhất khi +3,2% lên 180.500 đồng, hai mã GVR và TCB tăng trên dưới 2,5%.Các cổ phiếu vừa và nhỏ không quá nhiều thay đổi so với phiên sáng, với TDH, VNE, C32 duy trì sắc tím. Các mã VCK, DXS, TCO, VVS, SIP, HHS, TV2, DQC, SBG, DPG tăng từ gần 3% đến hơn 5%, đi kèm thanh khoản khá tích cực.Mặt khác, ở nhóm giảm điểm, cổ phiếu PC1 vẫn nằm sàn -6,9% xuống 22.450 đồng, khớp hơn 1,4 triệu đơn vị và khối lượng dư bán sàn lên tới hơn 28,6 triệu đơn vị.Các mã bị bán khá mạnh về cuối phiên còn ghi nhận DCM, SJS, KDC, OGC, PGI, VPG, VDP mất 4-5%.Trên sàn HNX, chỉ số HNX-Index tiếp tục suy yếu trong phiên chiều trước khi chững lại và thu hẹp đà đi xuống đôi chút ở những phút cuối.Đóng cửa, sàn HNX có 72 mã tăng và 80 mã giảm, HNX-Index giảm 1,28 điểm (-0,51%), xuống 251,95 điểm. Tổng khối lượng khớp lệnh đạt hơn 74,6 triệu đơn vị, giá trị 1.275,5 tỷ đồng. Giao dịch tha thuận có thêm hơn 30,2 triệu đơn vị, giá trị 515,7 tỷ đồng, với đóng góp chủ yếu là 26,2 triệu cổ phiếu SHS, trị giá gần 473 tỷ đồng.Các cổ phiếu VC3, MST, NRC, PVS và CEO nhích lên ở nhóm các cổ phiếu thanh khoản cao nhất, trong khi HUT, TNG, IDC và SHS giảm, dù mức giảm không đáng kể, khớp từ 1,1 triệu đến hơn 7 triệu đơn vị.Biến động mạnh hơn là AAV khi giảm sàn -10% xuống 7.200 đồng, khớp hơn 1,15 triệu đơn vị.Trên UpCoM, chỉ số UPCoM-Index đi ngang ở vùng giá thấp cho đến khi đóng cửa.Chốt phiên, UpCoM-Index giảm 0,77 điểm (-0,60%), xuống 127,54 điểm. Tổng khối lượng khớp lệnh đạt gần 46 triệu đơn vị, giá trị 516,2 tỷ đồng. Giao dịch thỏa thuận có thêm hơn 5 triệu đơn vị, giá trị gần 113 tỷ đồng.Cổ phiếu HNG vươn lên thanh khoản vượt trội khi có hơn 11,6 triệu đơn vị khớp lệnh, giá cổ phiếu tăng 6% lên 7.100 đồng.Theo sau là DRI với hơn 2 triệu đơn vị khớp lệnh và tăng hơn 5% lên 13.700 đồng/cổ phiếu.Trên thị trường phái sinh, hợp đồng tương lai 41I1G5000 giảm nhẹ 4,2 điểm, tương đương -0,21% xuống 2.015 điểm, khớp lệnh hơn 259.200 đơn vị, khối lượng mở hơn 32.200 đơn vị.Trên thị trường chứng quyền, sắc đỏ lan rộng, với CHPG2607 phiên này khớp lệnh cao nhất khi có hơn 4,7 triệu đơn vị và giảm 6% xuống 1.410 đồng/cq. Xem thêm tại   tinnhanhchungkhoan.vn\"}"
+            ]
+          },
+          {
+            "url": "https://www.tinnhanhchungkhoan.vn/thi-truong-dieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-post389471.html",
+            "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+            "snippets": [
+              "# \nThị trường điều chỉnh trong phiên chiều 24/4, VN-Index vẫn giữ chuỗi 5 tuần tăng\n\nTác giả Lạc Nhạn\n\n24/04/2026 15:36\n\n**\n\nIn bài\n\n**\n\nChia sẻ\n\n*[Image]*\n\nChia sẻ\n\n**\n\n**\n\n0:00\n/\n0:00\n\n0:00\n\n**\nNam miền Bắc\n\n*\n\n**\nNam miền Bắc\n\n*\n\n**\nNữ miền Bắc\n\n*\n\n**\nNữ miền Nam\n\n*\n\n**\nNam miền Nam\n\n(ĐTCK) Áp lực bán gia tăng trước kỳ nghỉ lễ khiến VN-Index lùi về gần ngưỡng 1.850 điểm. Dù rung lắc mạnh, chỉ số vẫn tích lũy mức tăng hơn 36 điểm trong tuần, nối dài chuỗi tuần tăng điểm thứ năm liên tiếp.\n\nPhiên giao dịch hôm qua kết thúc với việc VN-Index tăng áp sát vùng kháng cự 1.880-1.890 điểm với diễn biến giằng co khá mạnh và thanh khoản gia tăng vượt trội cho thấy áp lực chốt lời đang dần mạnh lên.\n\nDự báo tình trạng rung lắc ngắn hạn sẽ còn tiếp diễn, trong bối cảnh chỉ báo Stochastic Oscillator tiếp tục suy yếu sau khi cho tín hiệu tiêu cực.\n\nMặt khác, thị trường sẽ có kỳ nghĩ lễ kéo dài, giao dịch chỉ có hai phiên trong tuần sau, nên nhiều khả năng sẽ kích hoạt những lệnh bán hạ tỷ trọng cổ phiếu trong ngắn hạn.\n\nDiễn biến rung lắc đúng như đoán đã diễn ra ngay từ sớm trong phiên hôm nay ngày 24/4 với sắc đỏ có phần chiếm ưu thế trên bảng điện tử.\n\nTrong khi đó, thanh khoản cũng chậm lại và các nhóm trụ phần lớn đảo chiều giảm về cuối phiên đã khiến VN-Index có lúc thủng mốc 1.850 điểm vào đầu phiên chiều, trước khi bật trở lại ngưỡng điểm trên ở những phút cuối.\n\n**Đóng cửa, sàn HOSE có 135 mã tăng và 188 mã giảm, VN-Index giảm 17,07 điểm (-0,91%), xuống 1.853,29 điểm. **Tổng khối lượng giao dịch đạt hơn 673,8 triệu đơn vị, giá trị 19.347,9 tỷ đồng, giảm 35% về khối lượng và 34% về giá trị so với phiên hôm qua. Giao dịch thỏa thuận đóng góp hơn 105 triệu đơn vị, giá trị 2.002 tỷ đồng.\n\nNhư vậy, ***kết thúc tuần giao dịch, ***chỉ số VN-Index vẫn ghi nhận mức tăng 36,12 điểm, tương đương +1,98% và ghi nhận tuần tăng điểm thứ năm liên tiếp.\n\nCác cổ phiếu gây áp lực lớn nhất đến chỉ số là những mã VHM, VIC, VCB khi lấy đi tổng cộng hơn 14 điểm của chỉ số.\n\nTheo đó, cổ phiếu VHM giảm mạnh nhất -5,2% xuống 141.200 đồng, VCB -3,5% xuống 60.600 đồng, VIC -1,1% xuống 212.100 đồng.\n\nSắc đỏ khác cũng lan rộng hơn ở rổ VN30, với BID, VPL, SAB giảm hơn 2%, các mã MBB, SSI, VNM, MSN, CTG, MWG, FPT cũng kết phiên dưới tham chiếu.\n\nỞ chiều ngược lại, chỉ một số ít cổ phiếu tăng, với VJC tích cực nhất khi +3,2% lên 180.500 đồng, hai mã GVR và TCB tăng trn dưới 2,5%.\n\nCác cổ phiếu vừa và nhỏ không quá nhiều thay đổi so với phiên sáng, với TDH, VNE, C32 duy trì sắc tím. Các mã VCK, DXS, TCO, VVS, SIP, HHS, TV2, DQC, SBG, DPG tăng từ gần 3% đến hơn 5%, đi kèm thanh khoản khá tích cực.\n\nMặt khác, ở nhóm giảm điểm, cổ phiếu PC1 vẫn nằm sàn -6,9% xuống 22.450 đồng, khớp hơn 1,4 triệu đơn vị và khối lượng dư bán sàn lên tới hơn 28,6 triệu đơn vị.\n\nCác mã bị bán khá mạnh về cuối phiên còn ghi nhận DCM, SJS, KDC, OGC, PGI, VPG, VDP mất 4-5%.\n\nTrên sàn HNX, chỉ số HNX-Index tiếp tục suy yếu trong phiên chiều trước khi chững lại và thu hẹp đà đi xuống đôi chút ở những phút cuối.\n\n**Đóng cửa, sàn HNX có 72 mã tăng và 80 mã giảm, HNX-Index giảm 1,28 điểm (-0,51%), xuống 251,95 điểm. **Tổng khối lượng khớp lệnh đạt hơn 74,6 triệu đơn vị, giá trị 1.275,5 tỷ đồng. Giao dịch thỏa thuận có thêm hơn 30,2 triệu đơn vị, giá trị 515,7 tỷ đồng, với đóng góp chủ yếu là 26,2 triệu cổ phiếu SHS, trị giá gần 473 tỷ đồng.\n\nCác cổ phiếu VC3, MST, NRC, PVS và CEO nhích lên ở nhóm các cổ phiếu thanh khoản cao nhất, trong khi HUT, TNG, IDC và SHS giảm, dù mức giảm không đáng kể, khớp từ 1,1 triệu đến hơn 7 triệu đơn vị.\n\nBiến động mạnh hơn là AAV khi giảm sàn -10% xuống 7.200 đồng, khớp hơn 1,15 triệu đơn vị.\n\nTrên UpCoM, chỉ số UPCoM-Index đi ngang ở vùng giá thấp cho đến khi đóng cửa.\n\n**Chốt phiên, UpCoM-Index giảm 0,77 điểm (-0,60%), xuống 127,54 điểm. **Tổng khối lượng khớp lệnh đạt gần 46 triệu đơn vị, giá trị 516,2 tỷ đồng. Giao dịch thỏa thuận có thêm hơn 5 triệu đơn vị, giá trị gần 113 tỷ đồng.\n\nCổ phiếu HNG vươn lên thanh khoản vượt trội khi có hơn 11,6 triệu đơn vị khớp lệnh, giá cổ phiếu tăng 6% lên 7.100 đồng.\n\nTheo sau là DRI với hơn 2 triệu đơn vị khớp lệnh và tăng hơn 5% lên 13.700 đồng/cổ phiếu.\n\n**Trên thị trường phái sinh, **hợp đồng tương lai 41I1G5000 giảm nhẹ 4,2 điểm, tương đương -0,21% xuống 2.015 điểm, khớp lệnh hơn 259.200 đơn vị, khối lượng mở hơn 32.200 đơn vị.\n\n**Trên thị trường chứng quyền, **sắc đỏ lan rộng, với CHPG2607 phiên này khớp lệnh cao nhất khi có hơn 4,7 triệu đơn vị và giảm 6% xuống 1.410 đồng/cq.\n\nTin bài liên quan\n\n*[Image: Ảnh: Dũng Minh.]*"
+            ]
+          },
+          {
+            "url": "https://bongdaplus.vn/bong-da-cuoc-song/thi-truong-chung-khoan-phien-giao-dich-20-4-ho-vin-lai-khuay-dao-vn-index-5015742604.html",
+            "title": "Thị trường chứng khoán phiên giao dịch 20/4: Họ VIN ...",
+            "snippets": [
+              "Phiên giao dịch đầu tuần ngày 20/4 chứng kiến diễn biến tích cực của thị trường chứng khoán Việt Nam khi lực kéo mạnh từ nhóm cổ phiếu họ Vingroup giúp VN-Index duy trì đà hưng phấn và chinh phục mốc cao nhất kể từ cuối tháng 2. Chốt phiên, VN-Index tăng gần 20 điểm (hơn 1%) lên 1.837 điểm. Đáng chú ý, chỉ số có thời điểm giảm tới 15 điểm trong phiên sáng do áp lực chốt lời gia tăng, đặc biệt ở nhóm cổ phiếu liên quan đến Vingroup. Tuy nhiên, lực cầu nhanh chóng nhập cuộc giúp thị trường đảo chiều, nới rộng biên độ tăng trong phiên chiều. Độ rộng thị trường tương đối cân bằng với 154 mã tăng và gần 150 mã giảm trên sàn HoSE. Rổ VN30 ghi nhận sự phân hóa rõ nét khi có 19 mã tăng, trong khi chỉ 7 mã giảm",
+              "# Thị trường chứng khoán phiên giao dịch 20/4: Họ VIN lại khuấy đảo VN-Index\n03 giờ trước\n\nChia sẻ\n\n**Phiên giao dịch đầu tuần ngày 20/4 chứng kiến diễn biến tích cực của thị trường chứng khoán Việt Nam khi lực kéo mạnh từ nhóm cổ phiếu họ Vingroup giúp VN-Index duy trì đà hưng phấn và chinh phục mốc cao nhất kể từ cuối tháng 2.**\n\n*[Image: Thị trường chứng khoán phiên giao dịch 20/4: Họ VIN lại khuấy đảo VN-Index ]*\n\nChốt phiên, VN-Index tăng gần 20 điểm (hơn 1%) lên 1.837 điểm. Đáng chú ý, chỉ số có thời điểm giảm tới 15 điểm trong phiên sáng do áp lực chốt lời gia tăng, đặc biệt ở nhóm cổ phiếu liên quan đến Vingroup. Tuy nhiên, lực cầu nhanh chóng nhập cuộc giúp thị trường đảo chiều, nới rộng biên độ tăng trong phiên chiều.\n\nĐộ rộng thị trường tương đối cân bằng với 154 mã tăng và gần 150 mã giảm trên sàn HoSE. Rổ VN30 ghi nhận sự phân hóa rõ nét khi có 19 mã tăng, trong khi chỉ 7 mã giảm"
+            ]
+          },
+          {
+            "url": "https://nhandan.vn/infographic-chung-khoan-tuan-20-244-thanh-khoan-trong-tuan-giam-khoi-luong-giao-dich-giam-66-so-tuan-truoc-post958265.html",
+            "title": "[Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong ...",
+            "snippets": [
+              "# [Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước\nTrong tuần giao dịch 20-24/4, VN-Index có 4 phiên tăng điểm và chịu áp lực điều chỉnh trong phiên cuối tuần. Kết tuần VN-Index tăng 1,99% lên mức 1.853,29 điểm, chịu áp lực bán ở vùng kháng cự quanh 1.890 điểm.\n\nThứ Sáu, ngày 24/04/2026 - 22:35   ** ** ** **  **\n\nĐộ rộng thị trường khá tiêu cực, phân hóa mạnh. Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước. Khối ngoại tiếp tục bán ròng trong tuần này với giá trị -4.690 tỷ đồng trên HoSE.\n\nVN-Index đã chịu áp lực bán khá mạnh khi hướng đến vùng kháng cự 1.880-1.900 điểm, vùng giá cao nhất tháng 2 và 3 năm 2026. Hiện tại, chỉ số VN-Index sau giai đoạn phục hồi, tăng điểm từ vùng giá 1.600 điểm trong 5 tuần liên tiếp đang có rủi ro tạo đỉnh ngắn hạn, chịu áp lực điều chỉnh kiểm tra lại vùng hỗ trợ 1.800-1.820 điểm.\n\n*[Image: ttck-24-4.jpg]*\n\n​\n\n​\n\nĐỨC KHÔI",
+              "{\"@type\": \"NewsArticle\", \"mainEntityOfPage\": {\"@type\": \"WebPage\", \"@id\": \"https://nhandan.vn/infographic-chung-khoan-tuan-20-244-thanh-khoan-trong-tuan-giam-khoi-luong-giao-dich-giam-66-so-tuan-truoc-post958265.html\"}, \"headline\": \"[Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước\", \"description\": \"Trong tuần giao dịch 20-24/4, VN-Index có 4 phiên tăng điểm và chịu áp lực điều chỉnh trong phiên cuối tuần. Kết tuần VN-Index tăng 1,99% lên mức 1.853,29 điểm, chịu áp lực bán ở vùng kháng cự quanh 1.890 điểm.\", \"datePublished\": \"2026-04-24T22:35:40+07:00\", \"dateModified\": \"2026-04-24T22:35:40+07:00\", \"author\": {\"@type\": \"Person\", \"name\": \"ĐỨC KHÔI\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"Báo Nhân Dân điện tử\", \"logo\": {\"@type\": \"ImageObject\", \"url\": \"https://cdn.nhandan.vn/assets/web/styles/img/logo.png\"}}}",
+              "Kết tuần VN-Index tăng 1,99% lên mức 1.853,29 điểm, chịu áp lực bán ở vùng kháng cự quanh 1.890 điểm. ... Độ rộng thị trường khá tiêu cực, phân hóa mạnh. Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước. Khối ngoại tiếp tục bán ròng trong tuần này với giá trị -4.690 tỷ đồng trên HoSE. VN-Index đã chịu áp lực bán khá mạnh khi hướng đến vùng kháng cự 1.880-1.900 điểm, vùng giá cao nhất tháng 2 và 3 năm 2026. Hiện tại, chỉ số VN-Index sau giai đoạn phục hồi, tăng điểm từ vùng giá 1.600 điểm trong 5 tuần liên tiếp đang có rủi ro tạo đỉnh ngắn hạn, chịu áp lực điều chỉnh kiểm tra lại vùng hỗ trợ 1.800-1.820 điểm",
+              "[Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong tuần giảm, khối lượng giao dịch giảm 6,6% so tuần trước Hoàn thiện chính sách tín dụng cho nông nghiệp số, nông nghiệp xanh Chứng khoán ngày 24/4: VN-Index mất hơn 17 điểm trước áp lực từ nhóm bất động sản Vietcombank thông qua kế hoạch phát hành hơn 1 tỷ cổ phiếu, thành lập ngân hàng tại Trung tâm tài chính quốc tế Việt Nam [Infographic] Chứng khoán ngày 23/4: Thanh khoản thị trường tăng mạnh, khối lượng giao dịch tăng 69,6% so phiên trước"
+            ]
+          },
+          {
+            "url": "https://cafef.vn/chung-khoan-20-4-ly-do-co-phieu-vinhomes-bat-tang-kich-tran-188260420161239867.chn",
+            "title": "Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch ...",
+            "snippets": [
+              "# Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch trần\n## Khép lại phiên giao dịch ngày 20-4, thị trường chứng khoán Việt Nam tiếp tục nối dài đà tăng điểm đầy ấn tượng\nTIN MỚI\n\nTình trạng \"xanh vỏ đỏ lòng\" tiếp diễn khi dòng tiền chỉ dồn lực kéo nhóm cổ phiếu Vingroup, khiến tài khoản của phần lớn nhà đầu tư \"đứng im\", trong bối cảnh khối ngoại vẫn miệt mài xả ròng.\n\nĐóng cửa ngày giao dịch đầu tuần (20-4), chỉ số VN-Index tăng mạnh 19,94 điểm (tương ứng mức tăng 1,10%), tự tin vươn lên mốc 1.837,11 điểm. Sức kéo chủ đạo giúp thị trường thăng hoa trong phiên này gần như phụ thuộc hoàn toàn vào nhóm cổ phiếu \"họ\" Vingroup.\n\nMã cổ phiếu VHM vươn lên trở thành \"đầu tàu\" dẫn dắt khi bứt phá mạnh mẽ 6,9%, đóng cửa trong sắc tím tại mức giá 145.100 đồng/cổ phiếu. Sự thăng hoa của VHM đã một mình đóng góp tới 8,16 điểm cho đà tăng của chỉ số chung.\n\nĐáng chú ý, cổ phiếu VHM bứt phá sau khi Công ty CP Vinhomes (VHM) công bố điều chỉnh tài liệu Đại hội đồng cổ đông thường niên năm 2026 ngay trước ngày dự kiến tổ chức ngày 21-4.\n\nTheo đó, mục tiêu doanh thu và lợi nhuận sau thuế năm 2026 được nâng lên lần lượt 285.000 tỉ đồng và 60.000 tỉ đồng, tăng tương ứng 14% và 20% so với kế hoạch ban đu. Như vậy, chỉ sau khoảng 3 tuần kể từ khi lần đầu công bố tài liệu, doanh nghiệp đã bổ sung 35.000 tỉ đồng doanh thu và 10.000 tỉ đồng lợi nhuận vào kế hoạch năm.\n\nSự hưng phấn lan tỏa tích cực sang các cổ phiếu cùng \"họ\", với VIC tăng 1,6% lên 191.000 đồng/cổ phiếu, VPL tăng 3% lên 85.300 đồng và VRE tăng 3% lên 29.450. Chỉ riêng mã VIC cũng đã tiếp sức thêm 5,06 điểm vào rổ chỉ số.\n\n*[Image: Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch trần - Ảnh 1.]*\n\nKhối ngoại kiên trì duy trì trạng thái bán ròng với giá trị 604,91 tỉ đồng trên sàn HoSE.\n\nSự trỗi dậy của Vingroup, kết hợp cùng lực đỡ từ một số mã như VCB (+1%), GEE (+7%) hay HDB (+2,7%), đã giúp nhóm vốn hóa lớn VN30 ghi nhận mức tăng ấn tượng 20,93 điểm (+1,05%), chốt phiên tại 2.009,04 điểm.\n\nDù chỉ số chung bứt phá gần 20 điểm nhưng niềm vui lại không trọn vẹn với phần đông giới đầu tư. Bởi, đằng sau sự bứt phá mạnh mẽ của chỉ số VN-Index, bức tranh toàn cảnh lại bộc lộ sự phân hóa sâu sắc với 154 mã tăng và 147 mã giảm.\n\nMinh chứng rõ nét nhất là sự phân pha giữa các sàn giao dịch. Trong khi VN-Index tăng vọt, chỉ số HNX-Index lại quay đầu giảm 2,67 điểm (-1,03%) lùi về 257,33 điểm, cho thấy sự suy yếu của nhóm cổ phiếu vốn hóa vừa và nhỏ. Tại sàn HoSE, phần lớn các cổ phiếu còn lại trên thị trường chỉ dao động với biên độ hẹp quanh mức tham chiếu hoặc chìm trong sắc đỏ.\n\nNhìn vào nhóm ngân hàng, ngoại trừ HDB, TCB hay VCB duy trì được đà tăng nhẹ, các \"ông lớn\" khác như VPB, BID, STB, MBB đều không thể giữ được sắc xanh. Áp lực chốt lời cũng xuất hiện cục bộ ở hàng loạt các mã có sức ảnh hưởng khác như BSR, GAS, GVR hay VJC, tạo lực cản kìm hãm thị trường. Hệ quả là tài sản của nhiều nhà đầu tư gần như không biến động, thậm chí sụt giảm bất chấp VN-Index thiết lập đỉnh cao mới.\n\n*[Image: Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch trần - Ảnh 2.]*\n\nTrong một phiên giao dịch mà điểm số tăng mạnh, dòng tiền lại chưa cho thấy sự bùng nổ tương xứng. Tổng giá trị giao dịch trên sàn HoSE chỉ đạt 20.048,04 tỉ đồng, với tổng khối lượng đạt hơn 653,5 triệu đơn vị được sang tay, thấp nhất từ đầu tháng 4 đến này.\n\nThanh khoản duy trì ở mức trung bình phản ánh tâm lý e dè, thận trọng của một bộ phận dòng tiền đứng ngoài khi thị trường phụ thuộc quá nhiều vào một vài cổ phiếu trụ.\n\nĐiểm trừ lớn tiếp tục đến từ động thái của nhà đầu tư nước ngoài. Khối ngoại kiên trì duy trì trạng thái bán ròng với giá trị 604,91 tỉ đồng trên HoSE. Cụ thể, khối này giải ngân mua vào 2.547,74 tỉ đồng nhưng lại mạnh tay xả hàng với giá trị lên tới 3.152,65 tỉ đồng. Động thái miệt mài rút vốn của khối ngoại tiếp tục là một rào cản tâm lý không nhỏ đối với các nhà đầu tư nội địa.\n\nViệc VN-Index tiếp đà bứt phá nhờ lực kéo \"độc diễn\" từ Vingroup đang đặt ra bài toán khó về tính bền vững của dòng tiền. Trong bối cảnh phân hóa khắc nghiệt hiện tại, giới chuyên môn khuyến nghị nhà đầu tư cần cẩn trọng rà soát danh mục, tránh cuốn theo đà tăng của chỉ số chung mà bỏ qua những yếu tố cơ bản của từng cổ phiếu cụ thể.\n\nTheo V.Vinh\n\nNgười Lao Động\n\nTheo Người Lao Động\n\n*Copy link*\n\nLink bài gốc\n\n*Lấy link!*\n\nhttps://nld.com.vn/chung-khoan-20-4-ly-do-co-phieu-vinhomes-bat-tang-kich-tran-196260420153434807.htm\n\nChia sẻ\n\n****Từ Khóa:**\n\nvn-index,\nvinhomes,\nvhm,\nchứng khoán,\nđầu tư"
+            ]
+          },
+          {
+            "url": "https://www.vietnamplus.vn/nganh-chung-khoan-dat-muc-tieu-tang-truong-dot-pha-don-song-nang-hang-thi-truong-post1106007.vnp",
+            "title": "Các công ty chứng khoán Việt Nam chuẩn bị cho bước ...",
+            "snippets": [
+              "Thị trường chứng khoán Việt Nam vừa ghi nhận phiên giao dịch bùng nổ với đà tăng ấn tượng sau thông tin về lộ trình nâng hạng của FTSE Russell. ... Token hóa là việc đưa các tài sản tài chính (như cổ phiếu, trái phiếu…) lên nền tảng công nghệ chuỗi khối (blockchain) nhờ đó việc mua bán có thể thực hiện nhanh chóng, mọi lúc, mọi nơi. ... VN-Index nối dài chuỗi tăng sang tuần thứ tư, vượt 1.817 điểm và hướng tới mốc 1.850 điểm, song dòng tiền vẫn tập trung vào cổ phiếu trụ khiến thị trường tiềm ẩn rung lắc khi tiến gần vùng kháng cự. ... Trong phiên giao dịch ngày 17/4, các cổ phiếu thuộc các ngành dễ bị ảnh hưởng bởi việc đóng cửa eo biển Hormuz như du lịch và hàng không, đã phục hồi mạnh"
+            ]
+          },
+          {
+            "url": "https://www.vietnam.vn/vn-index-giam-diem-giao-dich-thi-truong-am-dam",
+            "title": "VN-Index giảm điểm, giao dịch thị trường ảm đạm",
+            "snippets": [
+              "# VN-Index giảm điểm, giao dịch thị trường ảm đạm\n### Thị trường chứng khoán tiếp tục rung lắc mạnh, thanh khoản sụt giảm, giao dịch ảm đạm khi tâm lý thận trọng bao trùm trước kỳ nghỉ lễ dài ngày.\n*[Image: Báo Nghệ An]*\n\nBáo Nghệ An•24/04/2026\n\n---\n\nTheo dõi Vietnam.vn trênGoogle\n\nNews\n\n0\n\nMở cửa phiên giao dịch sáng nay, thị trường giao dịch khá ảm đạm, thanh khoản thấp và hầu như không nhóm ngành cổ phiếu nào có diễn biến đáng chú ý.\n\nMặt khác, cổ phiếu PC1 sau phiên bán tháo hôm qua đã tiếp tục chịu áp lực bán mạnh và tiếp tục giảm sàn 6,9% xuống 22.450 đồng, khớp hơn 1,1 triệu đơn vị và dư bán giá sàn tới hơn 22 triệu đơn vị.\n\nKết thúc phiên giao dịch sáng 24/4, VN-Index chứng kiến đà giảm 7,95 điểm, xuống 1.862,41 điểm (-0,43%) so với phiên trước, tương tự, chỉ số HNX-Index giảm 251,68 điểm (-0,61%) tương đương 1,55 điểm, chỉ số UPCoM-Index giảm 127,66 điểm (-0,51%), tương đương 0,65 điểm.\n\nThanh khoản thị trường sáng nay đạt 8.016,865 tỷ đồng, với 252 nghìn cổ phiếu được giao dịch. Toàn ngành ghi nhận 92 mã tăng trong đó 5 mã kịch trần, 195 mã giảm và 70 mã lùi xuống giá tham chiếu.\n\nSự phân hóa mạnh ở nhóm ngân hàng khi TCB (+1,8%), SHB (-1,01%), BID (-1,44%), VCB (-1,91%) và HDB (+0,19%). Tương tự tại nhóm bất động sản khi VIC (+1,59%), VRE (+0,69%), VHM (-3,42%), NVL (-2,86%) và IDC (-2,17%).\n\nSắc đỏ bao trùm nhóm dịch vụ tài chính khi VIX (-1,78%), SSI (-0,89%), SHS (-0,59%), HCM (-1,69%) và VND (-0,31%). Tương tự ở nhóm hóa chất khi DCM (-2,65%), DPM (-2,04%), DGC (-1,31%), VTZ (-0,5%) và LAS (-0,6%).\n\nTại nhóm dầu khí chứng kiến đà tăng mạnh khi PLX (+2,54%), BSR (+0,6%), PVD (+0,16%), PVS (+2,14%) và PVC (+1,27%).\n\n*[Image: Ảnh chụp Màn hình 2026-04-24 lúc 11.30.12]*\n\nVN-Index chứng kiến phiên giảm điểm. Ảnh: Vĩnh Hoàng\n\nNhận định thị trường chuyên gia Công ty Chứng khoán Kiến Thiết Việt Nam cho rằng, trong bối cảnh VN-Index phải nhờ tới sắc xanh từ những cổ phiếu vốn hóa lớn, vậy nên vẫn có cơ sở để duy trì góc nhìn tích cực khi dòng tiền có dấu hiệu xoay tua nhanh chóng giữa các nhóm ngành thay vì rút lui khỏi thị trường.\n\nMặc dù vậy, nhà đầu tư vẫn chỉ nên nắm giữ danh mục ở thời điểm hiện tại và mở mua gia tăng khi chỉ số chung có nhịp điều chỉnh về vùng nền an toàn.\n\nNhững cổ phiếu được ưu tiên phải có cơ bản doanh nghiệp và tiềm năng tăng trưởng hoạt động kinh doanh tích cực trong những quý tiếp theo.\n\nCòn theo chuyên gia Công ty Chứng khoán Vietcombank, diễn biến giằng co và rung lắc trong phiên hôm qua là thường thấy sau khi chỉ số đã có một nhịp tăng mạnh. Thị trường đang trong giai đoạn kiểm định lại cung - cầu sau giai đoạn tăng nóng vừa qua.\n\nĐồng thời, dòng tiền có sự phân hóa rõ nét và đang có tín hiệu tìm kiếm cơ hội ở một số cổ phiếu hoặc nhóm ngành có câu chuyện riêng.\n\nTrước diễn biến hiện tại của thị trường, khuyến nghị nhà đầu tư ưu tiên chiến lược đầu tư ngắn hạn trong giai đoạn này.\n\nTheo đó, tập trung tìm kiếm và chọn lọc cổ phiếu củng cố nền giá/vùng hỗ trợ dài hạn thuyết phục với tín hiệu tham gia tích cực của lực cầu và canh giải ngân từng phần tại những nhịp rung lắc của thị trường. Một số nhóm đáng lưu ý bao gồm đầu tư công, dầu khí và vận tải biển. Bán các mã đang suy yếu về sức mạnh giá.\n\nADQuảng cáo\n\nNguồn: https://baonghean.vn/vn-index-giam-diem-giao-dich-thi-truong-am-dam-10334196.html\n\nTheo dõi Vietnam.vn trênGoogle\n\nNews\n\n0\n\n---\n\nChủ đề: VN-Indexdầu khíthị trường chứng khoánvận tải biểnđầu tư côngNgân hàngcổ phiếubất động sản"
+            ]
+          }
+        ],
+        "map": []
+      },
+      "sources": {
+        "https://www.dnse.com.vn/senses/tin-tuc/thi-truong-ieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-35220206": {
+          "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+          "hostname": "www.dnse.com.vn",
+          "age": [
+            "Friday, April 24, 2026",
+            "2026-04-24",
+            "1 days ago"
+          ]
+        },
+        "https://www.tinnhanhchungkhoan.vn/thi-truong-dieu-chinh-trong-phien-chieu-244-vn-index-van-giu-chuoi-5-tuan-tang-post389471.html": {
+          "title": "Thị trường điều chỉnh trong phiên chiều 24/4, VN-Index ...",
+          "hostname": "www.tinnhanhchungkhoan.vn",
+          "age": [
+            "Friday, April 24, 2026",
+            "2026-04-24",
+            "1 days ago"
+          ]
+        },
+        "https://bongdaplus.vn/bong-da-cuoc-song/thi-truong-chung-khoan-phien-giao-dich-20-4-ho-vin-lai-khuay-dao-vn-index-5015742604.html": {
+          "title": "Thị trường chứng khoán phiên giao dịch 20/4: Họ VIN ...",
+          "hostname": "bongdaplus.vn",
+          "age": [
+            "Monday, April 20, 2026",
+            "2026-04-20",
+            "5 days ago"
+          ]
+        },
+        "https://nhandan.vn/infographic-chung-khoan-tuan-20-244-thanh-khoan-trong-tuan-giam-khoi-luong-giao-dich-giam-66-so-tuan-truoc-post958265.html": {
+          "title": "[Infographic] Chứng khoán tuần 20-24/4: Thanh khoản trong ...",
+          "hostname": "nhandan.vn",
+          "age": [
+            "Friday, April 24, 2026",
+            "2026-04-24",
+            "1 days ago"
+          ]
+        },
+        "https://cafef.vn/chung-khoan-20-4-ly-do-co-phieu-vinhomes-bat-tang-kich-tran-188260420161239867.chn": {
+          "title": "Chứng khoán 20-4: Lý do cổ phiếu Vinhomes bật tăng kịch ...",
+          "hostname": "cafef.vn",
+          "age": [
+            "Monday, April 20, 2026",
+            "2026-04-20",
+            "5 days ago"
+          ]
+        },
+        "https://www.vietnamplus.vn/nganh-chung-khoan-dat-muc-tieu-tang-truong-dot-pha-don-song-nang-hang-thi-truong-post1106007.vnp": {
+          "title": "Các công ty chứng khoán Việt Nam chuẩn bị cho bước ...",
+          "hostname": "www.vietnamplus.vn",
+          "age": [
+            "Monday, April 20, 2026",
+            "2026-04-20",
+            "5 days ago"
+          ]
+        },
+        "https://www.vietnam.vn/vn-index-giam-diem-giao-dich-thi-truong-am-dam": {
+          "title": "VN-Index giảm điểm, giao dịch thị trường ảm đạm",
+          "hostname": "www.vietnam.vn",
+          "age": [
+            "Friday, April 24, 2026",
+            "2026-04-24",
+            "2 days ago"
+          ]
+        }
+      }
+    }
+  }
+}

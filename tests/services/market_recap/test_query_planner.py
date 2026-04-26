@@ -19,8 +19,13 @@ def test_plan_queries_emits_open_and_site_scoped_queries():
 def test_plan_queries_supports_vn_market():
     queries = plan_queries(date(2026, 4, 20), date(2026, 4, 24), market="VN")
 
-    assert len(queries) == 7
-    assert queries[0].query == "Vietnam stock market recap week of Apr 20-24, 2026"
+    assert len(queries) == 1
+    assert queries[0].query == "thị trường chứng khoán Việt Nam tuần qua"
     assert queries[0].include_domains == []
-    scoped_domains = [query.include_domains[0] for query in queries[1:]]
-    assert scoped_domains[:3] == ["fireant.vn", "vietstock.vn", "vneconomy.vn"]
+
+
+def test_plan_queries_supports_vn_daily_template():
+    queries = plan_queries(date(2026, 4, 24), date(2026, 4, 24), market="VN", cadence="daily")
+    assert len(queries) == 1
+    assert queries[0].query == "thị trường chứng khoán Việt Nam phiên hôm nay"
+    assert queries[0].include_domains == []

@@ -1,25 +1,47 @@
+import os
 from datetime import date
 
+from services.market_recap.brave_client import BraveClient
 from services.market_recap.query_planner import plan_queries
 from services.market_recap.ranking import dedupe, rank
 from services.market_recap.schemas import PlannedQuery, RetrievalResult, RetrievalStats
 from services.market_recap.search_client import SearchProvider
 from services.market_recap.source_policy import is_allowlisted
+from services.market_recap.tavily_client import TavilyClient
+
+
+def _provider_for(market: str) -> SearchProvider:
+    market_key = market.upper()
+    if market_key == "VN":
+        api_key = os.getenv("BRAVE_API_KEY")
+        if not api_key:
+            raise RuntimeError("BRAVE_API_KEY is required for VN retrieval")
+        return BraveClient(api_key=api_key)
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        raise RuntimeError("TAVILY_API_KEY is required for US retrieval")
+    return TavilyClient(api_key=api_key)
 
 
 def retrieve_candidates(
     market: str,
     period_start: date,
     period_end: date,
-    search_provider: SearchProvider,
+    search_provider: SearchProvider | None = None,
     planned_queries: list[PlannedQuery] | None = None,
     top_k: int = 5,
+    cadence: str = "weekly",
 ) -> RetrievalResult:
-    queries = planned_queries if planned_queries is not None else plan_queries(period_start, period_end, market=market)
+    provider = search_provider or _provider_for(market)
+    queries = (
+        planned_queries
+        if planned_queries is not None
+        else plan_queries(period_start, period_end, market=market, cadence=cadence)
+    )
     fetched_candidates = []
     for planned_query in queries:
         fetched_candidates.extend(
-            search_provider.search(
+            provider.search(
                 query=planned_query.query,
                 period_start=period_start,
                 period_end=period_end,

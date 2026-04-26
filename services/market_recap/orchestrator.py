@@ -1,5 +1,4 @@
 import logging
-import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
@@ -10,7 +9,6 @@ from services.market_recap.logging import log_event, new_run_id
 from services.market_recap.persistence import PersistenceResult, persist_recap
 from services.market_recap.recap_generator import GeneratorError, GeneratorResult, generate_recap
 from services.market_recap.retrieval import retrieve_candidates
-from services.market_recap.tavily_client import TavilyClient
 from services.market_recap.validator import ValidationResult, validate_recap
 
 logger = logging.getLogger(__name__)
@@ -50,10 +48,12 @@ def run_market_recap(
     persist_fn: Callable = persist_recap,
 ) -> RunResult:
     run_id = new_run_id()
+    provider = "brave" if market.upper() == "VN" else "tavily"
     base_fields = {
         "run_id": run_id,
         "market": market,
         "cadence": cadence,
+        "provider": provider,
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
     }
@@ -84,18 +84,12 @@ def run_market_recap(
             },
         )
 
-    if retrieve_fn is retrieve_candidates:
-        api_key = os.getenv("TAVILY_API_KEY")
-        if not api_key:
-            raise RuntimeError("TAVILY_API_KEY is required for default retrieval")
-        retrieval = retrieve_fn(
-            market=market,
-            period_start=period_start,
-            period_end=period_end,
-            search_provider=TavilyClient(api_key=api_key),
-        )
-    else:
-        retrieval = retrieve_fn(market=market, period_start=period_start, period_end=period_end)
+    retrieval = retrieve_fn(
+        market=market,
+        period_start=period_start,
+        period_end=period_end,
+        cadence=cadence,
+    )
 
     last_failures: list[str] = []
     last_warnings: list[str] = []
