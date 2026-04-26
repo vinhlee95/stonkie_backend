@@ -1,4 +1,6 @@
+import re
 from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -6,8 +8,31 @@ from services.market_recap.schemas import Candidate
 from services.market_recap.source_policy import ALLOWLIST_BY_MARKET
 
 
-def _build_vn_goggle() -> str:
-    return "\n".join(f"$boost=3,site={domain}" for domain in sorted(ALLOWLIST_BY_MARKET["VN"]))
+def _build_goggle(*, market: str, include_domains: list[str] | None = None) -> str:
+    market_key = market.upper()
+    domains = sorted(set(include_domains or ALLOWLIST_BY_MARKET.get(market_key, ALLOWLIST_BY_MARKET["US"])))
+    lines = [f"$boost=3,site={domain}" for domain in domains]
+    lines.extend(
+        [
+            "$discard=reddit.com",
+            "$discard=x.com",
+            "$discard=twitter.com",
+            "$discard=youtube.com",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _build_vn_goggle(include_domains: list[str] | None = None) -> str:
+    return _build_goggle(market="VN", include_domains=include_domains)
+
+
+def _country_for(market: str) -> str:
+    return "US" if market.upper() == "US" else "ALL"
+
+
+def _search_lang_for(market: str) -> str:
+    return "en" if market.upper() == "US" else "vi"
 
 
 def _midpoint_datetime(period_start: date, period_end: date) -> datetime:
@@ -19,17 +44,55 @@ def _midpoint_datetime(period_start: date, period_end: date) -> datetime:
 def _parse_age_entry(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"20\d{2}-\d{2}-\d{2}", raw):
+        parsed = date.fromisoformat(raw)
+        return datetime(parsed.year, parsed.month, parsed.day, 12, 0, tzinfo=UTC)
     try:
-        parsed = date.fromisoformat(value)
+        parsed_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        parsed_dt = None
+    if parsed_dt is not None:
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=UTC)
+        return parsed_dt.astimezone(UTC)
+    try:
+        parsed = date.fromisoformat(raw)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        return datetime(parsed.year, parsed.month, parsed.day, 12, 0, tzinfo=UTC)
+    try:
+        rfc_dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        rfc_dt = None
+    if rfc_dt is not None:
+        if rfc_dt.tzinfo is None:
+            rfc_dt = rfc_dt.replace(tzinfo=UTC)
+        return rfc_dt.astimezone(UTC)
+    return None
+
+
+def _parse_date_hint(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    match = re.search(r"(20\d{2})-(\d{2})-(\d{2})", value)
+    if match is None:
+        return None
+    try:
+        parsed = date.fromisoformat(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
     except ValueError:
         return None
     return datetime(parsed.year, parsed.month, parsed.day, 12, 0, tzinfo=UTC)
 
 
 class BraveClient:
-    def __init__(self, api_key: str, http_client: httpx.Client | None = None) -> None:
+    def __init__(self, api_key: str, http_client: httpx.Client | None = None, market: str = "VN") -> None:
         self._api_key = api_key
         self._http_client = http_client or httpx.Client(timeout=10.0)
+        self._market = market.upper()
 
     def search(
         self,
@@ -38,17 +101,17 @@ class BraveClient:
         period_end: date,
         include_domains: list[str] | None = None,
     ) -> list[Candidate]:
-        del include_domains
         response = self._http_client.get(
             "https://api.search.brave.com/res/v1/llm/context",
             headers={"X-Subscription-Token": self._api_key},
             params={
                 "q": query,
-                "country": "ALL",
-                "search_lang": "vi",
+                "country": _country_for(self._market),
+                "search_lang": _search_lang_for(self._market),
                 "count": 30,
+                "context_threshold_mode": "strict",
                 "freshness": f"{period_start.isoformat()}to{period_end.isoformat()}",
-                "goggles": _build_vn_goggle(),
+                "goggles": _build_goggle(market=self._market, include_domains=include_domains),
             },
         )
         response.raise_for_status()
@@ -79,6 +142,10 @@ class BraveClient:
                     published_date = _parse_age_entry(entry)
                     if published_date is not None:
                         break
+            if published_date is None:
+                published_date = _parse_date_hint(url)
+            if published_date is None:
+                published_date = _parse_date_hint(item.get("title", ""))
             if published_date is None:
                 published_date = midpoint
 
@@ -115,6 +182,10 @@ class BraveClient:
                     published_date = _parse_age_entry(entry)
                     if published_date is not None:
                         break
+            if published_date is None:
+                published_date = _parse_date_hint(url)
+            if published_date is None:
+                published_date = _parse_date_hint(result.get("title", ""))
             if published_date is None:
                 published_date = midpoint
             candidates.append(

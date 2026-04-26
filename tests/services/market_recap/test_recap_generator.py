@@ -68,6 +68,10 @@ def test_prompt_contains_period_and_indexed_corpus():
     assert '"summary"' in prompt
     assert '"bullets"' in prompt
     assert '"source_indices"' in prompt
+    assert (
+        "capture the week-wide trajectory and vibe (early/mid/late-week where evidence exists), not just a single-day snapshot."
+        in prompt
+    )
     assert agent.calls[0]["use_google_search"] is False
 
 
@@ -210,6 +214,10 @@ def test_prompt_mentions_selected_market():
     assert "dòng tiền/thanh khoản" in prompt
     assert "bối cảnh vĩ mô" in prompt
     assert "phải fail-safe" in prompt
+    assert (
+        "phải tổng hợp được diễn biến xuyên suốt cả tuần (đầu tuần, giữa tuần, cuối tuần nếu có dữ liệu), không chỉ tập trung vào một ngày đơn lẻ."
+        in prompt
+    )
     assert "Định dạng fail-safe bắt buộc" in prompt
     assert "luân chuyển nhóm ngành" in prompt
     assert "Trả về JSON được bọc trong [RECAP_JSON]...[/RECAP_JSON]." in prompt

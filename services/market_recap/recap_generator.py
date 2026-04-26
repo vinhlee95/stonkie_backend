@@ -43,6 +43,7 @@ def _build_prompt(retrieval: RetrievalResult, market: str, period_start: date, p
             "- source_indices chỉ được tham chiếu các khối Source [i] đã cung cấp.",
             "- không xuất thêm key ngoài summary/bullets/text/source_indices.",
             "- tránh mô tả chung chung thị trường toàn cầu; mọi nhận định phải bám theo nguồn đã cung cấp cho thị trường Việt Nam.",
+            "- phải tổng hợp được diễn biến xuyên suốt cả tuần (đầu tuần, giữa tuần, cuối tuần nếu có dữ liệu), không chỉ tập trung vào một ngày đơn lẻ.",
             "Yêu cầu nội dung bắt buộc cho thị trường Việt Nam:",
             "- xu hướng VN-Index trong tuần (chiều hướng và động lực chính).",
             "- bối cảnh vĩ mô (lạm phát, tỷ giá, lãi suất, chính sách hoặc dữ liệu tăng trưởng nếu có trong nguồn).",
@@ -66,6 +67,7 @@ def _build_prompt(retrieval: RetrievalResult, market: str, period_start: date, p
             "- source_indices must reference only provided Source [i] blocks.",
             "- do not emit keys outside summary/bullets/text/source_indices.",
             "- avoid generic global-market-only narrative; ground claims in provided market-specific sources.",
+            "- capture the week-wide trajectory and vibe (early/mid/late-week where evidence exists), not just a single-day snapshot.",
             "Return JSON wrapped in [RECAP_JSON]...[/RECAP_JSON].",
         ]
     for idx, candidate in enumerate(retrieval.candidates):

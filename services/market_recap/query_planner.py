@@ -11,6 +11,15 @@ HIGH_SIGNAL_SITES = [
     "federalreserve.gov",
 ]
 
+VN_HIGH_SIGNAL_SITES = [
+    "cafef.vn",
+    "vietstock.vn",
+    "vneconomy.vn",
+    "vnexpress.net",
+    "tinnhanhchungkhoan.vn",
+    "vietnamfinance.vn",
+]
+
 _VN_TEMPLATES = {
     "weekly": "thị trường chứng khoán Việt Nam tuần qua",
     "daily": "thị trường chứng khoán Việt Nam phiên hôm nay",
@@ -23,7 +32,8 @@ def plan_queries(
     market_key = market.upper()
     if market_key == "VN":
         vn_query = _VN_TEMPLATES.get(cadence.lower(), _VN_TEMPLATES["weekly"])
-        return [PlannedQuery(query=vn_query)]
+        scoped_queries = [PlannedQuery(query=vn_query, include_domains=[domain]) for domain in VN_HIGH_SIGNAL_SITES]
+        return [PlannedQuery(query=vn_query), *scoped_queries]
 
     month = period_start.strftime("%b")
     open_query = PlannedQuery(

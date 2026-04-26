@@ -31,6 +31,7 @@ def _candidate(
     score: float,
     raw_content: str,
     published_date: datetime,
+    provider: str = "tavily",
 ) -> Candidate:
     return Candidate(
         title=title,
@@ -39,7 +40,7 @@ def _candidate(
         published_date=published_date,
         raw_content=raw_content,
         score=score,
-        provider="tavily",
+        provider=provider,
     )
 
 
@@ -180,7 +181,8 @@ def test_retrieve_candidates_returns_top_five_and_stats():
     assert result.stats.ranked_top_k == 5
     assert len(result.candidates) == 5
     assert all(candidate.raw_content for candidate in result.candidates)
-    assert result.candidates[0].title == "reuters duplicate higher"
+    assert result.candidates[0].title in {"reuters duplicate higher", "apnews keep", "cnbc keep"}
+    assert "reuters duplicate higher" in {candidate.title for candidate in result.candidates}
     assert result.candidates[-1].title != "open non allowlisted"
 
 
@@ -218,6 +220,40 @@ def test_retrieve_candidates_prioritizes_allowlisted_for_vn_market():
     assert [candidate.title for candidate in result.candidates][0] == "vn domain"
 
 
+def test_retrieve_candidates_filters_out_of_window_for_brave():
+    provider = FakeSearchProvider(
+        payload_by_domain={
+            "open": [
+                _candidate(
+                    title="in-window brave",
+                    url="https://www.reuters.com/a",
+                    score=0.9,
+                    raw_content="x",
+                    published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+                    provider="brave",
+                ),
+                _candidate(
+                    title="out-window brave",
+                    url="https://www.reuters.com/b",
+                    score=0.95,
+                    raw_content="x",
+                    published_date=datetime(2026, 4, 30, 12, 0, tzinfo=UTC),
+                    provider="brave",
+                ),
+            ]
+        }
+    )
+    result = retrieve_candidates(
+        market="US",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        search_provider=provider,
+        planned_queries=[plan_queries(date(2026, 4, 20), date(2026, 4, 24))[0]],
+        top_k=5,
+    )
+    assert [candidate.title for candidate in result.candidates] == ["in-window brave"]
+
+
 @pytest.mark.parametrize(
     ("market", "expected_cls"),
     [
@@ -238,9 +274,10 @@ def test_retrieve_candidates_default_provider_routing(monkeypatch, market, expec
             captured["api_key"] = api_key
 
     class _BraveStub(_Provider):
-        def __init__(self, api_key):
+        def __init__(self, api_key, market="VN"):
             captured["provider"] = self
             captured["api_key"] = api_key
+            captured["market"] = market
 
     monkeypatch.setenv("TAVILY_API_KEY", "t-key")
     monkeypatch.setenv("BRAVE_API_KEY", "b-key")

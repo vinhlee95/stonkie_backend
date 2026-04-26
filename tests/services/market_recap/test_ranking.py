@@ -82,3 +82,80 @@ def test_rank_is_lexicographic_and_deterministic():
         "Non-allowlisted newer",
     ]
     assert [candidate.title for candidate in ranked_a] == [candidate.title for candidate in ranked_b]
+
+
+def test_rank_prefers_article_page_over_generic_hub_when_dates_match():
+    same_time = datetime(2026, 4, 24, 10, 0, tzinfo=UTC)
+    generic = _candidate(
+        title="Financial Markets",
+        url="https://apnews.com/hub/financial-markets",
+        score=0.9,
+        published_date=same_time,
+    )
+    article = _candidate(
+        title="How major US stock indexes fared Friday 4/24/2026",
+        url="https://apnews.com/article/wall-street-stocks-dow-nasdaq-fc22c5b3b62593817c7e0eba52a42ce1",
+        score=0.1,
+        published_date=same_time,
+    )
+
+    ranked = rank([generic, article])
+    assert [candidate.title for candidate in ranked] == [
+        "How major US stock indexes fared Friday 4/24/2026",
+        "Financial Markets",
+    ]
+
+
+def test_rank_demotes_generic_homepages_and_video_pages():
+    same_time = datetime(2026, 4, 24, 10, 0, tzinfo=UTC)
+    homepage = _candidate(
+        title="The New York Stock Exchange",
+        url="https://www.nyse.com/index",
+        score=0.9,
+        published_date=same_time,
+    )
+    video_landing = _candidate(
+        title="Wall St ends mixed as investors parse Middle East ...",
+        url="https://www.reuters.com/video/markets/",
+        score=0.9,
+        published_date=same_time,
+    )
+    article = _candidate(
+        title="US chipmakers hit record highs as Intel turbocharges AI rally",
+        url="https://www.reuters.com/business/us-chipmakers-hit-record-highs-intel-turbocharges-ai-rally-2026-04-24/",
+        score=0.1,
+        published_date=same_time,
+    )
+
+    ranked = rank([homepage, video_landing, article])
+    assert ranked[0].title == "US chipmakers hit record highs as Intel turbocharges AI rally"
+    assert ranked[-1].title in {
+        "The New York Stock Exchange",
+        "Wall St ends mixed as investors parse Middle East ...",
+    }
+
+
+def test_rank_demotes_institutional_event_pages_and_index_summaries():
+    same_time = datetime(2026, 4, 24, 10, 0, tzinfo=UTC)
+    board_meeting = _candidate(
+        title="Federal Reserve Board - April 28, 2026 - Closed Board Meeting",
+        url="https://www.federalreserve.gov/aboutthefed/boardmeetings/20260428closed.htm",
+        score=0.9,
+        published_date=same_time,
+    )
+    index_summary = _candidate(
+        title="How major US stock indexes fared Friday 4/24/2026",
+        url="https://apnews.com/article/wall-street-stocks-dow-nasdaq-fc22c5b3b62593817c7e0eba52a42ce1",
+        score=0.9,
+        published_date=same_time,
+    )
+    richer_article = _candidate(
+        title="US chipmakers hit record highs as Intel turbocharges AI rally",
+        url="https://www.reuters.com/business/us-chipmakers-hit-record-highs-intel-turbocharges-ai-rally-2026-04-24/",
+        score=0.1,
+        published_date=same_time,
+    )
+
+    ranked = rank([board_meeting, index_summary, richer_article])
+    assert ranked[0].title == "US chipmakers hit record highs as Intel turbocharges AI rally"
+    assert ranked[-1].title == "Federal Reserve Board - April 28, 2026 - Closed Board Meeting"
