@@ -1,8 +1,13 @@
 """Run weekly market recap orchestration.
 
-Usage:
+Production: runs as Cloud Run job `weekly-market-recap` (europe-north1), triggered every
+Saturday at 08:00 Helsinki by Cloud Scheduler `weekly-market-recap-scheduler` (europe-west1).
+Exit code 0 = all markets succeeded; exit code 1 = at least one market failed (triggers alert).
+See docs/gcp_cronjobs.md for deploy/update/rollback commands.
+
+Local usage:
     source venv/bin/activate
-    PYTHONPATH=. python scripts/run_market_recap.py --market US
+    PYTHONPATH=. python scripts/run_market_recap.py --markets US,VN,FI
     PYTHONPATH=. python scripts/run_market_recap.py --market US --period-start 2026-04-20 --period-end 2026-04-24
 """
 

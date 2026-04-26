@@ -66,6 +66,52 @@ Common log/DB consistency check: if `inserted=true` then `SELECT COUNT(*) FROM m
 
 ## Rerun and rollback
 
+See the Cadence runbook section below.
+
+## Production deployment
+
+The pipeline runs as a Cloud Run job (`weekly-market-recap`, region `europe-north1`) triggered by Cloud Scheduler every Saturday at 08:00 Helsinki time.
+
+### Manual trigger
+
+```bash
+gcloud run jobs execute weekly-market-recap --region=europe-north1 --wait
+```
+
+### Disable/enable scheduler
+
+```bash
+# Pause automatic runs (e.g. while investigating a failure)
+gcloud scheduler jobs pause weekly-market-recap-scheduler --location=europe-west1
+
+# Resume
+gcloud scheduler jobs resume weekly-market-recap-scheduler --location=europe-west1
+```
+
+### Rollback a bad recap
+
+1. Pause scheduler if the next Saturday trigger is imminent.
+2. Delete the bad row:
+   ```sql
+   DELETE FROM market_recap WHERE market = 'US' AND cadence = 'weekly' AND period_start = 'YYYY-MM-DD';
+   DELETE FROM market_recap WHERE market = 'VN' AND cadence = 'weekly' AND period_start = 'YYYY-MM-DD';
+   ```
+3. Trigger a fresh run manually (see above) or wait for next Saturday.
+4. Verify via Cloud Logging: `jsonPayload.event="recap.run.outcome" AND jsonPayload.fields.inserted=true`.
+
+### Update the image
+
+```bash
+cd backend
+docker buildx build --platform linux/amd64 \
+  -t europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap:latest \
+  -f Dockerfile.market-recap --push .
+
+gcloud run jobs update weekly-market-recap \
+  --region=europe-north1 \
+  --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap:latest
+```
+
 ## Provider + cadence notes
 
 - US retrieval uses Tavily.

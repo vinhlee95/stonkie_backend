@@ -1,0 +1,13 @@
+FROM python:3.12.5-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "scripts/run_market_recap.py", "--markets", "US,VN,FI", "--cadence", "weekly"]

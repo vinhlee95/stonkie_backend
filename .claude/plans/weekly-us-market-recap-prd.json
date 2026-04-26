@@ -1046,7 +1046,7 @@
       "id": "phase-7-scheduler-deployment-and-first-production-dry-run",
       "sort_order": 7,
       "impact_level": "MEDIUM",
-      "state": "not-started",
+      "state": "complete",
       "title": "Cloud Run job, scheduler wiring, and production dry-run validation",
       "objective": "Ship operational execution path with one controlled dry run before enabling recurring Saturday automation.",
       "scope_includes": [
@@ -1106,12 +1106,56 @@
             "Gate C: operations runbook completeness pass"
           ]
         }
-      }
+      },
+      "validation_summary": {
+        "summary": "Implemented Phase 7 as a deployment-only phase: created Dockerfile.market-recap (python:3.12.5-slim, no Playwright), pushed linux/amd64 image to new Artifact Registry repo market-recap-repo, created Cloud Run job weekly-market-recap (1 CPU / 2 Gi, europe-north1), created Cloud Scheduler weekly-market-recap-scheduler (0 8 * * 6, Europe/Helsinki, europe-west1). Executed two manual dry-runs: first confirmed US + VN rows inserted for 2026-04-20..04-24; second confirmed idempotent no-op (row count stayed at 2). Baseline healthcheck and ruff passed. Created docs/gcp_cronjobs.md and updated docs/market_recap_operations.md with production deployment and rollback sections. Confirmed Tavily is no longer used — only BRAVE_API_KEY, OPENROUTER_API_KEY, DATABASE_URL are required env vars.",
+        "commands_executed": [
+          "gcloud artifacts repositories create market-recap-repo --repository-format=docker --location=europe-north1",
+          "docker buildx build --platform linux/amd64 -t europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap:latest -f Dockerfile.market-recap --push .",
+          "docker buildx imagetools create --tag europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap:latest europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap",
+          "gcloud run jobs create weekly-market-recap --region=europe-north1 ...",
+          "gcloud scheduler jobs create http weekly-market-recap-scheduler --location=europe-west1 --schedule='0 8 * * 6' --time-zone='Europe/Helsinki' ...",
+          "DELETE FROM market_recap WHERE cadence='weekly' AND period_start='2026-04-20' (deleted 3 rows)",
+          "gcloud run jobs execute weekly-market-recap --region=europe-north1 --wait (execution weekly-market-recap-47j8g: Succeeded)",
+          "gcloud run jobs execute weekly-market-recap --region=europe-north1 --wait (execution weekly-market-recap-9bxpm: Succeeded, idempotency rerun)",
+          "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+          "source venv/bin/activate && ruff check ."
+        ],
+        "result": "pass"
+      },
+      "learnings": [
+        "docker buildx build --push sometimes completes layer push without applying the manifest tag; follow up with docker buildx imagetools create --tag to explicitly tag if Artifact Registry shows image with no tags.",
+        "Both US and VN now use Brave exclusively (Tavily removed from retrieval.py); TAVILY_API_KEY is not required for the Cloud Run job.",
+        "Scheduler must be in europe-west1 (Cloud Scheduler does not support europe-north1); Cloud Run job stays in europe-north1.",
+        "linux/amd64 cross-build from Apple Silicon requires docker buildx build --platform linux/amd64 to match production architecture."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: deploy/run pass",
+          "status": "pass",
+          "notes": "Cloud Run job created and executed successfully (execution weekly-market-recap-47j8g). Scheduler created and ENABLED."
+        },
+        {
+          "gate": "Gate B: data/API verification pass",
+          "status": "pass",
+          "notes": "US and VN rows inserted for 2026-04-20..04-24. Idempotent rerun preserved row count at 2."
+        },
+        {
+          "gate": "Gate C: operations runbook completeness pass",
+          "status": "pass",
+          "notes": "docs/gcp_cronjobs.md created with build/deploy/create/trigger/pause-resume commands. market_recap_operations.md updated with production deployment and rollback sections."
+        }
+      ],
+      "next_phase_considerations": [
+        "Phase 8 (corpus staging) and Phase 9 (LLM semantic validation) are independent of the deployed job; no scheduler changes needed for those phases.",
+        "If adding a VN daily scheduler in future, use same europe-west1 location and a separate job name (e.g. daily-market-recap-vn-scheduler).",
+        "Monitor first few Saturday runs via Cloud Logging: jsonPayload.event='recap.run.outcome' AND jsonPayload.fields.inserted=true."
+      ]
     },
     {
       "id": "phase-6-7-llm-semantic-validation",
-      "sort_order": 6.7,
-      "impact_level": "HIGH",
+      "sort_order": 9,
+      "impact_level": "LOW",
       "state": "not-started",
       "title": "LLM-based semantic validation for recap content quality",
       "objective": "Replace brittle keyword-based content checks with deterministic LLM semantic validation for recap narrative quality, applicable to both Vietnamese and English outputs while preserving existing trust-critical deterministic checks.",
