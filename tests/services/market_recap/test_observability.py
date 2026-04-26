@@ -121,7 +121,7 @@ def test_success_emits_start_and_outcome_with_required_fields(db_session, caplog
     assert start_fields["run_id"] == outcome_fields["run_id"]
     assert start_fields["market"] == "US"
     assert start_fields["cadence"] == "weekly"
-    assert start_fields["provider"] == "tavily"
+    assert start_fields["provider"] == "brave"
     assert start_fields["period_start"] == "2026-04-20"
     assert start_fields["period_end"] == "2026-04-24"
 
@@ -135,7 +135,7 @@ def test_success_emits_start_and_outcome_with_required_fields(db_session, caplog
     assert outcome_fields["validation_fail_reason"] is None
     assert outcome_fields["inserted"] is True
     assert outcome_fields["status"] == "inserted"
-    assert outcome_fields["provider"] == "tavily"
+    assert outcome_fields["provider"] == "brave"
 
     json.dumps(outcome_fields)
 

@@ -2,11 +2,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from services.market_recap.brave_client import BraveClient
 from services.market_recap.query_planner import plan_queries
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.schemas import Candidate
-from services.market_recap.tavily_client import TavilyClient
 
 
 class FakeSearchProvider:
@@ -254,24 +252,13 @@ def test_retrieve_candidates_filters_out_of_window_for_brave():
     assert [candidate.title for candidate in result.candidates] == ["in-window brave"]
 
 
-@pytest.mark.parametrize(
-    ("market", "expected_cls"),
-    [
-        ("US", TavilyClient),
-        ("VN", BraveClient),
-    ],
-)
-def test_retrieve_candidates_default_provider_routing(monkeypatch, market, expected_cls):
+@pytest.mark.parametrize("market", ["US", "VN"])
+def test_retrieve_candidates_default_provider_routing(monkeypatch, market):
     captured = {}
 
     class _Provider:
         def search(self, **kwargs):
             return []
-
-    class _TavilyStub(_Provider):
-        def __init__(self, api_key):
-            captured["provider"] = self
-            captured["api_key"] = api_key
 
     class _BraveStub(_Provider):
         def __init__(self, api_key, market="VN"):
@@ -279,9 +266,7 @@ def test_retrieve_candidates_default_provider_routing(monkeypatch, market, expec
             captured["api_key"] = api_key
             captured["market"] = market
 
-    monkeypatch.setenv("TAVILY_API_KEY", "t-key")
     monkeypatch.setenv("BRAVE_API_KEY", "b-key")
-    monkeypatch.setattr("services.market_recap.retrieval.TavilyClient", _TavilyStub)
     monkeypatch.setattr("services.market_recap.retrieval.BraveClient", _BraveStub)
 
     result = retrieve_candidates(
@@ -289,5 +274,6 @@ def test_retrieve_candidates_default_provider_routing(monkeypatch, market, expec
         period_start=date(2026, 4, 20),
         period_end=date(2026, 4, 24),
     )
-    assert isinstance(captured["provider"], _TavilyStub if expected_cls is TavilyClient else _BraveStub)
+    assert isinstance(captured["provider"], _BraveStub)
+    assert captured["market"] == market
     assert result.stats.results_total == 0

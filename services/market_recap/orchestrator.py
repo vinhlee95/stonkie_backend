@@ -48,7 +48,7 @@ def run_market_recap(
     persist_fn: Callable = persist_recap,
 ) -> RunResult:
     run_id = new_run_id()
-    provider = "brave" if market.upper() == "VN" else "tavily"
+    provider = "brave"
     base_fields = {
         "run_id": run_id,
         "market": market,

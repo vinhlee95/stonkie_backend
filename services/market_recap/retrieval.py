@@ -7,20 +7,14 @@ from services.market_recap.ranking import dedupe, rank
 from services.market_recap.schemas import Candidate, PlannedQuery, RetrievalResult, RetrievalStats
 from services.market_recap.search_client import SearchProvider
 from services.market_recap.source_policy import is_allowlisted
-from services.market_recap.tavily_client import TavilyClient
 
 
 def _provider_for(market: str) -> SearchProvider:
     market_key = market.upper()
-    if market_key == "VN":
-        api_key = os.getenv("BRAVE_API_KEY")
-        if not api_key:
-            raise RuntimeError("BRAVE_API_KEY is required for VN retrieval")
-        return BraveClient(api_key=api_key, market=market_key)
-    api_key = os.getenv("TAVILY_API_KEY")
+    api_key = os.getenv("BRAVE_API_KEY")
     if not api_key:
-        raise RuntimeError("TAVILY_API_KEY is required for US retrieval")
-    return TavilyClient(api_key=api_key)
+        raise RuntimeError("BRAVE_API_KEY is required for retrieval")
+    return BraveClient(api_key=api_key, market=market_key)
 
 
 def _in_window(value: date, start: date, end: date, grace_days: int = 1) -> bool:
