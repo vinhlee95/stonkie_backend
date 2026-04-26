@@ -29,36 +29,45 @@ def _market_label(market: str) -> str:
 def _build_prompt(retrieval: RetrievalResult, market: str, period_start: date, period_end: date) -> str:
     market_label = _market_label(market)
     market_key = market.upper()
-    lines = [
-        f"Generate a weekly {market_label} market recap JSON.",
-        f"Period start: {period_start.isoformat()}",
-        f"Period end: {period_end.isoformat()}",
-        "Use ONLY this schema:",
-        '{"summary":"string","bullets":[{"text":"string","source_indices":[0]}]}',
-        "Rules:",
-        "- summary must be non-empty plain text.",
-        "- bullets must contain 3-6 items.",
-        "- each bullet must include at least one integer index in source_indices.",
-        "- source_indices must reference only provided Source [i] blocks.",
-        "- do not emit keys outside summary/bullets/text/source_indices.",
-        "- avoid generic global-market-only narrative; ground claims in provided market-specific sources.",
-        "Return JSON wrapped in [RECAP_JSON]...[/RECAP_JSON].",
-    ]
     if market_key == "VN":
-        lines.extend(
-            [
-                "Phân tích thị trường chứng khoán Việt Nam trong tuần vừa qua.",
-                "Tập trung vào: dòng tiền và thanh khoản thị trường, nhóm ngành dẫn dắt/tụt hậu, và bối cảnh vĩ mô.",
-                "For Vietnam market recaps, coverage MUST explicitly include:",
-                "- VN-Index trend for the week (direction and key driver).",
-                "- macroeconomic context (inflation, FX, rates, policy, or growth data if available).",
-                "- market money flow / liquidity behavior (foreign net buy-sell, sector rotation, or turnover).",
-                "If you cannot satisfy all required VN sections from provided sources, output MUST fail safe.",
-                'MUST fail safe format: {"summary":"","bullets":[]}',
-                "Do not fabricate VN-specific metrics or entities not grounded in provided sources.",
-                "If you cannot satisfy all required VN sections, do not output partial recap.",
-            ]
-        )
+        lines = [
+            "Tạo bản tóm tắt thị trường chứng khoán Việt Nam theo tuần dưới dạng JSON.",
+            f"Ngày bắt đầu kỳ: {period_start.isoformat()}",
+            f"Ngày kết thúc kỳ: {period_end.isoformat()}",
+            "Chỉ được dùng đúng schema sau:",
+            '{"summary":"string","bullets":[{"text":"string","source_indices":[0]}]}',
+            "Quy tắc:",
+            "- summary phải là văn bản thuần không rỗng.",
+            "- bullets phải có từ 3 đến 6 ý.",
+            "- mỗi bullet phải có ít nhất một chỉ số nguyên trong source_indices.",
+            "- source_indices chỉ được tham chiếu các khối Source [i] đã cung cấp.",
+            "- không xuất thêm key ngoài summary/bullets/text/source_indices.",
+            "- tránh mô tả chung chung thị trường toàn cầu; mọi nhận định phải bám theo nguồn đã cung cấp cho thị trường Việt Nam.",
+            "Yêu cầu nội dung bắt buộc cho thị trường Việt Nam:",
+            "- xu hướng VN-Index trong tuần (chiều hướng và động lực chính).",
+            "- bối cảnh vĩ mô (lạm phát, tỷ giá, lãi suất, chính sách hoặc dữ liệu tăng trưởng nếu có trong nguồn).",
+            "- hành vi dòng tiền/thanh khoản (khối ngoại mua-bán ròng, luân chuyển nhóm ngành, hoặc giá trị giao dịch).",
+            "Nếu không thể đáp ứng đầy đủ các mục bắt buộc từ nguồn đã cho, phải fail-safe.",
+            'Định dạng fail-safe bắt buộc: {"summary":"","bullets":[]}',
+            "Không được bịa số liệu hoặc thực thể cụ thể cho thị trường Việt Nam nếu không có trong nguồn.",
+            "Trả về JSON được bọc trong [RECAP_JSON]...[/RECAP_JSON].",
+        ]
+    else:
+        lines = [
+            f"Generate a weekly {market_label} market recap JSON.",
+            f"Period start: {period_start.isoformat()}",
+            f"Period end: {period_end.isoformat()}",
+            "Use ONLY this schema:",
+            '{"summary":"string","bullets":[{"text":"string","source_indices":[0]}]}',
+            "Rules:",
+            "- summary must be non-empty plain text.",
+            "- bullets must contain 3-6 items.",
+            "- each bullet must include at least one integer index in source_indices.",
+            "- source_indices must reference only provided Source [i] blocks.",
+            "- do not emit keys outside summary/bullets/text/source_indices.",
+            "- avoid generic global-market-only narrative; ground claims in provided market-specific sources.",
+            "Return JSON wrapped in [RECAP_JSON]...[/RECAP_JSON].",
+        ]
     for idx, candidate in enumerate(retrieval.candidates):
         lines.extend(
             [

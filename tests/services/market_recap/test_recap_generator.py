@@ -205,12 +205,11 @@ def test_prompt_mentions_selected_market():
         agent=agent,
     )
     prompt = agent.calls[0]["prompt"]
-    assert "Vietnam market recap" in prompt
+    assert "Tạo bản tóm tắt thị trường chứng khoán Việt Nam theo tuần dưới dạng JSON." in prompt
     assert "VN-Index" in prompt
-    assert "money flow" in prompt
-    assert "macroeconomic" in prompt
-    assert "MUST fail safe" in prompt
-    assert "If you cannot satisfy all required VN sections" in prompt
-    assert "Phân tích thị trường chứng khoán Việt Nam trong tuần vừa qua" in prompt
-    assert "dòng tiền và thanh khoản" in prompt
-    assert "nhóm ngành dẫn dắt/tụt hậu" in prompt
+    assert "dòng tiền/thanh khoản" in prompt
+    assert "bối cảnh vĩ mô" in prompt
+    assert "phải fail-safe" in prompt
+    assert "Định dạng fail-safe bắt buộc" in prompt
+    assert "luân chuyển nhóm ngành" in prompt
+    assert "Trả về JSON được bọc trong [RECAP_JSON]...[/RECAP_JSON]." in prompt
