@@ -1127,7 +1127,9 @@
         "docker buildx build --push sometimes completes layer push without applying the manifest tag; follow up with docker buildx imagetools create --tag to explicitly tag if Artifact Registry shows image with no tags.",
         "Both US and VN now use Brave exclusively (Tavily removed from retrieval.py); TAVILY_API_KEY is not required for the Cloud Run job.",
         "Scheduler must be in europe-west1 (Cloud Scheduler does not support europe-north1); Cloud Run job stays in europe-north1.",
-        "linux/amd64 cross-build from Apple Silicon requires docker buildx build --platform linux/amd64 to match production architecture."
+        "linux/amd64 cross-build from Apple Silicon requires docker buildx build --platform linux/amd64 to match production architecture.",
+        "gcloud run jobs update --args splits on commas, so passing --args='python,scripts/foo.py,--markets,US,VN,FI' delivers US, VN, FI as three separate args instead of one comma-separated string. Always bake multi-value args into the Dockerfile CMD (JSON array form) and clear --args override; never rely on --args for comma-separated argument values.",
+        "Adding a new market (FI) requires no code changes if source_policy.py and query_planner.py already handle it — just update the --markets list in the Dockerfile CMD and rebuild the image."
       ],
       "gates_result_snapshot": [
         {
