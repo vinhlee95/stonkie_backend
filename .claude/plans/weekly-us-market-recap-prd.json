@@ -771,6 +771,219 @@
       ]
     },
     {
+      "id": "phase-6-5-brave-vn-and-daily-cadence",
+      "sort_order": 6.5,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Brave LLM-Context provider for VN market and daily cadence support",
+      "objective": "Route VN market recap retrieval through Brave LLM-Context (replacing Tavily for VN due to poor Vietnamese-language coverage) and add daily cadence as a manually-runnable execution mode, prioritizing source quality over throughput.",
+      "rationale": {
+        "evidence_summary": "Side-by-side test on prior business week (2026-04-20..04-24) with query 'thị trường chứng khoán Việt Nam tuần qua' showed Tavily returns 0 Vietnamese-language sources even unconstrained (5/5 hits were ft/tipranks/aastocks/sfchronicle/reuters); constraining Tavily to the VN allowlist forced all 5 hits onto reuters.com with only 1/5 actually about Vietnam. Brave returned 8 hits with 3/8 on the original VN allowlist and 5/8 on legitimate VN financial press not yet allowlisted. Sweep across country/search_lang/count combos confirmed country=ALL, search_lang=vi, count=30 maximizes allowlist hit rate; count beyond 20 does not expand recall but is harmless. With expanded allowlist, allowlist hit rate rises to 71-86%.",
+        "comparison_artifacts": [
+          "backend/scripts/test_brave_vs_tavily.py",
+          "backend/scripts/brave_vs_tavily_vn.json",
+          "backend/scripts/brave_vs_tavily_vn_unconstrained.json",
+          "backend/scripts/brave_vs_tavily_us.json",
+          "backend/scripts/test_brave_vn_sweep.py",
+          "backend/scripts/brave_vn_sweep.json"
+        ]
+      },
+      "design_decisions": {
+        "provider_strategy": {
+          "rule": "Brave fully replaces Tavily for VN. US continues on Tavily. No feature flag, no fallback path; VN-Tavily code path deleted.",
+          "routing": "SearchProvider selection in retrieval.py keyed by market: US -> TavilyClient, VN -> BraveClient."
+        },
+        "cadence_extension": {
+          "supported_cadences": ["weekly", "daily"],
+          "daily_window": "period_start == period_end == latest completed trading day in Asia/Ho_Chi_Minh.",
+          "scheduler": "deferred. Phase 6.5 only adds CLI/orchestrator support for cadence=daily; Cloud Scheduler/Cloud Run wiring lives in Phase 7 or later.",
+          "weekend_holiday_handling": "CLI default skips Saturdays and Sundays for VN daily; explicit --period-start can override. TET/holiday calendar not modeled in v1."
+        },
+        "vn_allowlist_expansion": {
+          "additions": [
+            "nhandan.vn",
+            "vietnamplus.vn",
+            "dnse.com.vn",
+            "tienphong.vn",
+            "hsx.vn",
+            "hnx.vn",
+            "ssc.gov.vn",
+            "sbv.gov.vn",
+            "baodautu.vn",
+            "thoibaotaichinhvietnam.vn",
+            "vir.com.vn",
+            "bnews.vn",
+            "thanhnien.vn",
+            "tuoitre.vn",
+            "doanhnhansaigon.vn",
+            "ssi.com.vn",
+            "vndirect.com.vn",
+            "mbs.com.vn",
+            "hsc.com.vn"
+          ],
+          "tiering": "single-tier in v1 (no tier-1/tier-2 split); revisit if quality drift observed.",
+          "rationale": "Test runs surfaced legitimate VN financial coverage from sources missing from the original 11-entry list. Expansion increases yield while staying within editorially-vetted outlets (state press, regulators, exchanges, top-4 brokers, mainstream business sections)."
+        },
+        "registrable_domain_fix": {
+          "approach": "Hardcode known multi-part VN suffixes in services/market_recap/source_policy.py: .com.vn, .gov.vn, .org.vn, .net.vn, .edu.vn. Strip the suffix and take the last remaining label + suffix.",
+          "rejected_alternative": "tldextract dependency (rejected for v1: avoids new transitive dep).",
+          "test_coverage": "must include cases for ssi.com.vn, hsx.vn, ssc.gov.vn, hsc.com.vn, vir.com.vn (new); reuters.com, cafef.vn (existing 2-part); www.cafef.vn subdomain.",
+          "future_consideration": "If allowlist expands to .co.uk / other 2-label public suffixes, switch to tldextract."
+        },
+        "brave_request_shape": {
+          "endpoint": "https://api.search.brave.com/res/v1/llm/context",
+          "auth_header": "X-Subscription-Token: BRAVE_API_KEY",
+          "country": "ALL",
+          "search_lang": "vi",
+          "count": 30,
+          "freshness": "YYYY-MM-DDtoYYYY-MM-DD (authoritative window filter; same posture as Tavily start_date/end_date)",
+          "goggles": "inline Goggle definition passed per request that boosts allowlisted VN domains. No external Goggle hosting in v1.",
+          "context_threshold_mode": "balanced (Brave default; revisit to strict if low-quality results observed)",
+          "country_sweep_evidence": "ALL/vi=71-86%, ALL/en=71%, HK/vi=71%, US/vi=71%, JP/vi=57% allowlisted. ALL/vi chosen."
+        },
+        "query_plan": {
+          "strategy": "single broad query per run (no multi-query merge in v1); planner emits one PlannedQuery with empty include_domains.",
+          "weekly_template_vn": "thị trường chứng khoán Việt Nam tuần qua",
+          "daily_template_vn": "thị trường chứng khoán Việt Nam phiên hôm nay",
+          "rationale": "Brave returned a stable 7-hit ceiling regardless of count; multi-query was deferred per cost/complexity trade-off."
+        },
+        "snippet_handling": {
+          "policy": "concatenate Brave grounding.generic[].snippets[] verbatim into Candidate.raw_content. No JSON-LD parsing, no separate re-fetcher.",
+          "rationale": "Snippets sometimes embed raw NewsArticle JSON-LD strings; LLM can still read the embedded articleBody. Avoids new HTML/JSON parser surface area in v1.",
+          "stage_filter": "existing with_raw_content filter still applies (drop candidates with empty concatenated raw_content)."
+        },
+        "published_date_policy": {
+          "primary": "iterate Brave sources[<url>].age list and use first parseable value (ISO 'YYYY-MM-DD' typically present at index 1).",
+          "fallback": "(period_start + period_end) / 2 at 12:00 UTC when no element of the age list parses.",
+          "out_of_window_check": "trust Brave freshness param as authoritative; do not post-filter dates. date_in_window_count == results_total documented assumption (mirrors Tavily).",
+          "drop_policy": "do NOT drop candidates with unparseable dates; midpoint fallback keeps yield."
+        },
+        "validator_vn_rule_split": {
+          "per_bullet_allowlist": "warning-only for VN (was hard-fail); reason: with looser allowlist enforcement at the provider layer, occasional non-allowlisted citations should not block the recap.",
+          "recap_wide_floor": "hard-fail when recap has fewer than 2 distinct allowlisted sources across all bullets (NEW). Replaces the warning-only floor for VN.",
+          "out_of_window_dates": "hard-fail (unchanged).",
+          "us_unchanged": "US validator rules untouched; rule split lives behind a market parameter on the validator entrypoint."
+        },
+        "retrieval_floor": {
+          "decision": "no retrieval-floor hard-fail.",
+          "rationale": "Validator's recap-wide >=2 allowlisted sources rule already blocks thin recaps post-generation; pre-LLM cutoff would risk false skips on quieter VN news days. LLM-token cost accepted."
+        },
+        "provider_persistence": {
+          "decision": "do not add a `provider` column/field to the Source schema in v1.",
+          "rationale": "Per-source provider tracking can be reconstructed from logs (run_id -> provider) if needed. Defer schema change until a concrete analysis use-case exists.",
+          "observability_carry": "orchestrator structured log gains a `provider` field on the run.start and run.outcome events (free-form string)."
+        },
+        "env_and_secrets": {
+          "added": ["BRAVE_API_KEY"],
+          "removed": [],
+          "notes": "TAVILY_API_KEY remains required (still serves US)."
+        }
+      },
+      "scope_includes": [
+        "Implement BraveClient (services/market_recap/brave_client.py) conforming to existing SearchProvider Protocol; normalize grounding.generic[] -> Candidate with concatenated snippets as raw_content and Brave-window-midpoint fallback for unparseable published_date.",
+        "Add inline Goggle definition built from the VN allowlist; pass via Brave goggles parameter on every VN request.",
+        "Expand ALLOWLIST_BY_MARKET['VN'] in source_policy.py with the 19 additions listed in design_decisions.vn_allowlist_expansion.additions.",
+        "Fix registrable_domain in source_policy.py to handle multi-part VN suffixes (.com.vn / .gov.vn / .org.vn / .net.vn / .edu.vn).",
+        "Add provider routing in retrieval.py keyed by market (US -> Tavily, VN -> Brave).",
+        "Delete the VN-Tavily code path; remove TAVILY default for VN.",
+        "Extend query_planner.py with VN query templates per cadence (weekly: 'thị trường chứng khoán Việt Nam tuần qua'; daily: 'thị trường chứng khoán Việt Nam phiên hôm nay').",
+        "Extend orchestrator.py to accept cadence='daily', dispatch to provider per market, default daily window to latest completed trading day in Asia/Ho_Chi_Minh, and emit `provider` and `cadence` in run.start/run.outcome structured logs.",
+        "Extend validator.py with a market-aware rule split: per-bullet allowlist warning-only for VN, recap-wide >=2 distinct allowlisted sources hard-fail for VN. US rules unchanged.",
+        "Extend run_market_recap.py CLI with --cadence weekly|daily and VN-aware tz default (Asia/Ho_Chi_Minh).",
+        "Add BRAVE_API_KEY to .env.example.",
+        "Update backend/docs/market_recap_operations.md with Brave request shape, expanded VN allowlist, registrable_domain VN suffix policy, daily cadence runbook section, and the VN validator rule split."
+      ],
+      "scope_excludes": [
+        "No Cloud Scheduler / Cloud Run wiring for VN or daily (Phase 7 or later).",
+        "No JSON-LD parsing of Brave snippets; raw_content stays verbatim.",
+        "No external Goggle hosting; Goggles inline only.",
+        "No HTML re-fetcher.",
+        "No tldextract dependency.",
+        "No `provider` column on the Source schema.",
+        "No tier-1/tier-2 split inside the VN allowlist.",
+        "No multi-query plan for VN.",
+        "No retrieval-floor hard-fail.",
+        "No alerting integration."
+      ],
+      "files_expected": [
+        "backend/services/market_recap/brave_client.py",
+        "backend/services/market_recap/source_policy.py",
+        "backend/services/market_recap/query_planner.py",
+        "backend/services/market_recap/retrieval.py",
+        "backend/services/market_recap/orchestrator.py",
+        "backend/services/market_recap/validator.py",
+        "backend/scripts/run_market_recap.py",
+        "backend/tests/services/market_recap/test_brave_client.py",
+        "backend/tests/services/market_recap/test_source_policy.py",
+        "backend/tests/services/market_recap/test_query_planner.py",
+        "backend/tests/services/market_recap/test_retrieval.py",
+        "backend/tests/services/market_recap/test_validator.py",
+        "backend/tests/services/market_recap/test_orchestrator.py",
+        "backend/tests/scripts/test_run_market_recap.py",
+        "backend/.env.example",
+        "backend/docs/market_recap_operations.md"
+      ],
+      "env_vars_required": ["BRAVE_API_KEY", "TAVILY_API_KEY"],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-4-runner-persistence-and-idempotent-execution",
+          "phase-6-observability-and-operational-readiness"
+        ],
+        "parallelizable": true
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "BraveClient returns normalized Candidate objects given a fixture Brave response, with raw_content = concatenated snippets and published_date = parsed age | window-midpoint fallback.",
+          "Inline Goggle is constructed deterministically from the VN allowlist and included in every VN Brave request.",
+          "registrable_domain correctly resolves all VN allowlist entries including multi-part suffixes (ssi.com.vn, hsx.vn, ssc.gov.vn, hsc.com.vn, vir.com.vn).",
+          "retrieval.py dispatches market='VN' to BraveClient and market='US' to TavilyClient.",
+          "orchestrator accepts cadence='daily' and computes default period as latest completed trading day in Asia/Ho_Chi_Minh.",
+          "Validator with market='VN' downgrades per-bullet allowlist to warning and hard-fails when recap-wide distinct-allowlisted-sources < 2.",
+          "Validator with market='US' is byte-identical to pre-Phase-6.5 behavior.",
+          "CLI --cadence daily runs end-to-end against fixture and inserts a row keyed by (market='VN', cadence='daily', period_start)."
+        ],
+        "verification": {
+          "agent_self_validation_steps": [
+            "Run all phase-specific pytest suites with mocked Brave fixture (no live calls).",
+            "Run smoke against live Brave for a fixed prior trading day (manual; not part of pytest).",
+            "Confirm DB row inserted for (market='VN', cadence='daily', period_start=<chosen day>).",
+            "Confirm structured run.outcome log carries provider='brave', cadence='daily', cited_count, allowlisted_count consistent with DB row.",
+            "Confirm US weekly path is unchanged via existing test_orchestrator and test_validator suites.",
+            "Confirm VN-Tavily code path is fully removed (grep)."
+          ],
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_brave_client.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_source_policy.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_query_planner.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_retrieval.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_validator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/market_recap/test_orchestrator.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/scripts/test_run_market_recap.py -v",
+            "source venv/bin/activate && PYTHONPATH=. python scripts/run_market_recap.py --market VN --cadence weekly --period-start 2026-04-20 --period-end 2026-04-24",
+            "source venv/bin/activate && PYTHONPATH=. python scripts/run_market_recap.py --market VN --cadence daily",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Brave fixture normalized into Candidate objects with raw_content and parseable/midpoint-fallback dates",
+            "registrable_domain test matrix proving correct resolution for .com.vn, .gov.vn, .org.vn, .net.vn, .edu.vn entries",
+            "provider routing test proving market='US' uses Tavily and market='VN' uses Brave",
+            "validator test matrix: VN per-bullet allowlist downgrade (warning), VN recap-wide >=2 hard-fail, US rules unchanged",
+            "DB query evidence: row inserted for (VN, daily, <day>) and (VN, weekly, <week>)",
+            "structured run.outcome log JSON sample showing provider='brave' and cadence='daily'/'weekly'",
+            "grep evidence: no remaining references to TavilyClient under market='VN' code path"
+          ],
+          "phase_gates": [
+            "Gate A: Brave client + provider routing tests pass",
+            "Gate B: VN allowlist + multi-suffix registrable_domain tests pass",
+            "Gate C: validator VN rule split tests pass; US rules unchanged",
+            "Gate D: daily cadence orchestrator/CLI tests pass and end-to-end manual run succeeds",
+            "Gate E: baseline lint/health pass"
+          ]
+        }
+      }
+    },
+    {
       "id": "phase-7-scheduler-deployment-and-first-production-dry-run",
       "sort_order": 7,
       "impact_level": "MEDIUM",
