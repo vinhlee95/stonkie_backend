@@ -21,6 +21,8 @@ def _market_label(market: str) -> str:
     market_key = market.upper()
     if market_key == "VN":
         return "Vietnam"
+    if market_key == "FI":
+        return "Finland"
     if market_key == "US":
         return "US"
     return market_key
@@ -52,6 +54,30 @@ def _build_prompt(retrieval: RetrievalResult, market: str, period_start: date, p
             'Định dạng fail-safe bắt buộc: {"summary":"","bullets":[]}',
             "Không được bịa số liệu hoặc thực thể cụ thể cho thị trường Việt Nam nếu không có trong nguồn.",
             "Trả về JSON được bọc trong [RECAP_JSON]...[/RECAP_JSON].",
+        ]
+    elif market_key == "FI":
+        lines = [
+            "Generate a weekly Finland market recap JSON.",
+            f"Period start: {period_start.isoformat()}",
+            f"Period end: {period_end.isoformat()}",
+            "Use ONLY this schema:",
+            '{"summary":"string","bullets":[{"text":"string","source_indices":[0]}]}',
+            "Rules:",
+            "- summary must be non-empty plain text.",
+            "- bullets must contain 3-6 items.",
+            "- each bullet must include at least one integer index in source_indices.",
+            "- source_indices must reference only provided Source [i] blocks.",
+            "- do not emit keys outside summary/bullets/text/source_indices.",
+            "- capture the week-wide trajectory and vibe (early/mid/late-week where evidence exists), not just a single-day snapshot.",
+            "- Prioritize OMX Helsinki and Finnish listed equities.",
+            "- Include Finland-relevant macro context only when tied to Finnish market impact.",
+            "- Do not center the recap on broad Europe-only or global-only narratives without a clear Finland/Helsinki link.",
+            "Required Finland coverage:",
+            "- OMX Helsinki index trajectory across the week (direction + key driver).",
+            "- sector rotation/leadership inside Finnish equities.",
+            "- macro/policy context that explicitly connects to Finnish market impact.",
+            "- one concrete company-level driver (e.g., Nokia, Wartsila, Kone, Neste, Fortum, Sampo, Nordea, etc.).",
+            "Return JSON wrapped in [RECAP_JSON]...[/RECAP_JSON].",
         ]
     else:
         lines = [

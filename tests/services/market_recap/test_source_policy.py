@@ -60,3 +60,13 @@ def test_is_allowlisted_supports_expanded_vn_allowlist():
 
 def test_is_allowlisted_rejects_random_vn_blog():
     assert is_allowlisted("https://random-blog.vn/x", market="VN") is False
+
+
+def test_is_allowlisted_supports_fi_market_domains():
+    assert is_allowlisted("https://www.nasdaqomxnordic.com/shares", market="FI") is True
+    assert is_allowlisted("https://www.inderes.fi/articles/example", market="FI") is True
+    assert is_allowlisted("https://www.bloomberg.com/europe", market="FI") is True
+    assert is_allowlisted("https://global.morningstar.com/fi/news/example", market="FI") is True
+    assert is_allowlisted("https://www.tradingeconomics.com/finland/stock-market", market="FI") is True
+    assert is_allowlisted("https://www.investing.com/equities/finland", market="FI") is True
+    assert is_allowlisted("https://example.com/article", market="FI") is False

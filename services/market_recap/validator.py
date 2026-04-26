@@ -13,6 +13,10 @@ REASON_VN_INDEX_MISSING = "vn_index_missing"
 REASON_VN_MACRO_CONTEXT_MISSING = "vn_macro_context_missing"
 REASON_VN_MONEY_FLOW_MISSING = "vn_money_flow_missing"
 REASON_VN_RECAP_ALLOWLIST_FLOOR = "vn_recap_allowlist_floor_below_minimum"
+REASON_FI_INDEX_MISSING = "fi_index_missing"
+REASON_FI_SECTOR_ROTATION_MISSING = "fi_sector_rotation_missing"
+REASON_FI_MACRO_CONTEXT_MISSING = "fi_macro_context_missing"
+REASON_FI_COMPANY_DRIVER_MISSING = "fi_company_driver_missing"
 WARNING_UNIQUE_SOURCE_FLOOR = "unique_source_floor_below_minimum"
 
 
@@ -55,6 +59,62 @@ def validate_recap(
         # VN content-marker checks are intentionally skipped for now.
         # Phase 6.7 introduces LLM-based semantic validation.
         pass
+    elif market.upper() == "FI":
+        combined_text = " ".join([payload.summary, *(bullet.text for bullet in payload.bullets)]).lower()
+
+        fi_index_markers = ("omx helsinki", "omxh25", "omxh", "helsinki 25")
+        fi_sector_markers = (
+            "sector rotation",
+            "sector",
+            "industrials",
+            "financials",
+            "telecom",
+            "technology",
+            "defense",
+            "materials",
+            "energy",
+        )
+        fi_macro_markers = (
+            "inflation",
+            "interest rate",
+            "ecb",
+            "policy",
+            "yield",
+            "eur",
+            "euro",
+            "gdp",
+            "fiscal",
+            "unemployment",
+            "macro",
+        )
+        fi_company_markers = (
+            "nokia",
+            "wartsila",
+            "kone",
+            "neste",
+            "upm",
+            "stora enso",
+            "fortum",
+            "sampo",
+            "nordea",
+            "elisa",
+            "metso",
+            "kemira",
+            "huhtamaki",
+            "kesko",
+            "orion",
+            "valmet",
+            "martela",
+        )
+
+        if not any(marker in combined_text for marker in fi_index_markers):
+            failures.append(REASON_FI_INDEX_MISSING)
+        if not any(marker in combined_text for marker in fi_sector_markers):
+            failures.append(REASON_FI_SECTOR_ROTATION_MISSING)
+        if not any(marker in combined_text for marker in fi_macro_markers):
+            failures.append(REASON_FI_MACRO_CONTEXT_MISSING)
+        if not any(marker in combined_text for marker in fi_company_markers):
+            failures.append(REASON_FI_COMPANY_DRIVER_MISSING)
 
     sources_by_id = {source.id: source for source in payload.sources}
 

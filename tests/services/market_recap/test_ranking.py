@@ -159,3 +159,28 @@ def test_rank_demotes_institutional_event_pages_and_index_summaries():
     ranked = rank([board_meeting, index_summary, richer_article])
     assert ranked[0].title == "US chipmakers hit record highs as Intel turbocharges AI rally"
     assert ranked[-1].title == "Federal Reserve Board - April 28, 2026 - Closed Board Meeting"
+
+
+def test_rank_for_fi_prefers_finnish_market_specific_coverage():
+    same_time = datetime(2026, 4, 24, 10, 0, tzinfo=UTC)
+    broad_europe = Candidate(
+        title="Europe markets mixed as energy prices rise",
+        url="https://www.bloomberg.com/news/articles/2026-04-24/europe-markets-mixed",
+        snippet="Regional macro sentiment in Europe",
+        published_date=same_time,
+        raw_content="Broad euro-zone market coverage.",
+        score=0.9,
+        provider="tavily",
+    )
+    finland_specific = Candidate(
+        title="OMX Helsinki rises as Finnish industrials lead gains",
+        url="https://www.investing.com/equities/finland",
+        snippet="Helsinki stock exchange weekly move",
+        published_date=same_time,
+        raw_content="Finnish market breadth improved on OMX Helsinki.",
+        score=0.1,
+        provider="tavily",
+    )
+
+    ranked = rank([broad_europe, finland_specific], market="FI")
+    assert ranked[0].title == "OMX Helsinki rises as Finnish industrials lead gains"

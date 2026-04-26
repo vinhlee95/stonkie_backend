@@ -90,6 +90,22 @@ def test_brave_client_uses_us_market_request_params():
     assert client.search("market recap", date(2026, 4, 20), date(2026, 4, 24)) == []
 
 
+def test_brave_client_uses_fi_market_request_params():
+    payload = {"results": [], "grounding": {"generic": []}, "sources": {}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["country"] == "FI"
+        assert request.url.params["search_lang"] == "en"
+        return httpx.Response(status_code=200, json=payload)
+
+    client = BraveClient(
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        market="FI",
+    )
+    assert client.search("market recap", date(2026, 4, 20), date(2026, 4, 24)) == []
+
+
 def test_brave_client_parses_date_from_url_when_age_missing():
     payload = {
         "results": [

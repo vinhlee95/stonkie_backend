@@ -20,6 +20,18 @@ VN_HIGH_SIGNAL_SITES = [
     "vietnamfinance.vn",
 ]
 
+FI_HIGH_SIGNAL_SITES = [
+    "nasdaqomxnordic.com",
+    "global.morningstar.com",
+    "tradingeconomics.com",
+    "investing.com",
+    "globenewswire.com",
+    "inderes.fi",
+    "marketscreener.com",
+    "reuters.com",
+    "bloomberg.com",
+]
+
 _VN_TEMPLATES = {
     "weekly": "thị trường chứng khoán Việt Nam tuần qua",
     "daily": "thị trường chứng khoán Việt Nam phiên hôm nay",
@@ -34,6 +46,19 @@ def plan_queries(
         vn_query = _VN_TEMPLATES.get(cadence.lower(), _VN_TEMPLATES["weekly"])
         scoped_queries = [PlannedQuery(query=vn_query, include_domains=[domain]) for domain in VN_HIGH_SIGNAL_SITES]
         return [PlannedQuery(query=vn_query), *scoped_queries]
+    if market_key == "FI":
+        month = period_start.strftime("%b")
+        open_query = PlannedQuery(
+            query=f"Helsinki stock exchange Finnish market recap week of {month} {period_start.day}-{period_end.day}, {period_start.year}"
+        )
+        scoped_query_text = (
+            f"Finland stock market week recap Helsinki exchange OMX Helsinki {month} "
+            f"{period_start.day}-{period_end.day} {period_start.year}"
+        )
+        scoped_queries = [
+            PlannedQuery(query=scoped_query_text, include_domains=[domain]) for domain in FI_HIGH_SIGNAL_SITES
+        ]
+        return [open_query, *scoped_queries]
 
     month = period_start.strftime("%b")
     open_query = PlannedQuery(

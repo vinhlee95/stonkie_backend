@@ -55,6 +55,17 @@ ALLOWLIST_BY_MARKET = {
         "mbs.com.vn",
         "hsc.com.vn",
     },
+    "FI": {
+        "nasdaqomxnordic.com",
+        "morningstar.com",
+        "tradingeconomics.com",
+        "investing.com",
+        "globenewswire.com",
+        "inderes.fi",
+        "marketscreener.com",
+        "reuters.com",
+        "bloomberg.com",
+    },
 }
 
 

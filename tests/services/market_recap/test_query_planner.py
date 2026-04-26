@@ -1,6 +1,11 @@
 from datetime import date
 
-from services.market_recap.query_planner import HIGH_SIGNAL_SITES, VN_HIGH_SIGNAL_SITES, plan_queries
+from services.market_recap.query_planner import (
+    FI_HIGH_SIGNAL_SITES,
+    HIGH_SIGNAL_SITES,
+    VN_HIGH_SIGNAL_SITES,
+    plan_queries,
+)
 
 
 def test_plan_queries_emits_open_and_site_scoped_queries():
@@ -35,3 +40,25 @@ def test_plan_queries_supports_vn_daily_template():
     scoped_queries = queries[1:]
     assert [query.include_domains for query in scoped_queries] == [[site] for site in VN_HIGH_SIGNAL_SITES]
     assert all(query.query == "thị trường chứng khoán Việt Nam phiên hôm nay" for query in scoped_queries)
+
+
+def test_plan_queries_supports_fi_market():
+    queries = plan_queries(date(2026, 4, 20), date(2026, 4, 24), market="FI")
+
+    assert len(queries) == 1 + len(FI_HIGH_SIGNAL_SITES)
+    assert queries[0].query == "Helsinki stock exchange Finnish market recap week of Apr 20-24, 2026"
+    assert queries[0].include_domains == []
+    scoped_queries = queries[1:]
+    assert [query.include_domains for query in scoped_queries] == [[site] for site in FI_HIGH_SIGNAL_SITES]
+    assert all(
+        query.query == "Finland stock market week recap Helsinki exchange OMX Helsinki Apr 20-24 2026"
+        for query in scoped_queries
+    )
+
+
+def test_plan_queries_fi_includes_requested_high_signal_sources():
+    queries = plan_queries(date(2026, 4, 20), date(2026, 4, 24), market="FI")
+    scoped_domains = {query.include_domains[0] for query in queries[1:] if query.include_domains}
+    assert "global.morningstar.com" in scoped_domains
+    assert "investing.com" in scoped_domains
+    assert "tradingeconomics.com" in scoped_domains

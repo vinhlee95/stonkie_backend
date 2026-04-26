@@ -28,11 +28,16 @@ def _build_vn_goggle(include_domains: list[str] | None = None) -> str:
 
 
 def _country_for(market: str) -> str:
-    return "US" if market.upper() == "US" else "ALL"
+    market_key = market.upper()
+    if market_key == "US":
+        return "US"
+    if market_key == "FI":
+        return "FI"
+    return "ALL"
 
 
 def _search_lang_for(market: str) -> str:
-    return "en" if market.upper() == "US" else "vi"
+    return "vi" if market.upper() == "VN" else "en"
 
 
 def _midpoint_datetime(period_start: date, period_end: date) -> datetime:

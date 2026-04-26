@@ -67,6 +67,15 @@ _INSTITUTIONAL_EVENT_TITLE_HINTS = (
     "economic research",
 )
 
+_FI_RELEVANCE_HINTS = (
+    "finland",
+    "finnish",
+    "helsinki",
+    "omx helsinki",
+    "nasdaq helsinki",
+    "omxh",
+)
+
 
 def _quality_rank(candidate: Candidate) -> int:
     parsed = urlsplit(candidate.canonical_url)
@@ -111,11 +120,26 @@ def _quality_rank(candidate: Candidate) -> int:
     return score
 
 
+def _market_relevance_rank(candidate: Candidate, market: str) -> int:
+    if market.upper() != "FI":
+        return 0
+    haystack = " ".join(
+        [
+            (candidate.title or "").lower(),
+            (candidate.snippet or "").lower(),
+            (candidate.raw_content or "").lower(),
+            candidate.canonical_url.lower(),
+        ]
+    )
+    return 0 if any(hint in haystack for hint in _FI_RELEVANCE_HINTS) else 6
+
+
 def rank(candidates: list[Candidate], market: str = "US") -> list[Candidate]:
     return sorted(
         candidates,
         key=lambda candidate: (
             not is_allowlisted(candidate.url, market=market),
+            _market_relevance_rank(candidate, market),
             _quality_rank(candidate),
             -_published_timestamp(candidate),
             -candidate.score,

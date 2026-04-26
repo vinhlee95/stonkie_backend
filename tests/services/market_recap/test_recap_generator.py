@@ -221,3 +221,24 @@ def test_prompt_mentions_selected_market():
     assert "Định dạng fail-safe bắt buộc" in prompt
     assert "luân chuyển nhóm ngành" in prompt
     assert "Trả về JSON được bọc trong [RECAP_JSON]...[/RECAP_JSON]." in prompt
+
+
+def test_prompt_for_fi_emphasizes_finnish_market_focus():
+    from services.market_recap.recap_generator import generate_recap
+
+    agent = FakeAgent(chunks=['[RECAP_JSON]{"summary":"s","bullets":[{"text":"b","source_indices":[0]}]}[/RECAP_JSON]'])
+    generate_recap(
+        _retrieval(),
+        market="FI",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        agent=agent,
+    )
+    prompt = agent.calls[0]["prompt"]
+    assert "Generate a weekly Finland market recap JSON." in prompt
+    assert "Prioritize OMX Helsinki and Finnish listed equities." in prompt
+    assert "Do not center the recap on broad Europe-only or global-only narratives" in prompt
+    assert "Required Finland coverage:" in prompt
+    assert "OMX Helsinki index trajectory across the week" in prompt
+    assert "sector rotation/leadership inside Finnish equities" in prompt
+    assert "one concrete company-level driver" in prompt

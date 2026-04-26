@@ -375,3 +375,74 @@ def test_vn_distinct_allowlisted_floor_passes_with_two_or_more():
     )
     result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="VN")
     assert REASON_VN_RECAP_ALLOWLIST_FLOOR not in result.failures
+
+
+def test_fi_required_content_markers_fail_when_missing():
+    from services.market_recap.validator import (
+        REASON_FI_COMPANY_DRIVER_MISSING,
+        REASON_FI_INDEX_MISSING,
+        REASON_FI_MACRO_CONTEXT_MISSING,
+        REASON_FI_SECTOR_ROTATION_MISSING,
+        validate_recap,
+    )
+
+    s1 = _source(
+        source_id="src-1",
+        url="https://www.investing.com/equities/finland",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    payload = RecapPayload(
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        summary="Finnish market moved this week with mixed sentiment.",
+        bullets=[Bullet(text="Markets were volatile.", citations=[Citation(source_id="src-1")])],
+        sources=[s1],
+    )
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="FI")
+    assert REASON_FI_INDEX_MISSING in result.failures
+    assert REASON_FI_SECTOR_ROTATION_MISSING in result.failures
+    assert REASON_FI_MACRO_CONTEXT_MISSING in result.failures
+    assert REASON_FI_COMPANY_DRIVER_MISSING in result.failures
+
+
+def test_fi_required_content_markers_pass_when_present():
+    from services.market_recap.validator import validate_recap
+
+    s1 = _source(
+        source_id="src-1",
+        url="https://www.investing.com/news/stock-market-news/finland-stocks-higher-at-close-of-trade-omx-helsinki-25-up-151-4633442",
+        published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+    )
+    s2 = _source(
+        source_id="src-2",
+        url="https://www.bloomberg.com/news/articles/2026-04-20/finnish-defense-technology-duo-are-said-to-weigh-helsinki-ipos",
+        published_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
+    )
+    s3 = _source(
+        source_id="src-3",
+        url="https://www.globenewswire.com/news-release/2026/04/23/3279548/0/en/Negative-profit-warning-Martela-lowers-its-revenue-and-earnings-guidance-for-2026-and-publishes-preliminary-Q1-2026-financial-information.html",
+        published_at=datetime(2026, 4, 23, 10, 0, tzinfo=UTC),
+    )
+    payload = RecapPayload(
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        summary=(
+            "OMX Helsinki advanced this week as sector rotation favored industrials and telecoms. "
+            "Macro backdrop reflected inflation and interest-rate expectations in Europe with Finland-specific impact. "
+            "Nokia and Wartsila led company-level moves."
+        ),
+        bullets=[
+            Bullet(
+                text="OMX Helsinki 25 gained with industrials outperforming.", citations=[Citation(source_id="src-1")]
+            ),
+            Bullet(
+                text="Defense-related listings improved sentiment in Helsinki.", citations=[Citation(source_id="src-2")]
+            ),
+            Bullet(
+                text="Martela warning showed company-specific downside risk.", citations=[Citation(source_id="src-3")]
+            ),
+        ],
+        sources=[s1, s2, s3],
+    )
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="FI")
+    assert result.failures == []
