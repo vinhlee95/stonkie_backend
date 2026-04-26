@@ -85,6 +85,27 @@ def test_run_market_recap_success_persists_row(db_session):
     assert db_session.query(MarketRecap).count() == 1
 
 
+def test_run_market_recap_forwards_cadence_to_generate_fn(db_session):
+    captured: dict = {}
+
+    def _generate(**kwargs):
+        captured.update(kwargs)
+        return GeneratorResult(payload=_payload(), model="test-model", raw_model_output="raw")
+
+    run_market_recap(
+        market="US",
+        cadence="daily",
+        period_start=date(2026, 4, 23),
+        period_end=date(2026, 4, 23),
+        session_factory=_session_factory(db_session),
+        retrieve_fn=lambda **_: _retrieval_result(),
+        generate_fn=_generate,
+        validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+    )
+
+    assert captured.get("cadence") == "daily"
+
+
 def test_run_market_recap_validation_failure_retries_and_skips_insert(db_session):
     result = run_market_recap(
         market="US",

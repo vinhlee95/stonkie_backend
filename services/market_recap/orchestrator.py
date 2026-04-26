@@ -98,6 +98,7 @@ def run_market_recap(
         try:
             generated: GeneratorResult = generate_fn(
                 market=market,
+                cadence=cadence,
                 retrieval=retrieval,
                 period_start=period_start,
                 period_end=period_end,

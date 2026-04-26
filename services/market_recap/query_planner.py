@@ -48,23 +48,36 @@ def plan_queries(
         return [PlannedQuery(query=vn_query), *scoped_queries]
     if market_key == "FI":
         month = period_start.strftime("%b")
-        open_query = PlannedQuery(
-            query=f"Helsinki stock exchange Finnish market recap week of {month} {period_start.day}-{period_end.day}, {period_start.year}"
-        )
-        scoped_query_text = (
-            f"Finland stock market week recap Helsinki exchange OMX Helsinki {month} "
-            f"{period_start.day}-{period_end.day} {period_start.year}"
-        )
+        if cadence.lower() == "daily":
+            open_query = PlannedQuery(
+                query=f"Helsinki stock exchange Finnish market recap {month} {period_start.day}, {period_start.year}"
+            )
+            scoped_query_text = (
+                f"Finland stock market session recap Helsinki exchange OMX Helsinki {month} "
+                f"{period_start.day} {period_start.year}"
+            )
+        else:
+            open_query = PlannedQuery(
+                query=f"Helsinki stock exchange Finnish market recap week of {month} {period_start.day}-{period_end.day}, {period_start.year}"
+            )
+            scoped_query_text = (
+                f"Finland stock market week recap Helsinki exchange OMX Helsinki {month} "
+                f"{period_start.day}-{period_end.day} {period_start.year}"
+            )
         scoped_queries = [
             PlannedQuery(query=scoped_query_text, include_domains=[domain]) for domain in FI_HIGH_SIGNAL_SITES
         ]
         return [open_query, *scoped_queries]
 
     month = period_start.strftime("%b")
-    open_query = PlannedQuery(
-        query=f"US stock market recap week of {month} {period_start.day}-{period_end.day}, {period_start.year}"
-    )
-    scoped_query_text = f"US market week recap {month} {period_start.day}-{period_end.day} {period_start.year}"
+    if cadence.lower() == "daily":
+        open_query = PlannedQuery(query=f"US stock market recap {month} {period_start.day}, {period_start.year}")
+        scoped_query_text = f"US market session recap {month} {period_start.day} {period_start.year}"
+    else:
+        open_query = PlannedQuery(
+            query=f"US stock market recap week of {month} {period_start.day}-{period_end.day}, {period_start.year}"
+        )
+        scoped_query_text = f"US market week recap {month} {period_start.day}-{period_end.day} {period_start.year}"
 
     sites = HIGH_SIGNAL_SITES
     scoped_queries = [PlannedQuery(query=scoped_query_text, include_domains=[domain]) for domain in sites]

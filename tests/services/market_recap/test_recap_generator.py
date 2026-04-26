@@ -75,6 +75,74 @@ def test_prompt_contains_period_and_indexed_corpus():
     assert agent.calls[0]["use_google_search"] is False
 
 
+def test_daily_us_prompt_uses_single_session_phrasing():
+    from services.market_recap.recap_generator import GeneratorError, generate_recap
+
+    agent = FakeAgent(chunks=['[RECAP_JSON]{"summary":"s","bullets":[]}[/RECAP_JSON]'])
+    try:
+        generate_recap(
+            _retrieval(),
+            market="US",
+            cadence="daily",
+            period_start=date(2026, 4, 23),
+            period_end=date(2026, 4, 23),
+            agent=agent,
+        )
+    except GeneratorError:
+        pass
+
+    prompt = agent.calls[0]["prompt"]
+    assert "daily" in prompt.lower()
+    assert "single trading session" in prompt.lower()
+    assert "week-wide" not in prompt.lower()
+    assert "early/mid/late-week" not in prompt.lower()
+
+
+def test_daily_vn_prompt_uses_session_phrasing():
+    from services.market_recap.recap_generator import GeneratorError, generate_recap
+
+    agent = FakeAgent(chunks=['[RECAP_JSON]{"summary":"s","bullets":[]}[/RECAP_JSON]'])
+    try:
+        generate_recap(
+            _retrieval(),
+            market="VN",
+            cadence="daily",
+            period_start=date(2026, 4, 23),
+            period_end=date(2026, 4, 23),
+            agent=agent,
+        )
+    except GeneratorError:
+        pass
+
+    prompt = agent.calls[0]["prompt"]
+    assert "phiên giao dịch" in prompt
+    assert "tuần qua" not in prompt
+    assert "xuyên suốt cả tuần" not in prompt
+
+
+def test_daily_fi_prompt_uses_single_session_phrasing():
+    from services.market_recap.recap_generator import GeneratorError, generate_recap
+
+    agent = FakeAgent(chunks=['[RECAP_JSON]{"summary":"s","bullets":[]}[/RECAP_JSON]'])
+    try:
+        generate_recap(
+            _retrieval(),
+            market="FI",
+            cadence="daily",
+            period_start=date(2026, 4, 23),
+            period_end=date(2026, 4, 23),
+            agent=agent,
+        )
+    except GeneratorError:
+        pass
+
+    prompt = agent.calls[0]["prompt"]
+    assert "daily" in prompt.lower()
+    assert "single trading session" in prompt.lower()
+    assert "across the week" not in prompt.lower()
+    assert "week-wide" not in prompt.lower()
+
+
 def test_extracts_recap_json_between_markers():
     from services.market_recap.recap_generator import generate_recap
 

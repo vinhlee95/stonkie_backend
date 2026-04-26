@@ -22,6 +22,16 @@ from services.market_recap.orchestrator import run_market_recap
 NY_TZ = ZoneInfo("America/New_York")
 MAX_BACKFILL_WEEKS = 8
 
+MARKET_TZ = {
+    "US": ZoneInfo("America/New_York"),
+    "VN": ZoneInfo("Asia/Ho_Chi_Minh"),
+    "FI": ZoneInfo("Europe/Helsinki"),
+}
+
+
+def _now_for_market(market: str) -> datetime:
+    return datetime.now(MARKET_TZ.get(market.upper(), NY_TZ))
+
 
 def compute_latest_completed_week(*, now: datetime | None = None) -> tuple[date, date]:
     current = now or datetime.now(NY_TZ)
@@ -31,6 +41,18 @@ def compute_latest_completed_week(*, now: datetime | None = None) -> tuple[date,
     last_friday = current_day - timedelta(days=(current_day.weekday() - 4) % 7 or 7)
     last_monday = last_friday - timedelta(days=4)
     return last_monday, last_friday
+
+
+def compute_latest_completed_trading_day(market: str, *, now: datetime | None = None) -> date:
+    tz = MARKET_TZ.get(market.upper(), NY_TZ)
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    current_day = current.date()
+    candidate = current_day - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
 
 
 def _parse_iso_date(value: str) -> date:
@@ -78,8 +100,7 @@ def main(argv: list[str] | None = None, *, runner=run_market_recap) -> int:
     parser.add_argument("--backfill-end")
     parser.add_argument("--replace", action="store_true")
     args = parser.parse_args(argv)
-    if args.cadence.lower() == "daily":
-        return 0
+    cadence = args.cadence.lower()
 
     explicit_period = bool(args.period_start or args.period_end)
     explicit_backfill = bool(args.backfill_start or args.backfill_end)
@@ -102,6 +123,22 @@ def main(argv: list[str] | None = None, *, runner=run_market_recap) -> int:
                 period_start=period_start,
                 period_end=period_end,
                 replace=args.replace,
+            )
+            if not _is_success_status(_extract_status(result)):
+                return 1
+        return 0
+
+    if cadence == "daily":
+        if explicit_backfill:
+            parser.error("--backfill flags are not supported for --cadence daily")
+        for market in markets:
+            trading_day = compute_latest_completed_trading_day(market, now=_now_for_market(market))
+            result = runner(
+                market=market,
+                cadence=args.cadence,
+                period_start=trading_day,
+                period_end=trading_day,
+                replace=False,
             )
             if not _is_success_status(_extract_status(result)):
                 return 1
