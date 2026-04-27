@@ -224,3 +224,78 @@ def test_get_market_recaps_returns_empty_envelope_when_no_rows(client):
     assert payload["cadence"] == "weekly"
     assert payload["latest_created_at"] is None
     assert payload["items"] == []
+
+
+def _seed_daily_recap(
+    db_session,
+    *,
+    period_start: date,
+    summary: str = "Daily recap summary",
+    source_id: str = "src-daily-1",
+    created_at: datetime | None = None,
+) -> None:
+    recap = MarketRecap(
+        market="US",
+        cadence="daily",
+        period_start=period_start,
+        period_end=period_start,
+        summary=summary,
+        bullets=[{"text": "Daily bullet", "citations": [{"source_id": source_id}]}],
+        sources=[
+            {
+                "id": source_id,
+                "url": "https://www.reuters.com/markets/us/daily",
+                "title": "Reuters daily recap",
+                "publisher": "reuters.com",
+                "published_at": f"{period_start.isoformat()}T20:00:00Z",
+                "fetched_at": f"{period_start.isoformat()}T21:00:00Z",
+            }
+        ],
+        raw_sources={"internal_only": True},
+        model="test-model",
+    )
+    db_session.add(recap)
+    db_session.flush()
+    if created_at is not None:
+        recap.created_at = created_at
+    db_session.commit()
+
+
+def test_get_market_recaps_daily_cadence_returns_daily_row(db_session, client):
+    _seed_recap(db_session)
+    _seed_daily_recap(db_session, period_start=date(2026, 4, 24))
+
+    response = client.get("/api/markets/US/recaps?cadence=daily&limit=1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cadence"] == "daily"
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["period_start"] == "2026-04-24"
+    assert item["period_end"] == "2026-04-24"
+    assert item["summary"] == "Daily recap summary"
+
+
+def test_get_market_recaps_daily_excludes_weekly(db_session, client):
+    _seed_recap(db_session)
+
+    response = client.get("/api/markets/US/recaps?cadence=daily&limit=1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cadence"] == "daily"
+    assert payload["items"] == []
+    assert payload["latest_created_at"] is None
+
+
+def test_get_market_recaps_daily_orders_by_period_start_desc(db_session, client):
+    _seed_daily_recap(db_session, period_start=date(2026, 4, 22), summary="Older daily", source_id="src-daily-old")
+    _seed_daily_recap(db_session, period_start=date(2026, 4, 24), summary="Newer daily", source_id="src-daily-new")
+
+    response = client.get("/api/markets/US/recaps?cadence=daily&limit=2")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [item["period_start"] for item in items] == ["2026-04-24", "2026-04-22"]
+    assert items[0]["summary"] == "Newer daily"
