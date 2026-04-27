@@ -184,3 +184,31 @@ def test_main_daily_cadence_with_explicit_period_runs_runner_once():
     assert calls[0]["cadence"] == "daily"
     assert calls[0]["period_start"] == date(2026, 4, 23)
     assert calls[0]["period_end"] == date(2026, 4, 23)
+
+
+def test_main_daily_cadence_soft_fails_single_market_if_others_succeed():
+    statuses = {
+        "US": {"status": "inserted"},
+        "VN": {"status": "validation_failed"},
+        "FI": {"status": "skipped_existing"},
+    }
+
+    def fake_runner(**kwargs):
+        return statuses[kwargs["market"]]
+
+    exit_code = main(
+        ["--cadence", "daily", "--markets", "US,VN,FI"],
+        runner=fake_runner,
+    )
+    assert exit_code == 0
+
+
+def test_main_daily_cadence_returns_non_zero_when_all_markets_fail():
+    def failing_runner(**kwargs):
+        return {"status": "validation_failed"}
+
+    exit_code = main(
+        ["--cadence", "daily", "--markets", "US,VN,FI"],
+        runner=failing_runner,
+    )
+    assert exit_code == 1

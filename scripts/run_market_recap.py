@@ -14,6 +14,7 @@ Local usage:
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,7 @@ MARKET_TZ = {
     "VN": ZoneInfo("Asia/Ho_Chi_Minh"),
     "FI": ZoneInfo("Europe/Helsinki"),
 }
+logger = logging.getLogger(__name__)
 
 
 def _now_for_market(market: str) -> datetime:
@@ -131,6 +133,7 @@ def main(argv: list[str] | None = None, *, runner=run_market_recap) -> int:
     if cadence == "daily":
         if explicit_backfill:
             parser.error("--backfill flags are not supported for --cadence daily")
+        daily_success_count = 0
         for market in markets:
             trading_day = compute_latest_completed_trading_day(market, now=_now_for_market(market))
             result = runner(
@@ -140,8 +143,19 @@ def main(argv: list[str] | None = None, *, runner=run_market_recap) -> int:
                 period_end=trading_day,
                 replace=False,
             )
-            if not _is_success_status(_extract_status(result)):
-                return 1
+            status = _extract_status(result)
+            if _is_success_status(status):
+                daily_success_count += 1
+                continue
+            logger.warning(
+                "daily_recap_market_failed market=%s status=%s trading_day=%s",
+                market,
+                status,
+                trading_day.isoformat(),
+            )
+        if daily_success_count == 0:
+            logger.error("daily_recap_all_markets_failed markets=%s", ",".join(markets))
+            return 1
         return 0
 
     if explicit_backfill:

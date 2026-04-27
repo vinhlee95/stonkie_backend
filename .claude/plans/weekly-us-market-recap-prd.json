@@ -1155,6 +1155,86 @@
       ]
     },
     {
+      "id": "phase-7-5-daily-cadence-all-markets",
+      "sort_order": 7.5,
+      "impact_level": "HIGH",
+      "state": "complete",
+      "title": "Daily cadence support across US, VN, FI with scheduled deployment",
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-7-scheduler-deployment-and-first-production-dry-run"
+        ],
+        "parallelizable": false
+      },
+      "phase_gates": [
+        "Gate A: query/prompt unit tests",
+        "Gate B: CLI per-market trading-day default tests",
+        "Gate C: local E2E inserts for US+VN+FI",
+        "Gate D: production dry-run + idempotent rerun",
+        "Gate E: baseline lint/health"
+      ],
+      "validation_summary": {
+        "summary": "Completed slice-6/7/8 rollout for daily cadence. Added Dockerfile.market-recap.daily, deployed Cloud Run job + scheduler, implemented daily partial-success policy (Option B) so single-market failures no longer fail the whole daily run, and added matching Cloud Monitoring alert policy for daily job failures using the same notification channel as weekly. Production all-market dry-run and idempotent rerun both succeeded after policy update; scheduler resumed.",
+        "commands_executed": [
+          "docker buildx build --platform linux/amd64 -t europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap-daily:latest -f Dockerfile.market-recap.daily --push .",
+          "gcloud run jobs create daily-market-recap --region=europe-north1 --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap-daily:latest --tasks=1 --max-retries=1 --task-timeout=1800s --cpu=1 --memory=2Gi --execution-environment=gen2 --service-account=1031374119937-compute@developer.gserviceaccount.com --set-env-vars=<copied from weekly-market-recap>",
+          "gcloud scheduler jobs create http daily-market-recap-scheduler --location=europe-west1 --schedule='0 7 * * 2-6' --time-zone='Europe/Helsinki' --uri='https://europe-north1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/stock-agent-447619/jobs/daily-market-recap:run' --http-method=POST --oauth-service-account-email=1031374119937-compute@developer.gserviceaccount.com --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform --attempt-deadline=180s --description='Daily market recap (US+VN+FI) Tue-Sat at 7am Helsinki'",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --wait (failed: execution daily-market-recap-hm5v5)",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --args=python,scripts/run_market_recap.py,--cadence,daily,--market,US --wait (succeeded: daily-market-recap-sld7g)",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --args=python,scripts/run_market_recap.py,--cadence,daily,--market,US --wait (succeeded idempotent rerun: daily-market-recap-th4l2)",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --args=python,scripts/run_market_recap.py,--cadence,daily,--market,VN --wait (succeeded: daily-market-recap-mdvzq)",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --args=python,scripts/run_market_recap.py,--cadence,daily,--market,FI --wait (failed: execution daily-market-recap-dmth2)",
+          "gcloud scheduler jobs pause daily-market-recap-scheduler --location=europe-west1",
+          "source venv/bin/activate && PYTHONPATH=. pytest tests/scripts/test_run_market_recap.py -v",
+          "docker buildx build --platform linux/amd64 -t europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap-daily:latest -f Dockerfile.market-recap.daily --push .",
+          "gcloud run jobs update daily-market-recap --region=europe-north1 --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap-daily:latest",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --wait (succeeded: daily-market-recap-dpl4m)",
+          "gcloud run jobs execute daily-market-recap --region=europe-north1 --wait (succeeded idempotent rerun: daily-market-recap-jthmn)",
+          "gcloud alpha monitoring policies create --policy-from-file=/tmp/daily-market-recap-alert-policy.json (created: projects/stock-agent-447619/alertPolicies/14165347587426856747)",
+          "gcloud scheduler jobs resume daily-market-recap-scheduler --location=europe-west1",
+          "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+          "source venv/bin/activate && ruff check ."
+        ],
+        "result": "pass"
+      },
+      "learnings": [
+        "Daily job wiring and scheduler trigger configuration are valid; command/image deploy path is healthy.",
+        "Hard-failing the entire daily batch on one market is too brittle for sparse-news days; Option B partial-success policy preserves automation reliability while still surfacing market-level failures in logs.",
+        "Using the same Cloud Monitoring metric filter pattern as weekly (`run.googleapis.com/job/completed_execution_count` with result=failed) gives consistent alert behavior across jobs."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: query/prompt unit tests",
+          "status": "pass",
+          "notes": "Completed in prior commit b7d23d1 with updated tests for planner/generator/orchestrator/CLI."
+        },
+        {
+          "gate": "Gate B: CLI per-market trading-day default tests",
+          "status": "pass",
+          "notes": "Completed in prior commit b7d23d1."
+        },
+        {
+          "gate": "Gate C: local E2E inserts for US+VN+FI",
+          "status": "pass",
+          "notes": "Verified in prior handoff/local evidence (US/VN 2026-04-24, FI 2026-04-22)."
+        },
+        {
+          "gate": "Gate D: production dry-run + idempotent rerun",
+          "status": "pass",
+          "notes": "After Option B runner update and redeploy, all-market daily dry-run succeeded (daily-market-recap-dpl4m) and idempotent rerun succeeded (daily-market-recap-jthmn)."
+        },
+        {
+          "gate": "Gate E: baseline lint/health",
+          "status": "pass",
+          "notes": "tests/test_healthcheck.py passed and ruff check . passed after final updates."
+        }
+      ],
+      "next_phase_considerations": [
+        "If FI sparse-news failures become frequent, consider market-specific retry/backoff policy and a trend metric on daily_recap_market_failed events.",
+        "Keep weekly and daily failure alert policies aligned when adding future recap jobs."
+      ]
+    },
+    {
       "id": "phase-6-7-llm-semantic-validation",
       "sort_order": 9,
       "impact_level": "LOW",
