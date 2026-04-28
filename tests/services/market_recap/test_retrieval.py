@@ -8,8 +8,13 @@ from services.market_recap.schemas import Candidate
 
 
 class FakeSearchProvider:
-    def __init__(self, payload_by_domain: dict[str, list[Candidate]]) -> None:
+    def __init__(
+        self,
+        payload_by_domain: dict[str, list[Candidate]],
+        snapshot_by_domain: dict[str, dict] | None = None,
+    ) -> None:
         self.payload_by_domain = payload_by_domain
+        self.snapshot_by_domain = snapshot_by_domain or {}
 
     def search(
         self,
@@ -20,6 +25,16 @@ class FakeSearchProvider:
     ) -> list[Candidate]:
         domain_key = include_domains[0] if include_domains else "open"
         return self.payload_by_domain.get(domain_key, [])
+
+    def search_with_snapshot(
+        self,
+        query: str,
+        period_start: date,
+        period_end: date,
+        include_domains: list[str] | None = None,
+    ) -> tuple[list[Candidate], dict]:
+        domain_key = include_domains[0] if include_domains else "open"
+        return self.payload_by_domain.get(domain_key, []), self.snapshot_by_domain.get(domain_key, {})
 
 
 def _candidate(
@@ -76,6 +91,7 @@ def test_retrieve_candidates_drops_empty_raw_content_before_ranking():
     assert result.stats.results_total == 2
     assert result.stats.deduped == 2
     assert result.stats.with_raw_content == 1
+    assert len(result.query_snapshots) == 1
 
 
 def test_retrieve_candidates_returns_top_five_and_stats():
@@ -182,6 +198,7 @@ def test_retrieve_candidates_returns_top_five_and_stats():
     assert result.candidates[0].title in {"reuters duplicate higher", "apnews keep", "cnbc keep"}
     assert "reuters duplicate higher" in {candidate.title for candidate in result.candidates}
     assert result.candidates[-1].title != "open non allowlisted"
+    assert len(result.query_snapshots) == 7
 
 
 def test_retrieve_candidates_prioritizes_allowlisted_for_vn_market():
@@ -250,6 +267,33 @@ def test_retrieve_candidates_filters_out_of_window_for_brave():
         top_k=5,
     )
     assert [candidate.title for candidate in result.candidates] == ["in-window brave"]
+
+
+def test_retrieve_candidates_collects_provider_snapshots():
+    provider = FakeSearchProvider(
+        payload_by_domain={
+            "open": [
+                _candidate(
+                    title="snapshot candidate",
+                    url="https://www.reuters.com/a",
+                    score=0.8,
+                    raw_content="x",
+                    published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+                )
+            ]
+        },
+        snapshot_by_domain={"open": {"request_id": "abc-123", "shape": "grounding.generic"}},
+    )
+    result = retrieve_candidates(
+        market="US",
+        period_start=date(2026, 4, 24),
+        period_end=date(2026, 4, 24),
+        search_provider=provider,
+        planned_queries=[plan_queries(date(2026, 4, 24), date(2026, 4, 24), cadence="daily")[0]],
+    )
+    assert len(result.query_snapshots) == 1
+    assert result.query_snapshots[0]["query"] == "US stock market recap Apr 24, 2026"
+    assert result.query_snapshots[0]["provider_snapshot"] == {"request_id": "abc-123", "shape": "grounding.generic"}
 
 
 @pytest.mark.parametrize("market", ["US", "VN"])

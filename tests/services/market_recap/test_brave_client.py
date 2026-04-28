@@ -134,3 +134,32 @@ def test_brave_client_parses_date_from_url_when_age_missing():
     candidates = client.search("market recap", date(2026, 4, 20), date(2026, 4, 24))
     assert len(candidates) == 1
     assert candidates[0].published_date == datetime(2026, 4, 17, 12, 0, tzinfo=UTC)
+
+
+def test_brave_client_search_with_snapshot_excludes_raw_response_body():
+    payload = {
+        "results": [{"url": "https://cafef.vn/a", "title": "A", "description": "d"}],
+        "grounding": {
+            "generic": [
+                {
+                    "url": "https://cafef.vn/a",
+                    "title": "A",
+                    "snippets": ["snippet one", "snippet two"],
+                }
+            ]
+        },
+        "sources": {"https://cafef.vn/a": {"age": ["2026-04-24"]}},
+    }
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=200, json=payload)
+
+    client = BraveClient(
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        market="VN",
+    )
+    candidates, snapshot = client.search_with_snapshot("q", date(2026, 4, 24), date(2026, 4, 24))
+    assert len(candidates) == 1
+    assert "response" not in snapshot
+    assert snapshot["response_summary"]["domain_counts"] == {"cafef.vn": 1}

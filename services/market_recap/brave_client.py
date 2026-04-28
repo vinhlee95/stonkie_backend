@@ -1,6 +1,8 @@
 import re
+from collections import Counter
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -106,18 +108,34 @@ class BraveClient:
         period_end: date,
         include_domains: list[str] | None = None,
     ) -> list[Candidate]:
+        candidates, _ = self.search_with_snapshot(
+            query=query,
+            period_start=period_start,
+            period_end=period_end,
+            include_domains=include_domains,
+        )
+        return candidates
+
+    def search_with_snapshot(
+        self,
+        query: str,
+        period_start: date,
+        period_end: date,
+        include_domains: list[str] | None = None,
+    ) -> tuple[list[Candidate], dict]:
+        params = {
+            "q": query,
+            "country": _country_for(self._market),
+            "search_lang": _search_lang_for(self._market),
+            "count": 30,
+            "context_threshold_mode": "strict",
+            "freshness": f"{period_start.isoformat()}to{period_end.isoformat()}",
+            "goggles": _build_goggle(market=self._market, include_domains=include_domains),
+        }
         response = self._http_client.get(
             "https://api.search.brave.com/res/v1/llm/context",
             headers={"X-Subscription-Token": self._api_key},
-            params={
-                "q": query,
-                "country": _country_for(self._market),
-                "search_lang": _search_lang_for(self._market),
-                "count": 30,
-                "context_threshold_mode": "strict",
-                "freshness": f"{period_start.isoformat()}to{period_end.isoformat()}",
-                "goggles": _build_goggle(market=self._market, include_domains=include_domains),
-            },
+            params=params,
         )
         response.raise_for_status()
         data = response.json()
@@ -173,7 +191,17 @@ class BraveClient:
                 )
             )
         if candidates:
-            return candidates
+            return candidates, {
+                "provider": "brave",
+                "query": query,
+                "market": self._market,
+                "include_domains": include_domains or [],
+                "request_params": params,
+                "response_http_status": response.status_code,
+                "response_items": len(candidates),
+                "shape": "grounding.generic",
+                "response_summary": _safe_response_summary(data),
+            }
 
         # Fallback shape: some responses may provide only `results`.
         for result in data.get("results", []):
@@ -204,4 +232,40 @@ class BraveClient:
                     provider="brave",
                 )
             )
-        return candidates
+        return candidates, {
+            "provider": "brave",
+            "query": query,
+            "market": self._market,
+            "include_domains": include_domains or [],
+            "request_params": params,
+            "response_http_status": response.status_code,
+            "response_items": len(candidates),
+            "shape": "results",
+            "response_summary": _safe_response_summary(data),
+        }
+
+
+def _safe_response_summary(data: dict) -> dict:
+    results = data.get("results", [])
+    sources = data.get("sources", {})
+    grounding_items = data.get("grounding", {}).get("generic", [])
+
+    urls: list[str] = []
+    if isinstance(grounding_items, list):
+        for item in grounding_items:
+            url = item.get("url") if isinstance(item, dict) else None
+            if isinstance(url, str) and url:
+                urls.append(url)
+    if not urls and isinstance(results, list):
+        for item in results:
+            url = item.get("url") if isinstance(item, dict) else None
+            if isinstance(url, str) and url:
+                urls.append(url)
+
+    domain_counts = Counter((urlsplit(url).hostname or "").lower() for url in urls if url)
+    return {
+        "results_count": len(results) if isinstance(results, list) else 0,
+        "grounding_count": len(grounding_items) if isinstance(grounding_items, list) else 0,
+        "sources_count": len(sources) if isinstance(sources, dict) else 0,
+        "domain_counts": dict(domain_counts),
+    }

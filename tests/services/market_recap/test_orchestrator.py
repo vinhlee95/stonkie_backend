@@ -37,6 +37,14 @@ def _retrieval_result() -> RetrievalResult:
             allowlisted=1,
             ranked_top_k=1,
         ),
+        query_snapshots=[
+            {
+                "query": "US stock market recap Apr 24, 2026",
+                "include_domains": [],
+                "results_count": 1,
+                "provider_snapshot": {"provider": "brave", "shape": "grounding.generic"},
+            }
+        ],
     )
 
 
@@ -83,6 +91,10 @@ def test_run_market_recap_success_persists_row(db_session):
     assert result.attempts == 1
     assert result.recap_id is not None
     assert db_session.query(MarketRecap).count() == 1
+    row = db_session.query(MarketRecap).one()
+    assert row.raw_sources["query_snapshots"][0]["provider_snapshot"]["provider"] == "brave"
+    assert "raw_content" not in row.raw_sources["candidates"][0]
+    assert row.raw_sources["candidates"][0]["title"] == "Reuters A"
 
 
 def test_run_market_recap_forwards_cadence_to_generate_fn(db_session):

@@ -56,14 +56,32 @@ def retrieve_candidates(
         else plan_queries(period_start, period_end, market=market, cadence=cadence)
     )
     fetched_candidates = []
+    query_snapshots: list[dict] = []
     for planned_query in queries:
-        fetched_candidates.extend(
-            provider.search(
+        search_with_snapshot = getattr(provider, "search_with_snapshot", None)
+        if callable(search_with_snapshot):
+            candidates, provider_snapshot = search_with_snapshot(
                 query=planned_query.query,
                 period_start=period_start,
                 period_end=period_end,
                 include_domains=planned_query.include_domains,
             )
+        else:
+            candidates = provider.search(
+                query=planned_query.query,
+                period_start=period_start,
+                period_end=period_end,
+                include_domains=planned_query.include_domains,
+            )
+            provider_snapshot = None
+        fetched_candidates.extend(candidates)
+        query_snapshots.append(
+            {
+                "query": planned_query.query,
+                "include_domains": planned_query.include_domains,
+                "results_count": len(candidates),
+                "provider_snapshot": provider_snapshot,
+            }
         )
 
     deduped = dedupe(fetched_candidates)
@@ -84,4 +102,5 @@ def retrieve_candidates(
             allowlisted=allowlisted_count,
             ranked_top_k=len(top_candidates),
         ),
+        query_snapshots=query_snapshots,
     )

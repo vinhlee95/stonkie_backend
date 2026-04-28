@@ -17,6 +17,16 @@ EVENT_RUN_START = "recap.run.start"
 EVENT_RUN_OUTCOME = "recap.run.outcome"
 
 
+def _safe_raw_candidate(candidate) -> dict:
+    return {
+        "title": candidate.title,
+        "url": candidate.url,
+        "published_date": candidate.published_date.isoformat() if candidate.published_date else None,
+        "score": candidate.score,
+        "provider": candidate.provider,
+    }
+
+
 @dataclass(frozen=True)
 class RunResult:
     status: Literal["inserted", "skipped_existing", "replaced", "validation_failed", "generation_failed"]
@@ -149,8 +159,9 @@ def run_market_recap(
             continue
 
         raw_sources = {
-            "candidates": [candidate.model_dump(mode="json") for candidate in retrieval.candidates],
+            "candidates": [_safe_raw_candidate(candidate) for candidate in retrieval.candidates],
             "stats": retrieval.stats.model_dump(mode="json"),
+            "query_snapshots": retrieval.query_snapshots,
         }
         with session_factory() as db:
             persisted: PersistenceResult = persist_fn(

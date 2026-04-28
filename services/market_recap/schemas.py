@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
@@ -81,3 +82,4 @@ class RetrievalStats(BaseModel):
 class RetrievalResult(BaseModel):
     candidates: list[Candidate]
     stats: RetrievalStats
+    query_snapshots: list[dict[str, Any]] = Field(default_factory=list)
