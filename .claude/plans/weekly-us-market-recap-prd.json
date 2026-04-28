@@ -1311,7 +1311,7 @@
       "id": "phase-8-optional-fetched-corpus-staging-with-ttl",
       "sort_order": 8,
       "impact_level": "LOW",
-      "state": "not-started",
+      "state": "skipped",
       "title": "Optional fetched-corpus staging persistence (pre-generation) with TTL",
       "objective": "Persist fetched/parsed corpus before LLM generation for short-term replay and auditability, while avoiding permanent storage bloat and legal risk.",
       "scope_includes": [
@@ -1340,6 +1340,42 @@
         ],
         "parallelizable": true
       },
+      "validation_summary": {
+        "summary": "Skipped by product/ops decision after legal-safe retrieval snapshot rollout. Current metadata-only storage in market_recap.raw_sources.query_snapshots (query params, counts, domain histogram, provider metadata) is sufficient for diagnostics without persisting fetched article/snippet corpus.",
+        "commands_executed": [],
+        "result": "skipped"
+      },
+      "learnings": [
+        "Full corpus staging materially increases legal/compliance and data-retention risk compared to metadata-only observability.",
+        "Current incident-analysis needs are met by persisted query snapshots plus structured run logs.",
+        "Reintroduce corpus staging only if deterministic replay requirements become frequent and justified."
+      ],
+      "gates_result_snapshot": [
+        {
+          "gate": "Gate A: staging persistence tests pass",
+          "status": "partial",
+          "notes": "Not executed; phase intentionally skipped."
+        },
+        {
+          "gate": "Gate B: TTL cleanup tests pass",
+          "status": "partial",
+          "notes": "Not executed; phase intentionally skipped."
+        },
+        {
+          "gate": "Gate C: backward compatibility pass",
+          "status": "pass",
+          "notes": "Existing pipeline remains unchanged with metadata-only snapshot persistence."
+        },
+        {
+          "gate": "Gate D: baseline lint/health pass",
+          "status": "partial",
+          "notes": "Not run for this PRD-only status update."
+        }
+      ],
+      "next_phase_considerations": [
+        "If audit requirements later mandate deterministic replay, revisit with a tightly scoped design: encrypted storage, strict TTL, minimal text retention, and explicit legal sign-off.",
+        "Keep metadata-only snapshots as default policy."
+      ],
       "definition_of_done": {
         "implementation_checks": [
           "Corpus staging write succeeds before generation when feature flag is enabled.",
