@@ -37,7 +37,52 @@
       "search_decision_respected": "v2 honors the existing SearchDecisionEngine. When the engine says 'no search', v2 takes a non-grounded path (no Brave call, no sources event). meta event with request_id is ALWAYS emitted, regardless of search decision.",
       "verbatim_query": "Pass user prompt verbatim to Brave; no rewriter.",
       "language_handling": "No explicit language directive. Trust Gemini30Flash multilingual. Citations remain in source language.",
-      "rate_limiting": "No proactive throttling. Monitor 429s in prod; add reactively if observed."
+      "rate_limiting": "No proactive throttling. Monitor 429s in prod; add reactively if observed.",
+      "three_layer_architecture": {
+        "rule": "v2 MUST strictly conform to the existing v1 three-layer architecture: route -> service -> connector/repository. Each layer has hard import rules.",
+        "layers": {
+          "L1_route": {
+            "location": "api/analyze_v2.py (new file with its own APIRouter, mounted from main.py via app.include_router). Mirrors api/markets.py.",
+            "responsibilities": "HTTP parsing, cookie/conversation hydration, SSE plumbing, dispatch to a Layer-2 service. Nothing else.",
+            "must_not_import": [
+              "connectors.* (no DB sessions, no Redis, no external HTTP clients)",
+              "models.* (no ORM models)",
+              "Anything from services/question_analyzer/* handler implementations directly"
+            ],
+            "may_import": [
+              "services.financial_analyzer_v2.FinancialAnalyzerV2",
+              "services.etf_analyzer_v2.ETFAnalyzerV2",
+              "fastapi, starlette types",
+              "Pydantic request/response schemas"
+            ],
+            "db_access_rule": "Only via Depends(get_db) passed straight to a service method. Routes never call session.query(...) themselves."
+          },
+          "L2_service": {
+            "location": "services/financial_analyzer_v2.py, services/etf_analyzer_v2.py, services/question_analyzer/handlers_v2.py, services/question_analyzer/comparison_handler_v2.py, services/analyze_retrieval/* (peer service module)",
+            "responsibilities": "Business logic, orchestration, prompt building, LLM streaming, classifier/search-decision dispatch.",
+            "must_not_import": [
+              "fastapi.* (no Request, Response, APIRouter, Depends, HTTPException)",
+              "starlette.*"
+            ],
+            "may_import": [
+              "connectors.* (DB, Redis, Brave HTTP, OpenRouter, Finnhub)",
+              "models.* (ORM models for typing/queries via connectors)",
+              "Other services for composition"
+            ]
+          },
+          "L3_connector": {
+            "location": "connectors/brave_client.py (NEW), connectors/database.py, connectors/cache.py, connectors/conversation_store.py, models/*",
+            "responsibilities": "HTTP/JSON I/O, DB sessions, Redis I/O, ORM model definitions. Pure data access.",
+            "must_not_import": [
+              "fastapi.* / starlette.*",
+              "services.*"
+            ],
+            "rule": "Brave HTTP client for v2 lives at connectors/brave_client.py. services/market_recap/brave_client.py stays put for recap (out of scope for this PRD); v2 does NOT reuse it."
+          }
+        },
+        "fork_v1": "v1 code is frozen. v2 forks FinancialAnalyzer -> FinancialAnalyzerV2, ETFAnalyzer -> ETFAnalyzerV2, handlers -> handlers_v2. No shared mutation of v1 classes.",
+        "enforcement": "An architecture test under tests/architecture/test_v2_layering.py asserts the import rules above using ast or grep-based checks. Hard gate at Phase 7."
+      }
     },
     "agent_validation_protocol": {
       "purpose": "Allow implementation agent to prove phase success without human hand-holding.",
@@ -338,7 +383,8 @@
       "title": "Brave client wrapper + ranking",
       "objective": "Wrap Brave search for chat with no-freshness param, plus deterministic ranking over candidates. No live API in tests.",
       "scope_includes": [
-        "brave_client.py: thin wrapper around recap BraveClient OR new method search_no_freshness(); decision committed in code",
+        "connectors/brave_client.py (Layer 3, NEW): pure HTTP/JSON client for Brave /llm/context. Takes query/params, returns parsed JSON dict. No business logic. v2 does NOT import services/market_recap/brave_client.py (recap stays as-is).",
+        "services/analyze_retrieval/brave_client.py (Layer 2, optional thin adapter): if needed for Candidate shaping; otherwise services/analyze_retrieval/retrieval.py imports connectors.brave_client directly",
         "ranking.py: rank_for_chat(candidates, market) -> list[Candidate]. Order: tier-1 first, then tier-2, then untrusted; within tier prefer recent (published_at <90 days) over older, then content length desc, then brave score desc. Tier comes from services/analyze_retrieval/source_policy.tier_for(...). Recency is a soft boost only — no hard cutoff.",
         "Integration test using fixtures from tmp/analyze_eval/full01/<id>/brave.json"
       ],
@@ -348,11 +394,10 @@
         "No live Brave calls in tests"
       ],
       "files_expected": [
-        "services/analyze_retrieval/brave_client.py",
+        "connectors/brave_client.py",
+        "tests/connectors/test_brave_client.py",
         "services/analyze_retrieval/ranking.py",
-        "tests/services/analyze_retrieval/test_ranking.py",
-        "tests/services/analyze_retrieval/test_brave_client.py",
-        "tests/services/analyze_retrieval/fixtures/ (canned responses)"
+        "tests/services/analyze_retrieval/test_ranking.py"
       ],
       "dependencies": {
         "technical_must_complete_before": ["phase-1-retrieval-primitives"],
@@ -643,21 +688,26 @@
       "title": "POST /api/v2/companies/{ticker}/analyze",
       "objective": "Mount the v2 endpoint parallel to v1, with request_id meta event, error stream contract, and v2: cache namespace.",
       "scope_includes": [
-        "main.py: new route /api/v2/companies/{ticker}/analyze",
+        "NEW file api/analyze_v2.py with its own APIRouter; mounted from main.py via app.include_router(analyze_v2_router). Mirrors api/markets.py. v1 route in main.py is NOT touched.",
+        "Route /api/v2/companies/{ticker}/analyze defined in api/analyze_v2.py only",
+        "Layer-1 rules enforced: route imports only services.financial_analyzer_v2.FinancialAnalyzerV2 + services.etf_analyzer_v2.ETFAnalyzerV2 + Depends(get_db) passthrough. NO connectors.* or models.* imports.",
         "Mint analyze_request_id (UUID4); emit as first SSE event {type:meta, body:{request_id}}",
         "Bump SemanticAnalysisCache key prefix to v2: AND set entry TTL to 30 minutes for v2 entries (uniform across categories)",
         "v2 endpoint always honors SearchDecisionEngine — when it returns no_search, skip retrieval and run handler in non-grounded mode (still emits meta event with request_id)",
         "BraveRetrievalError -> {type:error, code:retrieval_failed} + clean stream close",
-        "Startup healthcheck: BRAVE_API_KEY present"
+        "Startup healthcheck: BRAVE_API_KEY present",
+        "Architecture test tests/architecture/test_v2_layering.py asserting the L1/L2/L3 import rules from core_non_negotiables.three_layer_architecture"
       ],
       "scope_excludes": [
         "v1 deprecation",
         "FE changes"
       ],
       "files_expected": [
-        "main.py",
-        "services/semantic_analysis_cache.py (namespace bump)",
-        "tests/test_analyze_v2_endpoint.py"
+        "api/analyze_v2.py (NEW)",
+        "main.py (only adds app.include_router(analyze_v2_router); v1 untouched)",
+        "services/semantic_analysis_cache.py (namespace + TTL)",
+        "tests/api/test_analyze_v2_endpoint.py",
+        "tests/architecture/test_v2_layering.py"
       ],
       "dependencies": {
         "technical_must_complete_before": ["phase-6-handler-v2-remaining"],
@@ -665,6 +715,10 @@
       },
       "tdd_plan": {
         "red_tests": [
+          "Route is defined in api/analyze_v2.py (not main.py) and mounted via app.include_router; main.py diff is one include_router line",
+          "Architecture test: api/analyze_v2.py module AST contains no imports from connectors.* or models.*",
+          "Architecture test: services/analyze_retrieval/* and services/financial_analyzer_v2.py contain no imports from fastapi.* / starlette.*",
+          "Architecture test: connectors/brave_client.py contains no imports from services.* or fastapi.*",
           "POST /api/v2/companies/AAPL/analyze with mocked retrieval+LLM -> first SSE event is meta with valid UUID request_id",
           "Brave error path -> stream contains {type:error, code:retrieval_failed} then closes",
           "Cache: v1 entry does not satisfy v2 request and vice versa",
@@ -694,8 +748,10 @@
             "Gate A: TDD red->green proof",
             "Gate B: v1 regression suite green",
             "Gate C: SSE schema matches PRD (meta first, error contract honored)",
-            "Gate D: cache namespace isolated",
-            "Gate E: healthcheck + ruff pass"
+            "Gate D: cache namespace + TTL isolated",
+            "Gate E: 3LA architecture test passes (L1/L2/L3 import rules)",
+            "Gate F: route lives in api/analyze_v2.py, NOT main.py",
+            "Gate G: healthcheck + ruff pass"
           ]
         }
       }
