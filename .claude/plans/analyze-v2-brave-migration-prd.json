@@ -591,7 +591,27 @@
       "id": "phase-4-citation-index-collector",
       "sort_order": 5,
       "impact_level": "LOW",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 4 complete in strict TDD. Added services/analyze_retrieval/citation_index.py with build_sources_event(full_text, retrieved_sources) that extracts [N], maps N -> retrieved_sources[N-1], dedupes in first-seen order, drops out-of-range citations, and emits the locked payload shape {type:'sources', body:{sources:[...]}} with full source metadata (source_id, url, title, publisher, published_at, is_trusted). Added observability counters out_of_range_citation_count and uncited_source_count via structured JSON logging and ensured no raw answer text is logged. Added tests/services/analyze_retrieval/test_citation_stream.py covering single mapping, dedupe, out-of-range handling, empty citations, and uncited-source counting. Optional package export added in services/analyze_retrieval/__init__.py.",
+      "tdd_evidence": {
+        "red_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_citation_stream.py::test_build_sources_event_maps_single_citation_to_first_source -q -> ModuleNotFoundError: services.analyze_retrieval.citation_index; then source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_citation_stream.py -q -> 3 failed, 2 passed (dedupe/out-of-range/logging assertions red).",
+        "green_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_citation_stream.py -v -> 5 passed; source venv/bin/activate && pytest tests/test_healthcheck.py -v -> 3 passed; source venv/bin/activate && ruff check . -> All checks passed."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof)": "pass",
+        "Gate B (chunking/citation correctness)": "pass — dedupe, out-of-range filtering, and no-citation behavior verified in test_citation_stream suite",
+        "Gate C (healthcheck + ruff pass)": "pass — tests/test_healthcheck.py green, ruff clean after import-order fix"
+      },
+      "learnings": [
+        "Keeping citation parsing pure over final text while preserving first-seen order provides deterministic FE rendering and avoids stream-coupled state.",
+        "Out-of-range and uncited metrics are useful as lightweight drift signals without logging raw model output or payload-heavy traces.",
+        "Using canonical event shape body.sources with full metadata now unblocks FE inline popup/hover designs without backend schema follow-up."
+      ],
+      "next_phase_considerations": [
+        "Phase 5 should call citation_index.build_sources_event exactly once after stream end and keep raw answer chunks unchanged with [N] markers preserved.",
+        "When retrieval is skipped by SearchDecisionEngine no_search, handler must emit answer-only path with no sources event (Phase 5 contract).",
+        "Trusted-publisher list for the pre-generation thinking_status in Phase 5 can be derived directly from retrieval result sources where is_trusted=true."
+      ],
       "title": "Citation index collector (final sources event builder)",
       "objective": "Tiny utility that scans the streamed model text for [N] occurrences and produces the final sources event payload mapping N -> source metadata. Does NOT buffer the stream; does NOT strip [N] markers.",
       "scope_includes": [
@@ -606,7 +626,7 @@
       ],
       "files_expected": [
         "services/analyze_retrieval/citation_index.py",
-        "tests/services/analyze_retrieval/test_citation_index.py"
+        "tests/services/analyze_retrieval/test_citation_stream.py"
       ],
       "dependencies": {
         "technical_must_complete_before": ["phase-1-retrieval-primitives"],

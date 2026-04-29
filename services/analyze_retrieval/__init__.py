@@ -1,3 +1,4 @@
+from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.goggle import build_chat_goggle
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.publisher import publisher_label_for
@@ -13,6 +14,7 @@ __all__ = [
     "AnalyzeSource",
     "BraveRetrievalError",
     "Market",
+    "build_sources_event",
     "build_chat_goggle",
     "publisher_label_for",
     "resolve_market",
