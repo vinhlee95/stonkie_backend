@@ -148,7 +148,31 @@
       "id": "phase-0-source-policy-for-chat",
       "sort_order": 1,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 0 complete on branch feat/analyze-v2-phase-0-source-policy. Created services/analyze_retrieval/source_policy.py with locked allowlist for GLOBAL/VN markets + FI extension, *.gov wildcard, DISCARDS list (incl. tradingview.com/ideas path-prefix), and tier_for/is_trusted/is_discarded helpers. 56 unit tests cover GLOBAL/VN/FI tier resolution, discards precedence, tier non-overlap, exact tier counts (G1=13/G2=16/VN1=7/VN2=10/FIext1=2/FIext2=3), independence-from-recap AST guard, and registrable_domain VN multi-suffix handling. TDD: ImportError red -> 56 passed green. 5 brave fixtures committed under tests/services/analyze_retrieval/fixtures/.",
+      "tdd_evidence": {
+        "red_run": "pytest tests/services/analyze_retrieval/test_source_policy.py -v -> ImportError: cannot import name 'source_policy' from 'services.analyze_retrieval' (module not yet created).",
+        "green_run": "pytest tests/services/analyze_retrieval/test_source_policy.py -v -> 56 passed in 0.04s."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green)": "pass",
+        "Gate B (GLOBAL/VN isolation)": "pass — tier_for(reuters.com, VN) is None; tier_for(anything.gov, VN) is None",
+        "Gate C (FI extension stacks on GLOBAL)": "pass — inderes.fi=1, hs.fi=2, reuters.com=1, investing.com=2 under FI",
+        "Gate D (discards override allowlist)": "pass — monkeypatched DISCARDS={reuters.com} forces tier_for to None",
+        "Gate E (healthcheck + ruff)": "pass — 3 healthcheck tests green, ruff check . clean after I001 auto-fix"
+      },
+      "learnings": [
+        "registrable_domain (last-2-labels) is insufficient for multi-part TLDs like .gov.uk; switched tier matching to host-suffix match (host == d or host.endswith('.'+d)) which handles companieshouse.gov.uk and arbitrary subdomains uniformly.",
+        "*.gov wildcard counts as one of the 13 GLOBAL_TIER_1 entries per PRD locked_policy; represented as the literal string '*.gov' in the frozenset and resolved via GLOBAL_TIER_1_WILDCARDS at runtime to keep counts asserted by snapshot test exact.",
+        "tradingview.com/ideas requires path-aware discard; introduced DISCARD_PATH_PREFIXES tuple to keep DISCARDS as a clean domain frozenset.",
+        "Ruff I001 import-sorting fired on the test module (blank line between stdlib and 3rd-party imports) — auto-fix sufficient."
+      ],
+      "next_phase_considerations": [
+        "Phase 1 goggle.py should consume GLOBAL_TIER_1/2, FI_EXTENSION_TIER_1/2, VN_TIER_1/2, and DISCARDS directly. The literal '*.gov' entry in GLOBAL_TIER_1 must be emitted as its own goggle line ($boost=4,site=*.gov is invalid Brave syntax — likely needs $boost=4,site=*.gov rendered differently or skipped from goggle and relied on at rank time only). Decide goggle representation in phase 1.",
+        "Phase 1 publisher.py needs a label table; reuse same domain set for consistency. Consider extracting a shared 'PUBLISHER_LABELS' map keyed by registrable_domain.",
+        "Phase 2 ranking will call tier_for(url, market). Ensure ranking treats wildcard *.gov hits the same as explicit tier-1 entries.",
+        "Q3.1 (PRD global_unresolved_questions) — country distinct query for resolve_market still pending; do before phase-1 market.py."
+      ],
       "title": "Chat-specific source policy (allowlist + tiering + discards)",
       "objective": "Define and codify the trusted-source policy used by the v2 goggle. Two buckets only: VN (Vietnamese tickers) and GLOBAL (US/FI/everything else). Two boost tiers. Recap's allowlist is NOT shared — analyze v2 owns its own policy file.",
       "scope_includes": [

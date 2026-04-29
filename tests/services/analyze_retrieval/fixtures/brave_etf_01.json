@@ -1,0 +1,87 @@
+{
+  "arm": "brave",
+  "prompt_id": "etf-01",
+  "model": "google/gemini-3-flash-preview",
+  "answer": "Year-to-date (YTD), **SOXX** (iShares Semiconductor ETF) is outperforming **SMH** (VanEck Semiconductor ETF). Based on recent comparative data, SOXX has achieved a return of **53.37%**, while SMH has returned **40.63%** [1][2]. \n\nThis current performance represents a temporary reversal of a long-term trend where SMH was previously the \"clear winner\" [4]. The difference in performance is largely attributed to the construction and concentration of the two funds:\n\n*   **SMH:** Focuses on the 25 largest and most liquid U.S.-listed semiconductor companies and allows for higher concentration, with single holdings like Nvidia reaching nearly 20% of the portfolio [4][5]. While this concentration has led to superior 10-year annualized returns (35.19% for SMH vs. 32.58% for SOXX), it creates higher single-stock risk [1][5].\n*   **SOXX:** Utilizes a more balanced modified market-cap weighting that caps individual holdings at 10% [5]. This structure reduces the influence of any single company and has contributed to its stronger YTD lead [3][4].\n\nDespite the gap in YTD returns, the two funds remain highly correlated (0.97), meaning they generally move in lockstep [1][2]. Performance data from 2024 specifically noted SOXX was up 46.5% YTD compared to SMH’s 33.8% at that time, highlighting a widening performance gap after generative AI became a major market driver [3][4].",
+  "citations": [
+    {
+      "index": 1,
+      "url": "https://portfolioslab.com/tools/stock-comparison/SMH/SOXX",
+      "title": "SMH vs SOXX: Which Is the Better ETF?",
+      "published_at": "Saturday, February 14, 2026",
+      "content_chars": 2316
+    },
+    {
+      "index": 2,
+      "url": "https://portfolioslab.com/tools/stock-comparison/SOXX/SMH",
+      "title": "SOXX vs SMH: Performance Charts & Full Comparison",
+      "published_at": "Friday, January 23, 2026",
+      "content_chars": 2322
+    },
+    {
+      "index": 3,
+      "url": "https://www.etf.com/sections/features/smh-vs-soxx-two-ways-play-ai-chip-boom",
+      "title": "SMH vs. SOXX: Two Ways to Play the AI Chip Boom",
+      "published_at": "Monday, March 16, 2026",
+      "content_chars": 2962
+    },
+    {
+      "index": 4,
+      "url": "https://www.etf.com/sections/features/semiconductor-etfs-have-never-had-run",
+      "title": "SOXX Has Never Had a Run Like This",
+      "published_at": "Friday, April 24, 2026",
+      "content_chars": 2283
+    },
+    {
+      "index": 5,
+      "url": "https://www.mezzi.com/blog/smh-vs-soxx-vs-xsd-semiconductor-etf-balanced-exposure",
+      "title": "SMH vs SOXX vs XSD - Best semiconductor ETF for balanced exposure ...",
+      "published_at": "Friday, November 21, 2025",
+      "content_chars": 1215
+    }
+  ],
+  "passages": [
+    {
+      "url": "https://portfolioslab.com/tools/stock-comparison/SMH/SOXX",
+      "title": "SMH vs SOXX: Which Is the Better ETF?",
+      "snippet": "",
+      "raw_content": "{\"title\":\"SMH vs SOXX: Performance Charts &amp; Full Comparison\",\"caption\":\"SMH vs. SOXX - Yearly Performance Comparison\",\"table\":{\"2026\":\"53.37%\",\"2025\":\"40.74%\",\"2024\":\"12.92%\",\"2023\":\"67.12%\",\"2022\":\"-35.09%\",\"2021\":\"44.09%\",\"2020\":\"52.72%\",\"2019\":\"62.42%\",\"2018\":\"-6.49%\",\"2017\":\"39.79%\"}}\n\n{\"title\":\"SMH vs SOXX: Performance Charts &amp; Full Comparison\",\"caption\":\"SMH vs. SOXX - Yearly Performance Comparison\",\"table\":{\"2026\":\"40.63%\",\"2025\":\"49.17%\",\"2024\":\"39.10%\",\"2023\":\"73.38%\",\"2022\":\"-33.53%\",\"2021\":\"42.13%\",\"2020\":\"55.53%\",\"2019\":\"64.45%\",\"2018\":\"-9.05%\",\"2017\":\"38.48%\"}}\n\n# SMH vs. SOXX\n## Performance\n### Returns By Period\nIn the year-to-date period, SMH achieves a 40.63% return, which is significantly lower than SOXX's 53.37% return. Over the past 10 years, SMH has outperformed SOXX with an annualized return of 35.19%, while SOXX has yielded a comparatively lower 32.58% annualized return.\n\n---\n\nThe chart below illustrates the hypothetical performance of a $10,000 investment in VanEck Semiconductor ETF (SMH) and iShares Semiconductor ETF (SOXX). The values are adjusted to include any dividend payments, if applicable. Loading graphics... In the year-to-date period, SMH achieves a 40.63% return, which is significantly lower than SOXX's 53.37% return. Over the past 10 years, SMH has outperformed SOXX with an annualized return of 35.19%, while SOXX has yielded a comparatively lower 32.58% annualized return. ... The correlation between SMH and SOXX is 0.97 — these two move nearly in lockstep. At this level, holding both provides almost no diversification benefit. If you already own one, adding the other does little to reduce portfolio risk. ... The correlation between SMH and SOXX has been stable across timeframes, ranging from 0.97 to 0.98 — a consistent structural relationship\n\n{\"title\":\"SMH vs SOXX: Performance Charts &amp; Full Comparison\",\"table\":[{\"2026\":\"40.63%\",\"2025\":\"49.17%\",\"2024\":\"39.10%\",\"2023\":\"73.38%\",\"2022\":\"-33.53%\",\"2021\":\"42.13%\",\"2020\":\"55.53%\",\"2019\":\"64.45%\",\"2018\":\"-9.05%\",\"2017\":\"38.48%\"},{\"2026\":\"53.37%\",\"2025\":\"40.74%\",\"2024\":\"12.92%\",\"2023\":\"67.12%\",\"2022\":\"-35.09%\",\"2021\":\"44.09%\",\"2020\":\"52.72%\",\"2019\":\"62.42%\",\"2018\":\"-6.49%\",\"2017\":\"39.79%\"}],\"caption\":\"SMH vs. SOXX - Yearly Performance Comparison\",\"headers\":[\"SMH vs. SOXX\",\"Performance\"]}",
+      "published_at": "Saturday, February 14, 2026"
+    },
+    {
+      "url": "https://portfolioslab.com/tools/stock-comparison/SOXX/SMH",
+      "title": "SOXX vs SMH: Performance Charts & Full Comparison",
+      "snippet": "",
+      "raw_content": "{\"title\":\"SOXX vs SMH: Performance Charts &amp; Full Comparison\",\"caption\":\"SOXX vs. SMH - Yearly Performance Comparison\",\"table\":{\"2026\":\"53.37%\",\"2025\":\"40.74%\",\"2024\":\"12.92%\",\"2023\":\"67.12%\",\"2022\":\"-35.09%\",\"2021\":\"44.09%\",\"2020\":\"52.72%\",\"2019\":\"62.42%\",\"2018\":\"-6.49%\",\"2017\":\"39.79%\"}}\n\n{\"title\":\"SOXX vs SMH: Performance Charts &amp; Full Comparison\",\"caption\":\"SOXX vs. SMH - Yearly Performance Comparison\",\"table\":{\"2026\":\"40.63%\",\"2025\":\"49.17%\",\"2024\":\"39.10%\",\"2023\":\"73.38%\",\"2022\":\"-33.53%\",\"2021\":\"42.13%\",\"2020\":\"55.53%\",\"2019\":\"64.45%\",\"2018\":\"-9.05%\",\"2017\":\"38.48%\"}}\n\n# SOXX vs. SMH\n## Performance\n### Returns By Period\nIn the year-to-date period, SOXX achieves a 53.37% return, which is significantly higher than SMH's 40.63% return. Over the past 10 years, SOXX has underperformed SMH with an annualized return of 32.58%, while SMH has yielded a comparatively higher 35.19% annualized return.\n\n---\n\nThe chart below illustrates the hypothetical performance of a $10,000 investment in iShares Semiconductor ETF (SOXX) and VanEck Semiconductor ETF (SMH). The values are adjusted to include any dividend payments, if applicable. Loading graphics... In the year-to-date period, SOXX achieves a 53.37% return, which is significantly higher than SMH's 40.63% return. Over the past 10 years, SOXX has underperformed SMH with an annualized return of 32.58%, while SMH has yielded a comparatively higher 35.19% annualized return. ... The correlation between SOXX and SMH is 0.97 — these two move nearly in lockstep. At this level, holding both provides almost no diversification benefit. If you already own one, adding the other does little to reduce portfolio risk. ... The correlation between SOXX and SMH has been stable across timeframes, ranging from 0.97 to 0.98 — a consistent structural relationship\n\n{\"title\":\"SOXX vs SMH: Performance Charts &amp; Full Comparison\",\"table\":[{\"2026\":\"53.37%\",\"2025\":\"40.74%\",\"2024\":\"12.92%\",\"2023\":\"67.12%\",\"2022\":\"-35.09%\",\"2021\":\"44.09%\",\"2020\":\"52.72%\",\"2019\":\"62.42%\",\"2018\":\"-6.49%\",\"2017\":\"39.79%\"},{\"2026\":\"40.63%\",\"2025\":\"49.17%\",\"2024\":\"39.10%\",\"2023\":\"73.38%\",\"2022\":\"-33.53%\",\"2021\":\"42.13%\",\"2020\":\"55.53%\",\"2019\":\"64.45%\",\"2018\":\"-9.05%\",\"2017\":\"38.48%\"}],\"caption\":\"SOXX vs. SMH - Yearly Performance Comparison\",\"headers\":[\"SOXX vs. SMH\",\"Performance\"]}",
+      "published_at": "Friday, January 23, 2026"
+    },
+    {
+      "url": "https://www.etf.com/sections/features/smh-vs-soxx-two-ways-play-ai-chip-boom",
+      "title": "SMH vs. SOXX: Two Ways to Play the AI Chip Boom",
+      "snippet": "",
+      "raw_content": "# SMH vs. SOXX: Two Ways to Play the AI Chip Boom\n## Large Performance Gap\nFor many years, the two ETFs performed similarly.\n\nFrom December 2011 through November 30, 2022, the day ChatGPT was released, SMH gained 781% while SOXX rose 811%.\nThe difference was relatively modest.\n\nOnce generative AI took off, however, the gap widened significantly.\n\nNvidia’s meteoric rise pushed SMH well ahead. Since inception in 2011, SMH is now up roughly 3,048% compared with about 2,359% for SOXX.\n\n*[Image]*\n\nThe performance divergence reflects SMH’s heavier concentration in the industry’s largest winners.\n\nInvestors have taken notice. Over the past year, SMH has attracted about $7.3 billion in inflows while SOXX has gathered roughly $1.9 billion.\n\nFees are nearly identical. SMH charges 0.35% while SOXX costs 0.34%.\n\nThe larger flows into SMH suggest many investors are comfortable leaning more heavily into the industry’s biggest companies, particularly Nvidia.\n\nUltimately, the choice between the two funds comes down to portfolio construction. SMH offers a more concentrated bet on the semiconductor giants driving the AI boom. SOXX puts greater limits on the influence of any single company.\n\nInvestors concerned about concentration, especially in Nvidia, may prefer the structure of SOXX. But SMH’s willingness to let the largest companies dominate the portfolio has also been the key reason for its stronger performance and larger asset base.\n\n*Join the Largest ETF Meetings Event in the World - 2,000+ Attendees, 20,000+ Meetings, the Entire ETF Ecosystem in 1 Place. Brought to You by ETF.com ****Learn More***\n\n+ Follow\n\nSumit Roy Senior ETF Analyst\n\nSumit Roy is the senior ETF analyst for etf.com and author of (Don't) Invest Like a Pro. He creates a variety of content for the platform, including…   View Bio\n\nOnce generative AI took off, however, the gap widened significantly. Nvidia’s meteoric rise pushed SMH well ahead. Since inception in 2011, SMH is now up roughly 3,048% compared with about 2,359% for SOXX. The performance divergence reflects SMH’s heavier concentration in the industry’s largest winners. Investors have taken notice. Over the past year, SMH has attracted about $7.3 billion in inflows while SOXX has gathered roughly $1.9 billion. Fees are nearly identical. SMH charges 0.35% while SOXX costs 0.34%. The larger flows into SMH suggest many investors are comfortable leaning more heavily into the industry’s biggest companies, particularly Nvidia. Ultimately, the choice between the two funds comes down to portfolio construction. SMH offers a more concentrated bet on the semiconductor giants driving the AI boom. SOXX puts greater limits on the influence of any single company. Investors concerned about concentration, especially in Nvidia, may prefer the structure of SOXX. But SMH’s willingness to let the largest companies dominate the portfolio has also been the key reason for its stronger performance and larger asset base",
+      "published_at": "Monday, March 16, 2026"
+    },
+    {
+      "url": "https://www.etf.com/sections/features/semiconductor-etfs-have-never-had-run",
+      "title": "SOXX Has Never Had a Run Like This",
+      "snippet": "",
+      "raw_content": "SOXX is the second-largest semiconductor ETF, trailing only the $55 billion VanEck Semiconductor ETF (SMH) . The two funds usually move in lockstep, and they have during this rally as well. SMH is up 33% since March 30, and its own winning streak reached 13 days before a 0.04% decline on April 20 broke it. Without that small dip, SMH would have posted an identical streak. Still, despite moving in the same direction, when it comes to returns, the two funds have diverged meaningfully this year. SOXX is up 46.5% year to date versus 33.8% for SMH, a noticeable reversal after a long stretch where SMH was the clear winner\n\n# Semiconductor ETFs Have Never Had a Run Like This\n## SMH Nearly Matched It\nSOXX is the second-largest semiconductor ETF, trailing only the $55 billion **VanEck Semiconductor ETF (SMH)**.\n\nThe two funds usually move in lockstep, and they have during this rally as well. SMH is up 33% since March 30, and its own winning streak reached 13 days before a 0.04% decline on April 20 broke it. Without that small dip, SMH would have posted an identical streak.\n\nStill, despite moving in the same direction, when it comes to returns, the two funds have diverged meaningfully this year. SOXX is up 46.5% year to date versus 33.8% for SMH, a noticeable reversal after a long stretch where SMH was the clear winner.\n\n*[Image]*\n\nSMH is up 33% since March 30, and its own winning streak reached 13 days before a 0.04% decline on April 20 broke it. Without that small dip, SMH would have posted an identical streak. Still, despite moving in the same direction, when it comes to returns, the two funds have diverged meaningfully this year. SOXX is up 46.5% year to date versus 33.8% for SMH, a noticeable reversal after a long stretch where SMH was the clear winner. The divergence comes down to how the two funds are built. SMH tracks the MVIS US Listed Semiconductor 25 Index, which includes the 25 largest and most liquid U.S.-listed semiconductor companies. To qualify, firms must derive at least half of their revenue from semiconductors or semiconductor equipment, keeping the portfolio tightly focused on the industry. The index uses a modified market-cap weighting approach, capping individual holdings at 20%. Even with that cap, the fund is heavily concentrated",
+      "published_at": "Friday, April 24, 2026"
+    },
+    {
+      "url": "https://www.mezzi.com/blog/smh-vs-soxx-vs-xsd-semiconductor-etf-balanced-exposure",
+      "title": "SMH vs SOXX vs XSD - Best semiconductor ETF for balanced exposure ...",
+      "snippet": "",
+      "raw_content": "## SMH vs SOXX vs XSD: Side-by-Side Comparison\n### Pros and Cons of Each ETF\n**SMH** is ideal for investors who want exposure to industry leaders. With a stellar 10-year annualized return of 31.1%, it has delivered strong performance. However, its heavy reliance on Nvidia (nearly 20% of the portfolio) introduces significant concentration risk. If a key holding underperforms, the entire fund could feel the impact.\n\n**SOXX** takes a more balanced approach with its modified market-cap weighting. By capping individual holdings at 10%, it reduces single-stock risk while still focusing on large-cap U.S. companies. Its slightly lower expense ratio of 0.34% adds to its appeal. Though its 10-year annualized return of 27.2% is solid, it lags behind SMH's performance.\n\n**XSD**, with its equal-weighting strategy, provides the most diversified exposure. By giving smaller and mid-cap semiconductor companies meaningful representation, it reduces reliance on major players. This approach can capture growth from emerging companies but may miss out on the outsized gains of giants like Nvidia. As of August 2024, XSD was down over 6% year-to-date, reflecting its broader exposure and sensitivity to market fluctuations",
+      "published_at": "Friday, November 21, 2025"
+    }
+  ],
+  "brave_response_summary": {
+    "results_count": 0,
+    "grounding_count": 10
+  },
+  "retrieval_seconds": 0.903,
+  "generation_seconds": 3.536,
+  "error": null
+}
