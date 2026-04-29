@@ -1,0 +1,820 @@
+{
+  "prd_meta": {
+    "title": "Analyze v2 — Brave-Backed Retrieval Migration PRD",
+    "description": "Build a parallel POST /api/v2/companies/{ticker}/analyze endpoint that replaces OpenRouter :online with the market-recap pattern (Brave Search + goggle + market-keyed allowlist + ranking + LLM stuff with inline source_id citations). Eval at tmp/analyze_eval/full01 justifies migration: brave wins 12/15, faster, real URLs vs 100% opaque vertex redirects. v1 stays mounted; FE cuts over to v2.",
+    "source_documents": [
+      ".claude/plans/analyze-v2-brave-migration.md",
+      ".claude/plans/analyze-brave-vs-online-eval.md",
+      "tmp/analyze_eval/full01/judgements.json"
+    ],
+    "related_documents": {
+      "design_plan_markdown": ".claude/plans/analyze-v2-brave-migration.md",
+      "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings."
+    },
+    "scope": {
+      "endpoint": "POST /api/v2/companies/{ticker}/analyze",
+      "v1_status": "kept indefinitely; no deprecation marker",
+      "frontend": "cuts over fully to v2 once FE renderer ships",
+      "persistence": "no DB; structured JSON logs keyed by analyze_request_id"
+    },
+    "sorting_rule": "phases ordered by technical dependency chain; each phase independently mergeable",
+    "allowed_states": [
+      "not-started",
+      "inprogress",
+      "complete",
+      "blocked",
+      "skipped"
+    ],
+    "core_non_negotiables": {
+      "tdd_required": "Every phase MUST follow /tdd: write failing tests first, then implementation. Tests committed before or with implementation in the same PR. No implementation-only commits.",
+      "no_external_api_in_tests": "Tests must NEVER hit Brave or OpenRouter live. Use committed fixtures under tests/services/analyze_retrieval/fixtures/. tmp/ is gitignored and MUST NOT be referenced from tests.",
+      "grounding": "v2 LLM consumes only Brave-retrieved passages stuffed into the prompt. No :online mode in v2.",
+      "citation_contract": "LLM emits [N] inline. Backend streams raw text WITH [N] markers preserved (no buffering, no stripping). After stream ends, emit a single sources event mapping each N -> {source_id, url, title, publisher, published_at, is_trusted}. No paragraph_done event. No [SOURCES_JSON] block. FE renders [N] -> badge using the final sources event.",
+      "fail_fast": "On Brave error or 0 results, emit {type: error, code: retrieval_failed} and close stream. No silent :online fallback.",
+      "no_db_persistence": "No new table. Debug via structured JSON logs keyed on analyze_request_id (UUID4) emitted as first SSE meta event.",
+      "v1_v2_cache_isolation": "SemanticAnalysisCache key prefix bumped to v2: to prevent cross-version replay.",
+      "v2_cache_ttl": "v2 SemanticAnalysisCache entries expire after 30 minutes regardless of category. Bounds staleness for time-sensitive answers backed by Brave retrieval.",
+      "search_decision_respected": "v2 honors the existing SearchDecisionEngine. When the engine says 'no search', v2 takes a non-grounded path (no Brave call, no sources event). meta event with request_id is ALWAYS emitted, regardless of search decision.",
+      "verbatim_query": "Pass user prompt verbatim to Brave; no rewriter.",
+      "language_handling": "No explicit language directive. Trust Gemini30Flash multilingual. Citations remain in source language.",
+      "rate_limiting": "No proactive throttling. Monitor 429s in prod; add reactively if observed."
+    },
+    "agent_validation_protocol": {
+      "purpose": "Allow implementation agent to prove phase success without human hand-holding.",
+      "phase_transition_policy": {
+        "mode": "manual_approval_required",
+        "rule": "Agent stops after each phase and waits for explicit user approval before starting the next phase, even when all gates pass."
+      },
+      "tdd_enforcement_policy": {
+        "rule": "Each phase MUST start by writing failing tests that encode the phase's definition_of_done. Implementation only proceeds once tests are red. Phase cannot be marked complete unless those same tests are green AND committed.",
+        "evidence_required": [
+          "Initial failing test run output (red)",
+          "Final passing test run output (green)",
+          "Test file paths committed alongside implementation"
+        ]
+      },
+      "learning_feedback_policy": {
+        "rule": "After each phase, agent writes validation_summary, learnings, gates_result_snapshot, and next_phase_considerations into this PRD under that phase.",
+        "next_phase_requirement": "Before starting a phase, agent reviews and incorporates previous phase learnings."
+      },
+      "requirements_for_every_phase": [
+        "Write failing tests FIRST (TDD red).",
+        "Implement until tests pass (TDD green).",
+        "Run phase tests + project baseline checks (healthcheck + ruff).",
+        "Collect evidence: red test log, green test log, command outputs, SSE samples where relevant.",
+        "Update this PRD with validation_summary, learnings, gates_result_snapshot before requesting approval."
+      ],
+      "baseline_check_policy": {
+        "mode": "strict_must_pass",
+        "rule": "tests/test_healthcheck.py and ruff check . are mandatory hard gates for every phase."
+      },
+      "standard_report_schema": {
+        "phase_id": "string",
+        "state": "complete|blocked|inprogress",
+        "summary": "1-2 paragraphs",
+        "files_changed": ["path"],
+        "commands_executed": ["command string"],
+        "evidence": [
+          {
+            "name": "artifact name",
+            "type": "test|api|sse|log|other",
+            "result": "pass|fail|info",
+            "details": "short details"
+          }
+        ],
+        "gates": [
+          {
+            "gate": "gate name",
+            "status": "pass|fail|partial",
+            "notes": "short notes"
+          }
+        ],
+        "tdd_evidence": {
+          "red_run": "command + summary",
+          "green_run": "command + summary"
+        },
+        "known_risks": ["risk"],
+        "next_phase_ready": true
+      }
+    }
+  },
+  "phases": [
+    {
+      "id": "phase-0-source-policy-for-chat",
+      "sort_order": 1,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Chat-specific source policy (allowlist + tiering + discards)",
+      "objective": "Define and codify the trusted-source policy used by the v2 goggle. Two buckets only: VN (Vietnamese tickers) and GLOBAL (US/FI/everything else). Two boost tiers. Recap's allowlist is NOT shared — analyze v2 owns its own policy file.",
+      "scope_includes": [
+        "New module services/analyze_retrieval/source_policy.py independent of services/market_recap/source_policy.py",
+        "Two markets: GLOBAL (default) and VN",
+        "Two tiers per market: TIER_1 (boost=4) and TIER_2 (boost=2)",
+        "Optional FI extension list appended to GLOBAL when market=FI (Finnish-language sources)",
+        "Hard discards list (social media + opinion blog platforms)",
+        "is_trusted(url, market) helper that returns True for any tier",
+        "tier_for(url, market) helper returning 1 | 2 | None"
+      ],
+      "scope_excludes": [
+        "No goggle building yet (phase-1 consumes this policy)",
+        "No changes to services/market_recap/source_policy.py — recap handled separately",
+        "No tier-3 / no scoring weight tuning (deferred to phase-8 if eval shows need)"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/source_policy.py",
+        "tests/services/analyze_retrieval/test_source_policy.py",
+        "tests/services/analyze_retrieval/fixtures/brave_csf_01.json",
+        "tests/services/analyze_retrieval/fixtures/brave_cg_01.json",
+        "tests/services/analyze_retrieval/fixtures/brave_news_01.json",
+        "tests/services/analyze_retrieval/fixtures/brave_etf_01.json",
+        "tests/services/analyze_retrieval/fixtures/brave_vn_01.json"
+      ],
+      "extra_setup_step": "Copy 5 representative brave.json files (one per category: csf, cg, news, etf, vn) from tmp/analyze_eval/full01/<id>/brave.json into tests/services/analyze_retrieval/fixtures/ and commit. tmp/ is gitignored — fixtures MUST live under tests/.",
+      "dependencies": {
+        "technical_must_complete_before": [],
+        "parallelizable": false
+      },
+      "locked_policy": {
+        "GLOBAL": {
+          "TIER_1": [
+            "sec.gov",
+            "*.gov",
+            "companieshouse.gov.uk",
+            "sedarplus.ca",
+            "europa.eu",
+            "reuters.com",
+            "bloomberg.com",
+            "ft.com",
+            "wsj.com",
+            "cnbc.com",
+            "barrons.com",
+            "economist.com",
+            "marketwatch.com"
+          ],
+          "TIER_2": [
+            "investing.com",
+            "finance.yahoo.com",
+            "morningstar.com",
+            "stockanalysis.com",
+            "macrotrends.net",
+            "simplywall.st",
+            "seekingalpha.com",
+            "ishares.com",
+            "vanguard.com",
+            "ssga.com",
+            "invesco.com",
+            "blackrock.com",
+            "schwab.com",
+            "fidelity.com",
+            "am.jpmorgan.com",
+            "statestreet.com"
+          ]
+        },
+        "FI_EXTENSION": {
+          "TIER_1": [
+            "inderes.fi",
+            "kauppalehti.fi"
+          ],
+          "TIER_2": [
+            "hs.fi",
+            "yle.fi",
+            "arvopaperi.fi"
+          ]
+        },
+        "VN": {
+          "TIER_1": [
+            "hsx.vn",
+            "hnx.vn",
+            "ssc.gov.vn",
+            "cafef.vn",
+            "vneconomy.vn",
+            "vietstock.vn",
+            "vir.com.vn"
+          ],
+          "TIER_2": [
+            "tinnhanhchungkhoan.vn",
+            "en.vietnamplus.vn",
+            "thesaigontimes.vn",
+            "ssi.com.vn",
+            "vndirect.com.vn",
+            "vcsc.com.vn",
+            "hsc.com.vn",
+            "bsc.com.vn",
+            "mbs.com.vn",
+            "fpts.com.vn"
+          ]
+        },
+        "DISCARDS": [
+          "reddit.com",
+          "x.com",
+          "twitter.com",
+          "youtube.com",
+          "facebook.com",
+          "linkedin.com",
+          "quora.com",
+          "medium.com",
+          "substack.com",
+          "tradingview.com/ideas"
+        ]
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "tier_for('https://reuters.com/article/x', 'GLOBAL') == 1",
+          "tier_for('https://investing.com/x', 'GLOBAL') == 2",
+          "tier_for('https://reddit.com/r/x', 'GLOBAL') is None",
+          "tier_for('https://inderes.fi/x', 'FI') == 1 (FI extension applied on top of GLOBAL)",
+          "tier_for('https://reuters.com/x', 'FI') == 1 (GLOBAL still applies for FI)",
+          "tier_for('https://cafef.vn/x', 'VN') == 1",
+          "tier_for('https://reuters.com/x', 'VN') is None (VN does NOT inherit GLOBAL)",
+          "is_trusted is True for any tier, False for None and discards",
+          "is_discarded('https://medium.com/x') is True",
+          "Subdomain match: tier_for('https://www.reuters.com/x', 'GLOBAL') == 1"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Module is independent of services/market_recap/source_policy.py — no imports across",
+          "Domain matching uses registrable_domain (handles www. and other subdomains)",
+          "Wildcard *.gov handled correctly (matches any .gov subdomain)",
+          "Discards take precedence over allowlists (defense-in-depth)",
+          "Markets are an Enum or Literal, not free-form strings"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_source_policy.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Initial failing test run (red)",
+            "Final passing test run (green)",
+            "Snapshot of resolved tier-1/tier-2 lists per market printed during a test"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: GLOBAL/VN isolation verified (VN does not inherit GLOBAL)",
+            "Gate C: FI extension stacks on GLOBAL correctly",
+            "Gate D: discards override allowlist",
+            "Gate E: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-1-retrieval-primitives",
+      "sort_order": 2,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Retrieval primitives (market, goggle, publisher, schemas)",
+      "objective": "Establish pure-function building blocks the orchestrator depends on. No I/O.",
+      "scope_includes": [
+        "services/analyze_retrieval/ skeleton + __init__.py",
+        "market.py: resolve_market(country, question_text) -> 'US'|'VN'|'FI'",
+        "goggle.py: build_chat_goggle(market) -> str. Reads tier-1/tier-2 lists from services/analyze_retrieval/source_policy and emits $boost=4,site=<tier1> + $boost=2,site=<tier2> + $discard=<discards> lines",
+        "publisher.py: publisher_label_for(url) -> str (lookup table + registrable_domain fallback)",
+        "schemas.py: AnalyzeSource, AnalyzeRetrievalResult, BraveRetrievalError"
+      ],
+      "scope_excludes": [
+        "No Brave HTTP calls",
+        "No ranking, no orchestrator, no handlers",
+        "No endpoint wiring"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/__init__.py",
+        "services/analyze_retrieval/market.py",
+        "services/analyze_retrieval/goggle.py",
+        "services/analyze_retrieval/publisher.py",
+        "services/analyze_retrieval/schemas.py",
+        "tests/services/analyze_retrieval/test_market.py",
+        "tests/services/analyze_retrieval/test_goggle.py",
+        "tests/services/analyze_retrieval/test_publisher.py",
+        "tests/services/analyze_retrieval/test_schemas.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-0-source-policy-for-chat"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "test_market: USA/Vietnam/Finland country -> US/VN/FI; unknown -> US; Vietnamese diacritics in question with no country -> VN",
+          "test_goggle: contains $boost=4,site=<tier1> and $boost=2,site=<tier2> lines per market; tier-1 entries do NOT also appear at boost=2",
+          "test_goggle: discards from policy emitted as $discard=<domain> lines (social + opinion-blog domains)",
+          "test_goggle: market=FI emits GLOBAL tier-1/2 + FI extension tier-1/2",
+          "test_goggle: market=VN emits ONLY VN lines (no GLOBAL inheritance)",
+          "test_publisher: known domains map to human label (reuters.com -> Reuters); unknown -> titlecased registrable domain",
+          "test_schemas: AnalyzeSource validates required fields; BraveRetrievalError is an Exception subclass"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "All four modules import cleanly with no circular deps",
+          "Goggle output parity-checked against recap goggle for shared markets",
+          "Vietnamese language detection heuristic deterministic on fixture strings"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/ -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Initial failing test run (red)",
+            "Final passing test run (green)",
+            "Goggle string sample for each market"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: all phase tests pass",
+            "Gate C: healthcheck + ruff baseline pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-2-brave-client-and-ranking",
+      "sort_order": 3,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Brave client wrapper + ranking",
+      "objective": "Wrap Brave search for chat with no-freshness param, plus deterministic ranking over candidates. No live API in tests.",
+      "scope_includes": [
+        "brave_client.py: thin wrapper around recap BraveClient OR new method search_no_freshness(); decision committed in code",
+        "ranking.py: rank_for_chat(candidates, market) -> list[Candidate]. Order: tier-1 first, then tier-2, then untrusted; within tier prefer recent (published_at <90 days) over older, then content length desc, then brave score desc. Tier comes from services/analyze_retrieval/source_policy.tier_for(...). Recency is a soft boost only — no hard cutoff.",
+        "Integration test using fixtures from tmp/analyze_eval/full01/<id>/brave.json"
+      ],
+      "scope_excludes": [
+        "No orchestrator yet",
+        "No persistence",
+        "No live Brave calls in tests"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/brave_client.py",
+        "services/analyze_retrieval/ranking.py",
+        "tests/services/analyze_retrieval/test_ranking.py",
+        "tests/services/analyze_retrieval/test_brave_client.py",
+        "tests/services/analyze_retrieval/fixtures/ (canned responses)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-1-retrieval-primitives"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "test_ranking: tier-1 ranks above tier-2 ranks above untrusted; within tier, recent (<90d) beats older; then longer content beats shorter; ties broken by brave score desc then URL",
+          "test_ranking: missing published_at treated as 'old' (no recency boost) — does not crash",
+          "test_ranking: empty input -> empty output",
+          "test_brave_client: parses canned Brave fixture into Candidate list with canonical URLs",
+          "test_brave_client: HTTP error -> raises BraveRetrievalError"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "brave_client passes freshness=None (or omits it) per Q4 decision",
+          "Ranking is stable for ties (deterministic tiebreaker on URL)",
+          "No live API calls during pytest run"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_ranking.py tests/services/analyze_retrieval/test_brave_client.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green test logs",
+            "Fixture file paths committed",
+            "Confirmation that no network egress occurred during tests (e.g. requests-mock or responses lib used)"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: zero live API calls in tests",
+            "Gate C: ranking deterministic",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-3-retrieval-orchestrator-and-observability",
+      "sort_order": 4,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Retrieval orchestrator + structured logging",
+      "objective": "Wire query -> brave -> dedupe -> rank -> top_k into a single retrieve_for_analyze function. Emit one JSON log line per request keyed on analyze_request_id.",
+      "scope_includes": [
+        "retrieval.py: retrieve_for_analyze(question, market, top_k=5) -> AnalyzeRetrievalResult; raises BraveRetrievalError on empty",
+        "observability.py: log_retrieval(request_id, ticker, market, ...) -> emits one JSON line via app logger",
+        "Dedup by canonical_url; drop empty raw_content"
+      ],
+      "scope_excludes": [
+        "No DB writes — Q8 locked: structured logs only",
+        "No handlers, no endpoint"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/retrieval.py",
+        "services/analyze_retrieval/observability.py",
+        "tests/services/analyze_retrieval/test_retrieval.py",
+        "tests/services/analyze_retrieval/test_observability.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-2-brave-client-and-ranking"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "test_retrieval: end-to-end against canned brave fixture -> returns AnalyzeRetrievalResult with top_k=5 sources, all source_ids unique",
+          "test_retrieval: empty result -> raises BraveRetrievalError",
+          "test_retrieval: duplicate canonical URLs are deduped",
+          "test_observability: emits exactly one JSON log line containing required fields (request_id, ticker, market, ranked_urls, selected_source_ids, brave_latency_ms)",
+          "test_observability: raw Brave response is NOT in the log payload"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Orchestrator wires phase-1 + phase-2 modules with no leakage of HTTP types upward",
+          "Log line is single JSON, parseable, no PII beyond question text already in conversation"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_retrieval.py tests/services/analyze_retrieval/test_observability.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green test logs",
+            "Sample captured log line (redacted if needed)"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: orchestrator + observability tests pass",
+            "Gate C: no DB schema change introduced",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-4-citation-index-collector",
+      "sort_order": 5,
+      "impact_level": "LOW",
+      "state": "not-started",
+      "title": "Citation index collector (final sources event builder)",
+      "objective": "Tiny utility that scans the streamed model text for [N] occurrences and produces the final sources event payload mapping N -> source metadata. Does NOT buffer the stream; does NOT strip [N] markers.",
+      "scope_includes": [
+        "build_sources_event(full_text: str, retrieved_sources: list[AnalyzeSource]) -> dict — extracts unique [N] tokens, maps each to retrieved_sources[N-1], returns {type: 'sources', body: {sources: [...]}}",
+        "Detect and log out-of-range [N] (e.g. [9] when only 5 sources retrieved) — exclude from output, increment a counter for observability",
+        "Detect unused sources (retrieved but never cited by LLM) — included in final sources list anyway? No — only emit cited sources. Log uncited count."
+      ],
+      "scope_excludes": [
+        "No stream buffering — text streams raw to client token-by-token",
+        "No [N] stripping — FE handles rendering",
+        "No paragraph_done event — dropped from schema"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/citation_index.py",
+        "tests/services/analyze_retrieval/test_citation_index.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-1-retrieval-primitives"],
+        "parallelizable": true
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Text containing [1] and [3] only -> sources event lists s_1 and s_3, omits s_2/s_4/s_5",
+          "Text containing [1][2][1] -> sources event has s_1 once (deduped) and s_2",
+          "Text containing [9] when 5 sources retrieved -> dropped from output, warning logged",
+          "Text containing no [N] -> sources event with empty sources list",
+          "Each emitted source has full metadata (source_id, url, title, publisher, published_at, is_trusted)"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Pure async generator; no I/O beyond logging",
+          "Deterministic output across chunk boundaries"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_citation_stream.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green test logs",
+            "Sample fixtures showing chunking edge cases"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: chunking correctness across boundaries",
+            "Gate C: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-5-handler-v2-company-general",
+      "sort_order": 6,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "CompanyGeneralHandlerV2 (smallest handler first)",
+      "objective": "Port simplest handler to v2 pattern: retrieval -> stuff prompt -> stream -> paragraph events. Establishes the shape used by remaining handlers.",
+      "scope_includes": [
+        "CompanyGeneralHandlerV2: takes retrieval result, builds [N]-stuffed prompt, streams Gemini30Flash, yields raw answer chunks (with [N] preserved), then a final sources event built via citation_index.build_sources_event",
+        "Single combined thinking_status event before generation: 'Reading 5 sources: Reuters, CNBC, FT, Bloomberg, SEC' — one event listing all trusted publishers, no per-source sequential events",
+        "If retrieval was skipped (SearchDecisionEngine said no), handler runs without sources/thinking_status — just answer stream, no final sources event"
+      ],
+      "scope_excludes": [
+        "Other handlers (specific finance, comparison, ETF) — separate phases",
+        "Endpoint wiring"
+      ],
+      "files_expected": [
+        "services/question_analyzer/handlers_v2.py",
+        "tests/services/question_analyzer/test_company_general_handler_v2.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-3-retrieval-orchestrator-and-observability",
+          "phase-4-paragraph-citation-postprocessor"
+        ],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Given canned passages + mocked LLM stream emitting '[1][2]', handler yields: single thinking_status with all publishers in body -> raw answer chunks containing [1][2] verbatim -> final sources event with s_1, s_2 metadata only",
+          "Combined thinking_status body lists only trusted (tier-1/tier-2) publishers; untrusted are omitted",
+          "LLM stream with no [N] -> final sources event has empty sources list",
+          "Search-decision = no_search path -> handler emits answer only, no thinking_status, no sources event",
+          "No live LLM call in tests (mocked OpenRouterClient)"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Handler returns AsyncIterator of dict events compatible with v1 SSE serializer",
+          "Sources event is emitted exactly once after stream end"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_company_general_handler_v2.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green test logs",
+            "Sample event sequence captured from a unit test"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: event sequence matches PRD schema",
+            "Gate C: zero live LLM/Brave calls in tests",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-6-handler-v2-remaining",
+      "sort_order": 7,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Remaining handlers v2 (general finance, specific finance, comparison, ETF)",
+      "objective": "Port remaining handlers to v2 pattern using shape established in phase 5. Per-handler PRs recommended.",
+      "scope_includes": [
+        "GeneralFinanceHandlerV2",
+        "CompanySpecificFinanceHandlerV2 (DB financials + Brave passages; trim raw_content if context blows up)",
+        "CompanyComparisonHandlerV2: per-ticker Brave query fanned out via asyncio.gather with concurrency cap = 5; on partial failure proceed with successes + add a note to the answer naming the failed ticker(s); only fail the whole request if ALL ticker retrievals fail",
+        "ETFAnalyzerV2 + ETF handlers v2"
+      ],
+      "scope_excludes": [
+        "No endpoint wiring",
+        "No FE work"
+      ],
+      "files_expected": [
+        "services/financial_analyzer_v2.py",
+        "services/etf_analyzer_v2.py",
+        "services/question_analyzer/handlers_v2.py (extended)",
+        "services/question_analyzer/comparison_handler_v2.py",
+        "tests/services/question_analyzer/test_general_finance_handler_v2.py",
+        "tests/services/question_analyzer/test_company_specific_finance_handler_v2.py",
+        "tests/services/question_analyzer/test_comparison_handler_v2.py",
+        "tests/services/test_etf_analyzer_v2.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-5-handler-v2-company-general"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Per-handler: canned passages + mocked LLM -> expected SSE event sequence",
+          "CompanySpecificFinanceHandlerV2: when DB context large, raw_content trimmed to 3000 chars per passage",
+          "ComparisonHandlerV2: N tickers -> N parallel retrieval calls via asyncio.gather (mocked); total elapsed in test approximates max(per-call latency), not sum",
+          "ComparisonHandlerV2: 1 of 4 tickers fails retrieval -> handler still produces an answer using the 3 successful tickers' sources, and the prompt context includes a marker noting the failed ticker",
+          "ComparisonHandlerV2: ALL tickers fail retrieval -> raises BraveRetrievalError",
+          "ETF: existing context_builders preserved alongside Brave"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "All v2 handlers emit consistent event schema",
+          "FinancialAnalyzerV2.analyze_question dispatches by classifier output (reused)",
+          "v1 handlers untouched"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/ tests/services/test_etf_analyzer_v2.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green logs per handler",
+            "v1 test suite still green (regression check)"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof for each handler",
+            "Gate B: v1 regression suite green",
+            "Gate C: zero live external calls in tests",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-7-endpoint-wiring",
+      "sort_order": 8,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "POST /api/v2/companies/{ticker}/analyze",
+      "objective": "Mount the v2 endpoint parallel to v1, with request_id meta event, error stream contract, and v2: cache namespace.",
+      "scope_includes": [
+        "main.py: new route /api/v2/companies/{ticker}/analyze",
+        "Mint analyze_request_id (UUID4); emit as first SSE event {type:meta, body:{request_id}}",
+        "Bump SemanticAnalysisCache key prefix to v2: AND set entry TTL to 30 minutes for v2 entries (uniform across categories)",
+        "v2 endpoint always honors SearchDecisionEngine — when it returns no_search, skip retrieval and run handler in non-grounded mode (still emits meta event with request_id)",
+        "BraveRetrievalError -> {type:error, code:retrieval_failed} + clean stream close",
+        "Startup healthcheck: BRAVE_API_KEY present"
+      ],
+      "scope_excludes": [
+        "v1 deprecation",
+        "FE changes"
+      ],
+      "files_expected": [
+        "main.py",
+        "services/semantic_analysis_cache.py (namespace bump)",
+        "tests/test_analyze_v2_endpoint.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-6-handler-v2-remaining"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "POST /api/v2/companies/AAPL/analyze with mocked retrieval+LLM -> first SSE event is meta with valid UUID request_id",
+          "Brave error path -> stream contains {type:error, code:retrieval_failed} then closes",
+          "Cache: v1 entry does not satisfy v2 request and vice versa",
+          "Cache: v2 entry written at t=0 is NOT returned at t=31min (TTL expired); IS returned at t=29min",
+          "SearchDecisionEngine returns no_search -> endpoint skips retrieval; meta event still emitted; no sources event; answer streams normally",
+          "Missing BRAVE_API_KEY at startup -> healthcheck fails (test via env override)"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "v1 endpoint untouched and still works",
+          "v2 endpoint uses identical conversation/cookie flow as v1",
+          "Cache namespace isolation verified"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/test_analyze_v2_endpoint.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green test logs",
+            "Sample SSE transcript from a test client (request_id meta first)",
+            "Confirmation that v1 tests still pass"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof",
+            "Gate B: v1 regression suite green",
+            "Gate C: SSE schema matches PRD (meta first, error contract honored)",
+            "Gate D: cache namespace isolated",
+            "Gate E: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-8-validation-and-eval-parity",
+      "sort_order": 9,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "End-to-end validation against eval harness",
+      "objective": "Prove v2 endpoint reproduces (or beats) the brave arm of the existing eval; capture latency vs v1.",
+      "scope_includes": [
+        "Extend scripts/eval_analyze_search/run_eval.py with --arm v2-endpoint that POSTs the v2 endpoint",
+        "Run against the 15-prompt set; compare to captured brave arm",
+        "Manual smoke: 5 prompts via curl, inspect SSE stream",
+        "Capture v2 p50/p95 vs v1"
+      ],
+      "scope_excludes": [
+        "FE work",
+        "Performance tuning beyond reporting"
+      ],
+      "files_expected": [
+        "scripts/eval_analyze_search/run_eval.py (extended)",
+        "tmp/analyze_eval/v2_endpoint_run/ (artifacts)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-7-endpoint-wiring"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Unit test for the new --arm v2-endpoint dispatcher (mocked HTTP)",
+          "Smoke assertion: each captured response has at least 1 source_id and request_id meta event"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "v2 endpoint answers parity (or better) on >=11/15 prompts vs brave arm (judged or manual)",
+          "p50 latency within +20% of brave arm in eval",
+          "All 15 prompts return without retrieval_failed under happy path"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py --arm v2-endpoint tmp/analyze_eval/v2_endpoint_run",
+            "source venv/bin/activate && PYTHONPATH=. python scripts/eval_analyze_search/aggregate.py tmp/analyze_eval/v2_endpoint_run",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Aggregate stats output captured in PRD validation_summary",
+            "5 manual SSE transcripts attached as evidence",
+            "p50/p95 latency table v1 vs v2"
+          ],
+          "phase_gates": [
+            "Gate A: parity threshold met (>=11/15)",
+            "Gate B: latency within tolerance",
+            "Gate C: no retrieval_failed under happy path",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-9-frontend-handoff",
+      "sort_order": 10,
+      "impact_level": "LOW",
+      "state": "not-started",
+      "title": "Frontend handoff doc",
+      "objective": "Hand frontend the v2 SSE contract so they can ship the inline-citation renderer and switch the endpoint URL.",
+      "scope_includes": [
+        "Document v2 SSE event schema in a single markdown delivered to FE",
+        "Include a sample SSE transcript per category",
+        "Note the request_id meta event for debug/reporting flows"
+      ],
+      "scope_excludes": [
+        "FE implementation (different repo)",
+        "v1 removal"
+      ],
+      "files_expected": [
+        "docs/analyze_v2_sse_contract.md"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-8-validation-and-eval-parity"],
+        "parallelizable": true
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Doc-driven test: a fixture transcript embedded in the doc is parsed by a small unit test to ensure it matches the live SSE schema (drift detector)"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Doc covers every event type with example payload",
+          "Drift detector passes",
+          "FE confirms ack (out-of-band)"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/docs/test_analyze_v2_sse_contract_drift.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Drift test green",
+            "Doc path linked in PR"
+          ],
+          "phase_gates": [
+            "Gate A: drift test passes",
+            "Gate B: healthcheck + ruff pass"
+          ]
+        }
+      }
+    }
+  ],
+  "global_unresolved_questions": [
+    "Q6.1: Strip [N] markers backend-side or pass through? Default: strip.",
+    "Q14.1: Comparison handler — per-ticker queries (default) or single combined?",
+    "Q6.3: When DB context + Brave passages are large, trim raw_content to 3000 chars/passage — confirm threshold once measured.",
+    "Q3.1: Country normalization table — what other values appear in company_fundamental.data['country']? Run a quick distinct query before phase 1.",
+    "Q6.4: Retain :online as hidden ops flag in v2? Default: no."
+  ]
+}

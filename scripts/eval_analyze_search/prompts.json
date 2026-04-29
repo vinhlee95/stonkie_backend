@@ -1,0 +1,96 @@
+{
+  "run_date": "2026-04-28",
+  "notes": "Pinned run_date is the 'today' the eval pretends. Prompts using temporal phrasing ('this week', 'latest') resolve relative to this date.",
+  "prompts": [
+    {
+      "id": "csf-01",
+      "category": "company_specific_finance",
+      "ticker": "AAPL",
+      "text": "What was AAPL's free cash flow margin in the most recent reported quarter?"
+    },
+    {
+      "id": "csf-02",
+      "category": "company_specific_finance",
+      "ticker": "NVDA",
+      "text": "Did NVDA beat consensus revenue estimates in the latest quarter, and by how much?"
+    },
+    {
+      "id": "csf-03",
+      "category": "company_specific_finance",
+      "ticker": "BA",
+      "text": "How leveraged is Boeing right now? Net debt to EBITDA, and how it has trended over the past two years."
+    },
+    {
+      "id": "csf-04",
+      "category": "company_specific_finance",
+      "ticker": "MSFT",
+      "text": "Break down MSFT's segment revenue (Productivity, Intelligent Cloud, More Personal Computing) for the latest fiscal year and last quarter."
+    },
+    {
+      "id": "csf-05",
+      "category": "company_specific_finance",
+      "ticker": "PLTR",
+      "text": "What has Palantir's stock-based compensation as a percent of revenue looked like over the last 4 quarters?"
+    },
+    {
+      "id": "cg-01",
+      "category": "company_general",
+      "ticker": "SNOW",
+      "text": "What does Snowflake actually do, and how does it make money?"
+    },
+    {
+      "id": "cg-02",
+      "category": "company_general",
+      "ticker": "TSLA",
+      "text": "Who are Tesla's biggest competitors in EVs and energy storage right now?"
+    },
+    {
+      "id": "cg-03",
+      "category": "company_general",
+      "ticker": "SHOP",
+      "text": "What's the current bull case for Shopify?"
+    },
+    {
+      "id": "cg-04",
+      "category": "company_general",
+      "ticker": "INTC",
+      "text": "What recent management or strategy changes has Intel announced?"
+    },
+    {
+      "id": "news-01",
+      "category": "breaking_news",
+      "ticker": null,
+      "text": "What were the biggest stories moving US equity markets this week?"
+    },
+    {
+      "id": "news-02",
+      "category": "breaking_news",
+      "ticker": null,
+      "text": "What is the latest on the Federal Reserve's most recent rate decision and forward guidance?"
+    },
+    {
+      "id": "news-03",
+      "category": "breaking_news",
+      "ticker": null,
+      "text": "Have there been any major M&A announcements in tech or healthcare in the past two weeks?"
+    },
+    {
+      "id": "etf-01",
+      "category": "etf_sector",
+      "ticker": "SMH",
+      "text": "How is SMH performing year-to-date, and how does that compare to SOXX?"
+    },
+    {
+      "id": "etf-02",
+      "category": "etf_sector",
+      "ticker": null,
+      "text": "What are some of the best-performing dividend-focused ETFs this year, and what do they hold?"
+    },
+    {
+      "id": "vn-01",
+      "category": "non_english",
+      "ticker": "VCB",
+      "text": "Cổ phiếu VCB tuần này có biến động gì đáng chú ý không? Tóm tắt tin tức chính."
+    }
+  ]
+}
