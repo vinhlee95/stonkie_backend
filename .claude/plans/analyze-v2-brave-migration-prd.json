@@ -512,7 +512,27 @@
       "id": "phase-3-retrieval-orchestrator-and-observability",
       "sort_order": 4,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 3 complete in strict TDD mode. Re-validated retrieve_for_analyze with additional behavior-focused tests and upgraded dedupe semantics to keep the strongest candidate per canonical URL (higher score, then longer content). Added services/analyze_retrieval/observability.py with a single-line structured JSON logger and wired retrieval to emit one observability event per request containing request_id, ticker, market, ranked_urls, selected_source_ids, and brave_latency_ms while explicitly excluding raw Brave payloads.",
+      "tdd_evidence": {
+        "red_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_retrieval.py::test_retrieve_for_analyze_keeps_best_duplicate_by_canonical_url -q -> assertion failure (duplicate handling); source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_observability.py::test_log_retrieval_emits_single_json_line_with_required_fields -q -> ModuleNotFoundError for observability module; source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_observability.py::test_log_retrieval_does_not_log_raw_brave_payload -q -> TypeError unexpected raw_brave_response argument; source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_retrieval.py::test_retrieve_for_analyze_logs_observability_fields -q -> retrieval module missing log_retrieval hook.",
+        "green_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_retrieval.py tests/services/analyze_retrieval/test_observability.py -v -> 6 passed; source venv/bin/activate && pytest tests/test_healthcheck.py -v -> 3 passed; source venv/bin/activate && ruff check . -> All checks passed."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof)": "pass",
+        "Gate B (orchestrator + observability tests pass)": "pass — retrieval + observability suite green (6 tests)",
+        "Gate C (no DB schema change introduced)": "pass — no DB migrations/models/connectors changed for persistence",
+        "Gate D (healthcheck + ruff pass)": "pass — tests/test_healthcheck.py green, ruff clean"
+      },
+      "learnings": [
+        "Canonical dedupe quality improves when selecting best candidate per canonical URL before ranking; keeping first-seen can preserve weaker duplicate variants.",
+        "Structured observability is easiest to assert and consume when logger message is a single deterministic JSON object with sorted keys.",
+        "Accepting but discarding optional raw_brave_response at the logging boundary prevents accidental payload leakage while keeping call sites future-proof."
+      ],
+      "next_phase_considerations": [
+        "Phase 4 can consume AnalyzeSource ordering as-is; citation mapping should continue to rely on final retrieved source order.",
+        "If request-level latency instrumentation becomes available upstream, pass real brave_latency_ms through retrieval call sites instead of current default."
+      ],
       "title": "Retrieval orchestrator + structured logging",
       "objective": "Wire query -> brave -> dedupe -> rank -> top_k into a single retrieve_for_analyze function. Emit one JSON log line per request keyed on analyze_request_id.",
       "scope_includes": [

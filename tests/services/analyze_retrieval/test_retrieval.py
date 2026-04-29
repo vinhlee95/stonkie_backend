@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from services.analyze_retrieval import retrieval
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.market_recap.schemas import Candidate
@@ -56,11 +57,11 @@ def test_retrieve_for_analyze_dedupes_filters_topk_and_preserves_stable_source_i
     )
 
     assert [source.url for source in result.sources] == [
-        "https://www.reuters.com/a?utm_source=test",
+        "https://www.reuters.com/a",
         "https://www.cnbc.com/c",
     ]
     assert [source.id for source in result.sources] == [
-        source_id_for("https://www.reuters.com/a?utm_source=test"),
+        source_id_for("https://www.reuters.com/a"),
         source_id_for("https://www.cnbc.com/c"),
     ]
     assert result.sources[0].publisher == "Reuters"
@@ -77,3 +78,57 @@ def test_retrieve_for_analyze_raises_on_empty_after_filtering() -> None:
             request_id="req-2",
             brave_client=stub,
         )
+
+
+def test_retrieve_for_analyze_keeps_best_duplicate_by_canonical_url() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://example.com/a?ref=1", "short", 0.1),
+            _candidate("https://example.com/a", "longer and better", 0.9),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="q",
+        market="GLOBAL",
+        request_id="req-3",
+        brave_client=stub,
+        top_k=5,
+    )
+
+    assert [source.url for source in result.sources] == ["https://example.com/a"]
+
+
+def test_retrieve_for_analyze_logs_observability_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://reuters.com/a", "body a", 0.9),
+            _candidate("https://cnbc.com/b", "body b", 0.8),
+        ]
+    )
+    captured: dict[str, object] = {}
+
+    def _capture_log(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(retrieval, "log_retrieval", _capture_log)
+
+    result = retrieve_for_analyze(
+        question="How is AAPL doing?",
+        market="GLOBAL",
+        request_id="req-log-1",
+        brave_client=stub,
+        ticker="AAPL",
+        brave_latency_ms=42,
+    )
+
+    assert len(result.sources) == 2
+    assert captured == {
+        "request_id": "req-log-1",
+        "ticker": "AAPL",
+        "market": "GLOBAL",
+        "ranked_urls": ["https://reuters.com/a", "https://cnbc.com/b"],
+        "selected_source_ids": [result.sources[0].id, result.sources[1].id],
+        "brave_latency_ms": 42,
+        "raw_brave_response": None,
+    }
