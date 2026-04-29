@@ -428,7 +428,28 @@
       "id": "phase-2-brave-client-and-ranking",
       "sort_order": 3,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 2 complete. Added Layer-3 Brave wrapper at connectors/brave_client.py with strict request contract (verbatim query, country/search_lang/goggles/count/context_threshold_mode, freshness omitted), fixture-based parsing to Candidate, and BraveRetrievalError handling for HTTP/shape failures. Added deterministic rank_for_chat in services/analyze_retrieval/ranking.py enforcing tier -> recency(<90d) -> raw_content length -> score -> URL ordering. As an approved narrow follow-on for stable source identity, added services/analyze_retrieval/retrieval.py + tests/services/analyze_retrieval/test_retrieval.py to prove canonical-url dedupe, empty-content filtering, top_k selection, and stable AnalyzeSource.id via source_id_for(...). No live external API calls in tests.",
+      "tdd_evidence": {
+        "red_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/connectors/test_brave_client.py -v -> ModuleNotFoundError: connectors.brave_client; source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_ranking.py -v -> ModuleNotFoundError: services.analyze_retrieval.ranking; source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_retrieval.py -v -> ModuleNotFoundError: services.analyze_retrieval.retrieval.",
+        "green_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/connectors/test_brave_client.py tests/services/analyze_retrieval/test_ranking.py tests/services/analyze_retrieval/test_retrieval.py -q -> 9 passed; source venv/bin/activate && pytest tests/test_healthcheck.py -q -> 3 passed; source venv/bin/activate && ruff check . -> All checks passed."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof)": "pass",
+        "Gate B (zero live API calls in tests)": "pass — Brave client tests use httpx.MockTransport + committed fixtures",
+        "Gate C (ranking deterministic)": "pass — explicit tests for tier/recency/content/score and URL final tiebreaker",
+        "Gate D (healthcheck + ruff pass)": "pass — healthcheck green, ruff clean"
+      },
+      "learnings": [
+        "Current fixture contract validates omission of freshness by asserting the param is absent, which is clearer than asserting freshness=None serialization.",
+        "Stable source identity is safest when dedupe uses Candidate.canonical_url and ID generation uses source_id_for(url) at projection time; this preserves deterministic IDs across tracking-param variants.",
+        "Date-only Brave age strings require explicit normalization (midday UTC in this implementation) to avoid brittle time-dependent ordering in tests."
+      ],
+      "next_phase_considerations": [
+        "Phase 3 should treat retrieval.py as partially complete and focus on observability.py + retrieval logging assertions rather than re-implementing retrieval core.",
+        "Decide whether services/analyze_retrieval/retrieval.py remains in phase-2 scope retroactively or is documented as phase-3 prework landed early.",
+        "Keep route/service layering intact: retrieval remains service-layer orchestration; connectors/brave_client.py stays HTTP-only."
+      ],
       "title": "Brave client wrapper + ranking",
       "objective": "Wrap Brave search for chat with no-freshness param, plus deterministic ranking over candidates. No live API in tests.",
       "scope_includes": [
