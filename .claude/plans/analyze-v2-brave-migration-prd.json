@@ -11,7 +11,8 @@
       "design_plan_markdown": ".claude/plans/analyze-v2-brave-migration.md",
       "phase_6_tdd_plan": ".claude/plans/phase-6-stock-handlers-v2-strict-tdd.md",
       "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings.",
-      "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-7.25. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope (stock path). ETF v2 handlers + route ETF delegation deferred to phase-7.5 (low usage). BraveRetrievalError translation to SSE error remains phase-7 route."
+      "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-7.25. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope (stock path). ETF v2 handlers + route ETF delegation deferred to phase-7.5 (low usage). BraveRetrievalError translation to SSE error remains phase-7 route.",
+      "sync_note_2026_05_phase_7_2": "Phase-7-2 (sort_order 7.2): implement citation_contract_v2 — Brave search-on uses [N]+build_sources_event only (no SOURCES_JSON in same prompt); training-weights-only answers emit explicit training-data provenance (no fake URLs); DB-financial grounding keeps v1-style financial/filing provenance; resolve mixed Brave+DB and prompt de-conflict cases. Downstream phases list phase-7-2 as a dependency."
     },
     "scope": {
       "endpoint": "POST /api/v2/companies/{ticker}/analyze",
@@ -31,12 +32,24 @@
       "tdd_required": "Every phase MUST follow /tdd: write failing tests first, then implementation. Tests committed before or with implementation in the same PR. No implementation-only commits.",
       "no_external_api_in_tests": "Tests must NEVER hit Brave or OpenRouter live. Use committed fixtures under tests/services/analyze_retrieval/fixtures/. tmp/ is gitignored and MUST NOT be referenced from tests.",
       "grounding": "v2 LLM consumes only text placed in the prompt: Brave-retrieved passages (retrieve_for_analyze) plus any explicitly ingested artifacts (SEC URL force path, validated non-SEC PDF stream path mirroring v1). User-pasted arbitrary URLs when use_url_context is true are phase-7.25 (parse/fetch pipeline), not implicit :online provider reads. No :online mode in v2.",
-      "citation_contract": "LLM emits [N] inline. Backend streams raw text WITH [N] markers preserved (no buffering, no stripping). After stream ends, emit a single sources event mapping each N -> {source_id, url, title, publisher, published_at, is_trusted}. No paragraph_done event. No [SOURCES_JSON] block. FE renders [N] -> badge using the final sources event.",
-      "fail_fast": "On Brave error or 0 results, emit {type: error, code: retrieval_failed} and close stream. No silent :online fallback.",
+      "citation_contract": "v2 provenance is mode-specific; see citation_contract_v2. Global bans: no paragraph_done event; no fabricated URLs.",
+      "citation_contract_v2": {
+        "brave_grounded_search": "When search is ON and retrieve_for_analyze supplies Brave-ranked passages used in the analysis, use the v2 Brave citation contract only: numbered Sources list in the prompt + inline [N] markers in the streamed answer; final sources event maps cited [N] to real rows via build_sources_event (phase-4). Do not stack PromptComponents.source_instructions() ([SOURCES_JSON] per-paragraph rules) in the same prompt as that Brave [N] list — that mixing is the phase-7.2 de-conflict target.",
+        "training_weights_only": "When the answer is not grounded in Brave URLs nor in DB financial statement tables for that turn (model relies on internal training weights / general knowledge), do not emit normal external source rows (avoids stale or hallucinated URLs). Emit a single explicit provenance sink at the end equivalent to v1 'training data' semantics — exact SSE payload (synthetic row shape vs dedicated event field) is locked in phase-7.2 with FE sign-off.",
+        "financial_db_grounding": "When the answer is grounded in company fundamentals / financial statement data from our database (optimizer + context builders, v1-style), preserve v1 parity: emit the same class of 'financial data' / filing provenance at the end (including attachment_url flows where v1 already emits them). When search is OFF but DB financial context is in the prompt, treat DB as the primary grounding surface (not training_weights_only) because the prompt already prioritizes internal data over raw model weights.",
+        "sources_json_policy": "SOURCES_JSON is not globally forbidden in v2. It is forbidden only where it conflicts with the Brave [N] + build_sources_event contract in the same prompt. Pure-DB or training-only paths may omit or retain JSON-style instructions per handler decision documented in phase-7.2.",
+        "merged_sources_index_order": "When multiple grounding slices appear in one Brave-eligible turn, use a single [1..K] Sources list in prompt order: DB financial rows first, then SEC/filing excerpt context, then PDF-derived slices, then Brave web rows. Cap huge SEC/PDF slices so Brave web remains visible. build_sources_event consumes one concatenated retrieved_sources list in that same order.",
+        "brave_in_prompt_uncited_answer": "If Brave passages are in the prompt but the model emits no [N] markers, emit final sources with an empty cited list (build_sources_event); do not emit training_data or uncited external URL rows as fake provenance.",
+        "partial_brave_failure": "If some Brave legs fail or return empty but DB and/or remaining Brave rows still support a defensible answer: continue; sources remain cited-only via build_sources_event; thinking_status may note partial web failure. If all Brave legs fail but DB financial grounding exists: complete DB-only with financial_db provenance (not training_weights_only). retrieval_failed fail-fast applies when zero usable grounding remains per product-locked policy in phase-7.2 (narrow global fail_fast where DB salvage is allowed).",
+        "use_url_context_vs_brave": "Per request, use_url_context=true and Brave web retrieval do not combine: use_url_context=true is URL-grounding mode only (ingested user URL text + optional DB); skip retrieve_for_analyze/Brave for that turn. use_url_context=false uses SearchDecision + Brave when search on. Phase-7.25 implements ingest; this lock is contract-level.",
+        "semantic_cache_replay_sources": "On cache hit, emit the sources snapshot persisted on the cache entry for the sources SSE; if the row has no stored sources payload, emit empty sources. Do not re-fetch Brave on replay to fabricate provenance.",
+        "etf_v2_provenance_parity": "Phase-7.5 ETF v2 uses the same citation_contract_v2 mode matrix as stock; user-facing labels tuned for ETF factsheet/holdings/fundamentals while mechanics stay aligned."
+      },
+      "fail_fast": "BraveRetrievalError / zero usable web results: emit {type: error, code: retrieval_failed} and close when no salvage path exists. When DB (or other non-Brave) grounding still yields a defensible answer, completion may continue per citation_contract_v2.partial_brave_failure (no silent :online fallback).",
       "no_db_persistence": "No new table. Debug via structured JSON logs keyed on analyze_request_id (UUID4) emitted as first SSE meta event.",
       "v1_v2_cache_isolation": "SemanticAnalysisCache key prefix bumped to v2: to prevent cross-version replay.",
       "v2_cache_ttl": "v2 SemanticAnalysisCache entries expire after 30 minutes regardless of category. Bounds staleness for time-sensitive answers backed by Brave retrieval.",
-      "search_decision_respected": "v2 honors the existing SearchDecisionEngine with the same inputs as v1 FinancialAnalyzer: force_google_search_reason (e.g. sec_url), available_periods, available_metrics from CompanyFinancialConnector when ticker is a real symbol. FinancialAnalyzerV2 passes these into decide(...). classify_question_type receives the raw ticker string (v1 parity). When the engine says 'no search', v2 takes a non-grounded path (no Brave call, no sources event). Phase-7 route emits {type:meta, request_id} first on every SSE stream; FinancialAnalyzerV2 mints request_id for handler/retrieval logging today.",
+      "search_decision_respected": "v2 honors the existing SearchDecisionEngine with the same inputs as v1 FinancialAnalyzer: force_google_search_reason (e.g. sec_url), available_periods, available_metrics from CompanyFinancialConnector when ticker is a real symbol. FinancialAnalyzerV2 passes these into decide(...). classify_question_type receives the raw ticker string (v1 parity). When the engine says 'no search', v2 skips Brave retrieval; provenance follows citation_contract_v2.training_weights_only or financial_db_grounding depending on whether DB financial context is the primary grounding surface (phase-7.2 locks the decision tree). Phase-7 route meta policy: plain {type:meta} request_id was skipped by kickoff; request_id remains internal unless a later observability phase reopens it.",
       "verbatim_query": "Pass user prompt verbatim to Brave; no rewriter.",
       "language_handling": "No explicit language directive. Trust Gemini30Flash multilingual. Citations remain in source language.",
       "rate_limiting": "No proactive throttling. Monitor 429s in prod; add reactively if observed.",
@@ -877,7 +890,8 @@
       "dependencies": {
         "technical_must_complete_before": [
           "phase-6-handler-v2-remaining",
-          "phase-7-endpoint-wiring"
+          "phase-7-endpoint-wiring",
+          "phase-7-2-v2-citation-prompt-contract"
         ],
         "parallelizable": false
       },
@@ -918,7 +932,35 @@
       "id": "phase-7-endpoint-wiring",
       "sort_order": 7,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 7 complete. Added stock-only POST /api/v2/companies/{ticker}/analyze in api/analyze_v2.py and mounted it from main.py. The route stays thin and delegates v1-style conversation/cookie/cache orchestration to services/analyze_v2_stream.py. v2 preserves v1 session behavior: anon_user_id cookie reuse/set, conversationId reuse/generation, previous conversation lookup, user/assistant message persistence, and conversation_messages/conversation_id/anon_user_id forwarded into FinancialAnalyzerV2. Per phase kickoff decision, the new plain {type: meta} request_id SSE event was skipped; v2 starts with the existing conversation event like v1. BRAVE_API_KEY health/readiness was also skipped by kickoff decision. ETF tickers stream {type:error, code:not_supported} until phase 7.5. BraveRetrievalError maps to {type:error, code:retrieval_failed}. v2 semantic cache uses v2:{TICKER} keys with 30-minute TTL override, and live + cached v2 stock streams preserve VisualAnswerStreamSplitter output. FinancialAnalyzerV2 now emits the v1-style post-search_decision_meta thinking_status for search-on/search-off paths.",
+      "tdd_evidence": {
+        "red_run": "pytest tests/test_analyze_v2_endpoint.py::test_v2_analyze_preserves_cookie_and_conversation_stream_contract -v -> failed with AttributeError: module 'api' has no attribute 'analyze_v2'. pytest tests/services/test_financial_analyzer_v2.py::test_analyzer_v2_emits_v1_style_progress_after_search_decision_meta -v -> failed because the event after search_decision_meta was handler 'Analyzing...' instead of v1 search/database status.",
+        "green_run": "pytest tests/test_analyze_v2_endpoint.py -v -> 8 passed. pytest tests/architecture/test_v2_layering.py tests/test_semantic_analysis_cache.py tests/test_semantic_cache.py -v -> 19 passed. pytest tests/services/test_financial_analyzer_v2.py tests/test_healthcheck.py -v -> 14 passed. pytest tests/test_analyze_v2_endpoint.py tests/architecture/test_v2_layering.py tests/test_semantic_analysis_cache.py tests/test_semantic_cache.py tests/services/test_financial_analyzer_v2.py tests/test_healthcheck.py -v -> 41 passed. pytest tests/services/ tests/test_healthcheck.py -q -> 233 passed. ruff check . -> clean."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof)": "pass — route tracer red on missing api.analyze_v2 then green; FinancialAnalyzerV2 progress parity red then green",
+        "Gate B (v1 regression suite green)": "pass — pytest tests/services/ tests/test_healthcheck.py -q -> 233 passed",
+        "Gate C (SSE schema)": "pass — v2 starts with conversation by explicit kickoff decision, not plain meta; retrieval_failed, not_supported, visual splitter live/cache, and post-search_decision_meta thinking_status covered",
+        "Gate D (cache namespace + TTL isolated)": "pass — endpoint tests assert v2:AAPL lookup/store; connector test asserts explicit 30-minute ttl_seconds override",
+        "Gate E (3LA architecture test)": "pass — tests/architecture/test_v2_layering.py green; connectors/brave_client.py retains documented existing services.* schema import exception",
+        "Gate F (route location)": "pass — route lives in api/analyze_v2.py and main.py only mounts router",
+        "Gate G (healthcheck + ruff)": "pass — tests/test_healthcheck.py green and ruff check . clean"
+      },
+      "learnings": [
+        "The v2 route can stay Layer 1 thin by moving v1 conversation/cache/SSE orchestration into services/analyze_v2_stream.py. That service owns connector imports and leaves api/analyze_v2.py free of connectors.* and models.* imports.",
+        "Keeping v2 SSE event order as conversation-first is the least disruptive FE contract because v1 never had a plain meta event. request_id remains internal in FinancialAnalyzerV2/retrieval paths for this phase.",
+        "v2 cache isolation does not need a migration: the existing semantic_cache table works with v2:{TICKER} keys plus an explicit ttl_seconds store override.",
+        "VisualAnswerStreamSplitter belongs at the v2 stream service boundary for live stock endpoint output; cache replay already centralizes splitter behavior in SemanticAnalysisCache.stream_hit_replay.",
+        "connectors/brave_client.py already imports service schema modules from prior phases. The architecture test documents that current exception instead of expanding it."
+      ],
+      "next_phase_considerations": [
+        "Phase 7.2 (next backend-only PR): implement prd_meta.citation_contract_v2 — Brave search-on path uses v2 [N] placeholders + build_sources_event only (no SOURCES_JSON instructions in the same prompt); training-only answers emit explicit training-data provenance (no external URL rows); DB financial grounding matches v1 financial-data provenance; close mixed-grounding and partial-retrieval cases. See phase-7-2-v2-citation-prompt-contract.",
+        "Phase 7.25 should build explicit use_url_context URL ingest on top of the v2 route now that non-URL stock flows are mounted (depends on phase-7.2 so URL work inherits a single citation contract).",
+        "Phase 7.5 should replace ETF not_supported with ETFAnalyzerV2 delegation, ETF handlers, ETF visual splitter parity, and ETF cache replay parity.",
+        "Decide whether the skipped plain meta request_id SSE event should be removed from the PRD permanently or handled in a separate observability phase.",
+        "Decide whether skipped BRAVE_API_KEY readiness belongs in deploy configuration, a v2-specific readiness endpoint, or a later backend healthcheck phase."
+      ],
       "title": "POST /api/v2/companies/{ticker}/analyze",
       "objective": "Mount the v2 endpoint parallel to v1, with request_id meta event, error stream contract, v2: cache namespace, and v1-parity SSE shaping (visual splitter + wrapper progress) so the FE contract does not regress when FE switches analyzers.",
       "scope_includes": [
@@ -1005,6 +1047,74 @@
       }
     },
     {
+      "id": "phase-7-2-v2-citation-prompt-contract",
+      "sort_order": 7.2,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "v2 citation & provenance — mode matrix + prompt de-conflict",
+      "objective": "Ship prd_meta.citation_contract_v2: (1) Brave search-on analysis uses v2-specific [N] + numbered Sources + build_sources_event and must not mix SOURCES_JSON instructions in the same prompt. (2) Training-weights-only turns (no Brave + no DB financial grounding as primary source) emit a single explicit training-data provenance sink — no fabricated external URLs. (3) DB financial / filing-grounded answers emit the same class of financial-data provenance as v1 at the end. (4) Document and test mixed Brave+DB, partial Brave failure, and SEC/PDF edge cases.",
+      "scope_includes": [
+        "Prompt audit: remove or gate PromptComponents.source_instructions() wherever it coexists with Brave [N] Sources blocks (handlers_v2.py, comparison_handler_v2.py); retain or adapt SOURCES_JSON rules only on paths where citation_contract_v2.sources_json_policy allows.",
+        "Implement training-only provenance emission (SSE shape + cache replay compatibility) with FE-reviewed contract.",
+        "Align DB-financial provenance with v1 (labels, attachment_url, any existing data_sources patterns) and assert parity in tests.",
+        "Decision log in validation_summary: mixed grounding (Brave+DB), search-off but filing URL force path, Brave partial failure with DB-only answer, comparison flat [1..K] across tickers vs training sink.",
+        "TDD: red tests per mode (Brave-only prompt negative for SOURCES_JSON overlap; training-only emits provenance row; DB path matches v1 golden fragments).",
+        "Amend phase-4 citation_index tests only if build_sources_event must accept synthetic training rows (prefer separate provenance event if that keeps phase-4 pure — decide in phase kickoff)."
+      ],
+      "scope_excludes": [
+        "Frontend inline citation UI (separate FE change / phase-9 handoff)",
+        "v1 prompt or handler edits",
+        "New SSE event types",
+        "Brave retrieval/ranking changes (phase-2/3)"
+      ],
+      "files_expected": [
+        "services/question_analyzer/handlers_v2.py",
+        "services/question_analyzer/comparison_handler_v2.py",
+        "tests/services/question_analyzer/test_company_specific_finance_handler_v2.py",
+        "tests/services/question_analyzer/test_general_finance_handler_v2.py",
+        "tests/services/question_analyzer/test_company_general_handler_v2.py",
+        "tests/services/question_analyzer/test_comparison_handler_v2.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-7-endpoint-wiring"
+        ],
+        "parallelizable": true
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Brave search-on: prompt negative assertion — no SOURCES_JSON instruction substring alongside numbered Brave Sources block in CompanySpecificFinanceHandlerV2 (and any other flagged handler).",
+          "Brave search-on: regression — streamed [N] preserved; build_sources_event maps cites when model uses [N]; model_used.",
+          "Training-only path: when no Brave rows and no DB financial grounding, final stream includes explicit training-data provenance per locked contract (red until implemented).",
+          "DB financial path: provenance matches v1 golden labels / attachment behavior for at least one representative fixture.",
+          "Mixed-grounding case chosen in kickoff: test encodes expected sources ordering and absence of fake URLs."
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "citation_contract_v2 modes implemented or explicitly deferred with FE sign-off in validation_summary.",
+          "No Brave+[N] prompt simultaneously embeds SOURCES_JSON-shaping instructions unless documented exception.",
+          "Phase-4 build_sources_event unchanged for real Brave rows unless PRD amendment + tests justify synthetic row support."
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_company_specific_finance_handler_v2.py tests/services/question_analyzer/test_general_finance_handler_v2.py tests/services/question_analyzer/test_company_general_handler_v2.py tests/services/question_analyzer/test_comparison_handler_v2.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red→green logs for new prompt-contract tests",
+            "Before/after prompt excerpt (sanitized) in validation_summary"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red→green on prompt de-conflict tests",
+            "Gate B: handler regression suites green",
+            "Gate C: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
       "id": "phase-7-5-etf-handlers-v2",
       "sort_order": 7.5,
       "impact_level": "MEDIUM",
@@ -1041,6 +1151,7 @@
       "dependencies": {
         "technical_must_complete_before": [
           "phase-7-endpoint-wiring",
+          "phase-7-2-v2-citation-prompt-contract",
           "phase-7-25-v2-url-context-parse-grounding"
         ],
         "parallelizable": false
@@ -1103,6 +1214,7 @@
       "dependencies": {
         "technical_must_complete_before": [
           "phase-7-endpoint-wiring",
+          "phase-7-2-v2-citation-prompt-contract",
           "phase-7-25-v2-url-context-parse-grounding"
         ],
         "parallelizable": false

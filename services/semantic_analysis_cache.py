@@ -203,6 +203,7 @@ class SemanticAnalysisCache:
         last_sources_payload: dict | list | None,
         last_model_used: str | None,
         related_questions: list[str] | None = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         if not (use_semantic_cache and assistant_full_text.strip()):
             return
@@ -221,6 +222,7 @@ class SemanticAnalysisCache:
                         last_model_used or "unknown",
                         emb2,
                         related_questions=related_questions,
+                        ttl_seconds=ttl_seconds,
                     )
 
                 await asyncio.to_thread(_do_store)

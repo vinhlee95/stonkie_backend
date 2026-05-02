@@ -88,11 +88,45 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
     assert handler.calls[0]["search_decision"] == decision
     assert handler.calls[0]["ticker"] == "AAPL"
     assert [event["type"] for event in events] == [
-        "search_decision_meta",
+        "thinking_status",
         "thinking_status",
         "answer",
         "model_used",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("use_search", "expected_body"),
+    [
+        (True, "Searching for the latest AAPL data..."),
+        (False, "Found AAPL data in our database"),
+    ],
+)
+async def test_analyzer_v2_emits_v1_style_search_thinking_status_after_decide(use_search, expected_body):
+    from services.financial_analyzer_v2 import FinancialAnalyzerV2
+
+    decision = SearchDecision(
+        use_google_search=use_search,
+        reason_code="test",
+        confidence=0.9,
+        decision_model="test",
+        decision_fallback="none",
+    )
+    handler = _CapturingHandler()
+    analyzer = FinancialAnalyzerV2(
+        classifier=_FakeClassifier(),
+        search_decision_engine=_FakeSearchDecisionEngine(decision),
+        company_general_handler=handler,
+        company_financial_connector=_stub_financial_connector(),
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in analyzer.analyze_question(ticker="AAPL", question="What does Apple do?"):
+        events.append(event)
+
+    assert events[0]["type"] == "thinking_status"
+    assert events[0]["body"] == expected_body
 
 
 @pytest.mark.asyncio
@@ -232,7 +266,7 @@ async def test_no_db_hint_fetch_when_ticker_is_none_placeholder():
 
 
 @pytest.mark.asyncio
-async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_before_meta():
+async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_before_decide_stream():
     from services.financial_analyzer_v2 import FinancialAnalyzerV2
 
     financial_connector = _stub_financial_connector()
@@ -278,7 +312,7 @@ async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_bef
     assert events[0]["type"] == "attachment_url"
     assert events[0]["body"] == sec_url
     assert captured.get("force_google_search_reason") == "sec_url"
-    assert any(e["type"] == "search_decision_meta" for e in events)
+    assert any(e["type"] == "thinking_status" and "Searching for the latest" in str(e.get("body", "")) for e in events)
 
 
 @pytest.mark.asyncio

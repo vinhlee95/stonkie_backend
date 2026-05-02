@@ -79,10 +79,11 @@ class SemanticCache:
         model_used: str,
         embedding: list[float],
         related_questions: list[str] | None = None,
+        ttl_seconds: int | None = None,
     ) -> SemanticCacheEntry:
         tier = detect_ttl_tier(question)
         now = datetime.now(timezone.utc)
-        expires_at = now + TTL_DURATIONS[tier]
+        expires_at = now + (timedelta(seconds=ttl_seconds) if ttl_seconds is not None else TTL_DURATIONS[tier])
 
         entry = SemanticCacheEntry(
             ticker=ticker.upper(),

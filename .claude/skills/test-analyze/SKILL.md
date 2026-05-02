@@ -17,7 +17,7 @@ POST questions to the `/api/companies/{ticker}/analyze` SSE endpoint and inspect
 The user may provide:
 - A specific question and ticker to test
 - A list of questions to test in batch
-- A specific field to check (e.g., `search_decision`, `model_used`, answer content)
+- A specific field to check (e.g., `thinking_status`, `model_used`, answer content)
 
 If not specified, ask the user what question(s) and ticker(s) to test.
 
@@ -35,7 +35,7 @@ curl -s -N -X POST http://localhost:8080/api/companies/{TICKER}/analyze \
 
 Filter specific SSE event types from the stream:
 
-- **Search decision**: `| grep "search_decision_meta"` — shows `search_decision` (on/off), `reason_code`, `decision_model`, `confidence`
+- **Progress / implied search path**: `| grep "thinking_status"` — e.g. database vs “Searching for the latest…” (search on/off is also logged server-side as `SearchDecisionEngine result:`)
 - **Model used**: `| grep "model_used"` — which LLM generated the answer
 - **Answer content**: `| grep '"type": "answer"'` — streamed answer chunks
 - **Sources**: `| grep "sources"` — citation URLs
@@ -62,6 +62,6 @@ ETF tickers (e.g., SPY, QQQ, VOO) route to the ETF analyzer automatically.
 
 Show the user the relevant SSE fields for each test. If testing multiple questions, summarize results in a table format:
 
-| Question | Ticker | Search Decision | Reason Code | Model |
-|----------|--------|----------------|-------------|-------|
-| ...      | ...    | on/off         | ...         | ...   |
+| Question | Ticker | First thinking_status hint | Model |
+|----------|--------|------------------------------|-------|
+| ...      | ...    | DB vs web search copy        | ...   |

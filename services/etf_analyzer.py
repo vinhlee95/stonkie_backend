@@ -83,17 +83,6 @@ class ETFAnalyzer:
 
         use_google_search = decision.use_google_search
 
-        # Yield search decision metadata
-        yield {
-            "type": "search_decision_meta",
-            "body": {
-                "search_decision": "on" if use_google_search else "off",
-                "reason_code": decision.reason_code,
-                "decision_model": decision.decision_model,
-                "decision_fallback": decision.decision_fallback,
-                "confidence": decision.confidence,
-            },
-        }
         if use_google_search:
             _search_msg = (
                 f"Searching for the latest {normalized_ticker} data..."

@@ -203,16 +203,16 @@ class FinancialAnalyzerV2:
         decision, classify_result = await asyncio.gather(decision_coro, classify_coro)
         classification, comparison_tickers = classify_result
 
-        yield {
-            "type": "search_decision_meta",
-            "body": {
-                "search_decision": "on" if decision.use_google_search else "off",
-                "reason_code": decision.reason_code,
-                "decision_model": decision.decision_model,
-                "decision_fallback": decision.decision_fallback,
-                "confidence": decision.confidence,
-            },
-        }
+        status_ticker = normalized_ticker if normalized_ticker != "none" else None
+        if decision.use_google_search:
+            body = (
+                f"Searching for the latest {status_ticker} data..."
+                if status_ticker
+                else "Searching for the latest data..."
+            )
+        else:
+            body = f"Found {status_ticker} data in our database" if status_ticker else "Using data from our database"
+        yield thinking_status(body, phase=AnalysisPhase.SEARCH, step=2)
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}

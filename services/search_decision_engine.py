@@ -37,7 +37,7 @@ class SearchDecision:
 
 
 def _log_search_decision_result(decision: SearchDecision, ticker: str, is_etf: bool) -> None:
-    """Emit one line with the resolved on/off search decision (mirrors SSE search_decision_meta)."""
+    """Structured log line for the resolved on/off search decision."""
     logger.info(
         "SearchDecisionEngine result: search=%s reason_code=%s confidence=%.2f decision_model=%s fallback=%s ticker=%s is_etf=%s",
         "on" if decision.use_google_search else "off",

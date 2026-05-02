@@ -1,4 +1,8 @@
-from connectors.semantic_cache import TTLTier, detect_ttl_tier, normalize_question
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+import connectors.semantic_cache as semantic_cache_module
+from connectors.semantic_cache import SemanticCache, TTLTier, detect_ttl_tier, normalize_question
 
 
 class TestNormalizeQuestion:
@@ -43,3 +47,34 @@ class TestDetectTTLTier:
     def test_market_takes_priority_over_historical(self):
         # "stock price in 2023" has both patterns — MARKET wins (checked first)
         assert detect_ttl_tier("stock price in 2023") == TTLTier.MARKET
+
+
+def test_store_accepts_explicit_ttl_seconds_for_v2_cache_entries():
+    fixed_now = datetime(2026, 5, 2, 12, 0, tzinfo=timezone.utc)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now if tz is not None else fixed_now.replace(tzinfo=None)
+
+    db = MagicMock()
+    db.__enter__.return_value = db
+    cache = SemanticCache.__new__(SemanticCache)
+
+    with (
+        patch.object(semantic_cache_module, "datetime", FixedDateTime),
+        patch.object(semantic_cache_module, "SessionLocal", return_value=db),
+    ):
+        entry = cache.store(
+            "v2:AAPL",
+            "What is margin?",
+            "answer",
+            None,
+            "model",
+            [0.1] * 1536,
+            ttl_seconds=30 * 60,
+        )
+
+    assert entry.ticker == "V2:AAPL"
+    assert entry.ttl_tier == TTLTier.RECENT
+    assert entry.expires_at == fixed_now + timedelta(minutes=30)
