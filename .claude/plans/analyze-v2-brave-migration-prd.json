@@ -11,7 +11,7 @@
       "design_plan_markdown": ".claude/plans/analyze-v2-brave-migration.md",
       "phase_6_tdd_plan": ".claude/plans/phase-6-stock-handlers-v2-strict-tdd.md",
       "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings.",
-      "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-6-75. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope. BraveRetrievalError translation to SSE error remains phase-7 route."
+      "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-6-75. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope (stock path). ETF v2 handlers + route ETF delegation deferred to phase-7.5 (low usage). BraveRetrievalError translation to SSE error remains phase-7 route."
     },
     "scope": {
       "endpoint": "POST /api/v2/companies/{ticker}/analyze",
@@ -772,24 +772,24 @@
         "v1 provenance ('data_sources') and v2 citation ('sources') events are different semantic classes; keeping them as separate events lets the FE renderer treat citation badges and provenance pills independently."
       ],
       "next_phase_considerations": [
-        "Phase 6.5 (ETF) mirrors stock handler shape; add tests/services/test_etf_analyzer_v2.py (or etf_question_analyzer package tests) when ETFAnalyzerV2 wiring lands — extend phase-6 verification command then.",
+        "Phase 7.5 (ETF, low priority): mirrors stock handler shape; add tests/services/test_etf_analyzer_v2.py (or etf_question_analyzer package tests) when ETFAnalyzerV2 wiring lands — runs after phase-7 stock v2 endpoint.",
         "Phase 6-75: implement explicit URL ingest for use_url_context (Brave parse vs first-party fetch) before public v2 endpoint; blocks phase-7 per dependency chain.",
-        "Phase 7: POST /api/v2/... route + meta first + BraveRetrievalError SSE mapping + SemanticAnalysisCache v2: TTL + VisualAnswerStreamSplitter on stock+ETF streams + post-search_decision_meta thinking_status parity + cache replay through splitter (see phase-7 scope_includes).",
-        "Phase 7 ETF-vs-stock guard at route delegates ETF tickers to ETFAnalyzerV2 and stock to FinancialAnalyzerV2.",
+        "Phase 7: POST /api/v2/... route + meta first + BraveRetrievalError SSE mapping + SemanticAnalysisCache v2: TTL + VisualAnswerStreamSplitter on stock v2 streams + post-search_decision_meta thinking_status parity + cache replay through splitter (see phase-7 scope_includes). ETF v2 splitter + route delegation deferred to phase 7.5.",
+        "Phase 7.5: ETF-vs-stock guard at route delegates ETF tickers to ETFAnalyzerV2 (full v2 parity); stock remains FinancialAnalyzerV2.",
         "Comparison all-ticker Brave failure: BraveRetrievalError must be caught at phase-7 route and mapped to retrieval_failed."
       ],
       "title": "Remaining stock handlers v2 (general finance, specific finance, comparison)",
-      "objective": "Port remaining stock handlers to v2 pattern using shape established in phase 5. Single bundled PR. ETF handlers v2 split into phase-6.5.",
+      "objective": "Port remaining stock handlers to v2 pattern using shape established in phase 5. Single bundled PR. ETF handlers v2 deferred to phase-7.5 (low app usage).",
       "scope_includes": [
         "GeneralFinanceHandlerV2",
         "CompanySpecificFinanceHandlerV2 (DB financials + Brave passages; no raw_content trim — Q6.3 closed)",
         "CompanyComparisonHandlerV2: per-ticker Brave query fanned out via asyncio.gather with asyncio.Semaphore(5) concurrency cap; on partial failure proceed with successes + add a thinking_status event listing failed tickers AND inject a prompt marker naming the failed ticker(s); only fail the whole request if ALL ticker retrievals fail. Source IDs flat-numbered [1]..[K] across all tickers in ticker order.",
-        "FinancialAnalyzerV2 dispatch extended to all 4 stock QuestionType values; ETF dispatch deferred to phase-7 endpoint wiring"
+        "FinancialAnalyzerV2 dispatch extended to all 4 stock QuestionType values; ETF dispatch deferred to phase-7.5"
       ],
       "scope_excludes": [
         "No endpoint wiring",
         "No FE work",
-        "ETF handlers v2 — split out into phase-6.5"
+        "ETF handlers v2 — phase-7.5 (after v2 endpoint)"
       ],
       "files_expected": [
         "services/financial_analyzer_v2.py (dispatch + v1 orchestration parity on L2)",
@@ -847,74 +847,6 @@
       }
     },
     {
-      "id": "phase-6-5-etf-handlers-v2",
-      "sort_order": 6.5,
-      "impact_level": "HIGH",
-      "state": "not-started",
-      "title": "ETF handlers v2 (split from phase-6)",
-      "objective": "Port ETF analyzer + ETF handlers to v2 Brave-grounded pattern. Mirrors phase-6 shape: retrieval -> [N]-stuffed prompt -> stream -> final sources event; v1 ETF infra reused read-only.",
-      "scope_includes": [
-        "ETFAnalyzerV2 (services/etf_analyzer_v2.py) - fork of v1 ETFAnalyzer with v2 handler wiring; dispatch by ETFQuestionType",
-        "GeneralETFHandlerV2 (analog of CompanyGeneralHandlerV2 for ETF general questions)",
-        "ETFOverviewHandlerV2",
-        "ETFDetailedAnalysisHandlerV2",
-        "ETFComparisonHandlerV2 (per-ticker Brave fanout with asyncio.Semaphore(5), partial-failure semantics aligned with phase-6 CompanyComparisonHandlerV2)",
-        "Reuse v1 ETF infra read-only: ETFQuestionClassifier, ETFDataOptimizer, etf_question_analyzer/context_builders (VisualAnswerStreamSplitter placement is phase-7 alongside stock v2 — single SSE contract for both analyzers)"
-      ],
-      "scope_excludes": [
-        "Endpoint wiring - phase-7",
-        "FE changes",
-        "Stock handlers - shipped in phase-6"
-      ],
-      "files_expected": [
-        "services/etf_analyzer_v2.py",
-        "services/etf_question_analyzer/handlers_v2.py",
-        "services/etf_question_analyzer/comparison_handler_v2.py",
-        "tests/services/etf_question_analyzer/test_general_etf_handler_v2.py",
-        "tests/services/etf_question_analyzer/test_etf_overview_handler_v2.py",
-        "tests/services/etf_question_analyzer/test_etf_detailed_handler_v2.py",
-        "tests/services/etf_question_analyzer/test_etf_comparison_handler_v2.py",
-        "tests/services/test_etf_analyzer_v2.py"
-      ],
-      "dependencies": {
-        "technical_must_complete_before": ["phase-6-handler-v2-remaining"],
-        "parallelizable": false
-      },
-      "tdd_plan": {
-        "red_tests": [
-          "Per-ETF-handler 5-test phase-5 mirror: no-search v1-like sequence; no-search no-sources-event; search-on emits aggregated trusted-publisher thinking_status + final sources event once; dedupe; search-on with no [N] yields empty sources list",
-          "ETFComparisonHandlerV2: asyncio.Semaphore(5) cap honored",
-          "ETFComparisonHandlerV2: partial-failure semantics match phase-6 CompanyComparisonHandlerV2 (prompt marker + thinking_status)",
-          "ETFAnalyzerV2: dispatch by ETFQuestionType to correct handler",
-          "v1 ETF regression suite green"
-        ]
-      },
-      "definition_of_done": {
-        "implementation_checks": [
-          "All ETF v2 handlers emit consistent event schema with stock v2 handlers",
-          "ETFAnalyzerV2.analyze_question dispatches by ETFQuestionType",
-          "v1 ETF handlers untouched"
-        ],
-        "verification": {
-          "required_commands": [
-            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/etf_question_analyzer/ tests/services/test_etf_analyzer_v2.py -v",
-            "source venv/bin/activate && pytest tests/services/ tests/test_healthcheck.py -v",
-            "source venv/bin/activate && ruff check ."
-          ],
-          "required_evidence": [
-            "Red then green logs per handler",
-            "v1 ETF regression suite still green"
-          ],
-          "phase_gates": [
-            "Gate A: TDD red->green proof for each ETF handler",
-            "Gate B: v1 ETF regression suite green",
-            "Gate C: zero live external calls in tests",
-            "Gate D: healthcheck + ruff pass"
-          ]
-        }
-      }
-    },
-    {
       "id": "phase-6-75-v2-url-context-parse-grounding",
       "sort_order": 6.75,
       "impact_level": "HIGH",
@@ -926,7 +858,7 @@
         "Security + abuse: SSRF controls (block private/link-local IPs, file://, redirect cap), max response bytes, wall-clock timeout, optional domain allowlist for user-pasted URLs",
         "Implementation surface: new L2 module under `services/analyze_retrieval/` or `services/url_ingest/` (name TBD) callable from v2 handlers — no `fastapi` imports",
         "Parser strategy: Brave-hosted parse/readability API vs first-party HTML→article extraction + existing PDF path patterns — pick one with TOS/cost rationale documented in PRD learnings",
-        "Wire into `GeneralFinanceHandlerV2`, `CompanyGeneralHandlerV2`, `CompanySpecificFinanceHandlerV2` (and ETF v2 handlers after phase-6.5 if same contract) when `use_url_context` is true: fetched text becomes additional grounded passages with stable `[N]` indices or a dedicated preface block; final `sources` event includes URL-derived rows with `source_id` stable relative to prompt numbering",
+        "Wire into `GeneralFinanceHandlerV2`, `CompanyGeneralHandlerV2`, `CompanySpecificFinanceHandlerV2` (and ETF v2 handlers after phase-7.5 if same contract) when `use_url_context` is true: fetched text becomes additional grounded passages with stable `[N]` indices or a dedicated preface block; final `sources` event includes URL-derived rows with `source_id` stable relative to prompt numbering",
         "Thinking_status UX: user-visible step when URL ingest runs (success, partial truncation, blocked domain, timeout) without leaking internal URLs in logs beyond existing observability rules",
         "TDD: fixtures only — no live HTTP to arbitrary URLs in CI; mock parser/fetch boundary",
         "Keep prd_meta.core_non_negotiables.grounding in sync with shipped ingest behavior (already states no :online; extend with ingest module path in learnings when code lands)"
@@ -939,17 +871,14 @@
       "files_expected": [
         "services/analyze_retrieval/url_ingest.py (or equivalent — finalized in phase kickoff)",
         "tests/services/analyze_retrieval/test_url_ingest.py",
-        "Edits to services/question_analyzer/handlers_v2.py and post-phase-6.5 ETF handlers if unified contract",
+        "Edits to services/question_analyzer/handlers_v2.py and post-phase-7.5 ETF handlers if unified contract",
         ".claude/plans/analyze-v2-url-context-spec.md (short ADR saved alongside PRD updates)"
       ],
       "dependencies": {
         "technical_must_complete_before": [
           "phase-6-handler-v2-remaining"
         ],
-        "parallelizable": true,
-        "parallel_with": [
-          "phase-6-5-etf-handlers-v2"
-        ],
+        "parallelizable": false,
         "blocks": [
           "phase-7-endpoint-wiring"
         ]
@@ -997,34 +926,35 @@
       "scope_includes": [
         "NEW file api/analyze_v2.py with its own APIRouter; mounted from main.py via app.include_router(analyze_v2_router). Mirrors api/markets.py. v1 route in main.py is NOT touched.",
         "Route /api/v2/companies/{ticker}/analyze defined in api/analyze_v2.py only",
-        "Layer-1 rules enforced: route imports only services.financial_analyzer_v2.FinancialAnalyzerV2 + services.etf_analyzer_v2.ETFAnalyzerV2 + Depends(get_db) passthrough. NO connectors.* or models.* imports.",
+        "Layer-1 rules enforced: route imports services.financial_analyzer_v2.FinancialAnalyzerV2 + Depends(get_db) passthrough for stock v2 launch; ETFAnalyzerV2 import + ETF branch wiring lands in phase 7.5 (same L1 import rules). NO connectors.* or models.* imports.",
         "Mint analyze_request_id (UUID4); emit as first SSE event {type:meta, body:{request_id}}",
         "Bump SemanticAnalysisCache key prefix to v2: AND set entry TTL to 30 minutes for v2 entries (uniform across categories)",
         "v2 endpoint always honors SearchDecisionEngine — when it returns no_search, skip retrieval and run handler in non-grounded mode (still emits meta event with request_id)",
         "BraveRetrievalError -> {type:error, code:retrieval_failed} + clean stream close",
         "Startup healthcheck: BRAVE_API_KEY present",
         "Architecture test tests/architecture/test_v2_layering.py asserting the L1/L2/L3 import rules from core_non_negotiables.three_layer_architecture",
-        "SSE answer shaping parity with v1: apply utils.visual_stream.VisualAnswerStreamSplitter to streamed LLM answer text for stock AND ETF v2 analyzer paths exactly where v1 FinancialAnalyzer / ETFAnalyzer do today — including the comparison branch — so ```html / ```svg / <html>… streams emit the same answer vs answer_visual_* event shapes the FE already handles. Implementation MUST live in L2 (e.g. FinancialAnalyzerV2 / ETFAnalyzerV2) or a dedicated L2 stream adapter those services call; L1 route remains a thin forwarder.",
+        "SSE answer shaping parity with v1: apply utils.visual_stream.VisualAnswerStreamSplitter to streamed LLM answer text for stock v2 (FinancialAnalyzerV2) exactly where v1 FinancialAnalyzer does today — including the comparison branch — so ```html / ```svg / <html>… streams emit the same answer vs answer_visual_* event shapes the FE already handles. ETF v2 splitter path mirrors v1 ETFAnalyzer in phase 7.5. Implementation MUST live in L2 or a dedicated L2 stream adapter; L1 route remains a thin forwarder.",
         "Post-search_decision_meta progress parity: emit the same v1-style thinking_status pair after meta (search-on: 'Searching for the latest …' / search-off: database message) before delegating into v2 handlers, unless validation_summary documents an explicit FE-approved omission.",
-        "Cached v2 replay: SemanticAnalysisCache replay path for v2 keys MUST run stored answer text through the same VisualAnswerStreamSplitter behavior as live v2 (mirrors existing v1 cache replay invariant in tests/test_semantic_analysis_cache.py).",
-        "Optional v1 wrapper parity: post-handler 'no recent sources' thinking_status when search was on but no source-like events were observed — only if still relevant once v2 sources event is always present; decide in phase kickoff and record in validation_summary."
+        "Cached v2 replay: SemanticAnalysisCache replay path for v2 stock keys MUST run stored answer text through the same VisualAnswerStreamSplitter behavior as live v2 (mirrors existing v1 cache replay invariant in tests/test_semantic_analysis_cache.py); extend to ETF v2 keys in phase 7.5.",
+        "Optional v1 wrapper parity: post-handler 'no recent sources' thinking_status when search was on but no source-like events were observed — only if still relevant once v2 sources event is always present; decide in phase kickoff and record in validation_summary.",
+        "ETF tickers on v2 route until phase 7.5: document chosen behavior at kickoff (e.g. HTTP 501/not_supported on v2 for ETF-only symbols, or keep FE on v1 /analyze for ETF tickers); must not block stock v2 launch."
       ],
       "scope_excludes": [
         "v1 deprecation",
-        "FE changes"
+        "FE changes",
+        "Full ETFAnalyzerV2 + ETF VisualAnswerStreamSplitter on v2 — phase 7.5"
       ],
       "files_expected": [
         "api/analyze_v2.py (NEW)",
         "main.py (only adds app.include_router(analyze_v2_router); v1 untouched)",
         "services/semantic_analysis_cache.py (namespace + TTL + v2 replay uses VisualAnswerStreamSplitter)",
-        "services/financial_analyzer_v2.py and/or services/etf_analyzer_v2.py (or small L2 helper) for splitter + post-meta thinking_status wiring",
+        "services/financial_analyzer_v2.py (or small L2 helper) for stock splitter + post-meta thinking_status wiring; services/etf_analyzer_v2.py splitter wiring in phase 7.5",
         "tests/test_analyze_v2_endpoint.py (or tests/api/ — align with repo convention)",
         "tests/architecture/test_v2_layering.py"
       ],
       "dependencies": {
         "technical_must_complete_before": [
           "phase-6-handler-v2-remaining",
-          "phase-6-5-etf-handlers-v2",
           "phase-6-75-v2-url-context-parse-grounding"
         ],
         "parallelizable": false
@@ -1073,6 +1003,80 @@
             "Gate E: 3LA architecture test passes (L1/L2/L3 import rules)",
             "Gate F: route lives in api/analyze_v2.py, NOT main.py",
             "Gate G: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-7-5-etf-handlers-v2",
+      "sort_order": 7.5,
+      "impact_level": "MEDIUM",
+      "state": "not-started",
+      "title": "ETF handlers v2 (deferred — low usage vs stock)",
+      "objective": "Port ETF analyzer + ETF handlers to v2 Brave-grounded pattern after stock v2 endpoint ships. Mirrors phase-6 shape: retrieval -> [N]-stuffed prompt -> stream -> final sources event; v1 ETF infra reused read-only.",
+      "scope_includes": [
+        "ETFAnalyzerV2 (services/etf_analyzer_v2.py) - fork of v1 ETFAnalyzer with v2 handler wiring; dispatch by ETFQuestionType",
+        "GeneralETFHandlerV2 (analog of CompanyGeneralHandlerV2 for ETF general questions)",
+        "ETFOverviewHandlerV2",
+        "ETFDetailedAnalysisHandlerV2",
+        "ETFComparisonHandlerV2 (per-ticker Brave fanout with asyncio.Semaphore(5), partial-failure semantics aligned with phase-6 CompanyComparisonHandlerV2)",
+        "Reuse v1 ETF infra read-only: ETFQuestionClassifier, ETFDataOptimizer, etf_question_analyzer/context_builders",
+        "Incremental api/analyze_v2.py (and architecture tests): ETF ticker branch delegates to ETFAnalyzerV2; L1 imports ETFAnalyzerV2 alongside FinancialAnalyzerV2 under same layering rules",
+        "VisualAnswerStreamSplitter + SemanticAnalysisCache v2 replay for ETF analyzer paths (parity with stock phase-7)"
+      ],
+      "scope_excludes": [
+        "Stock v2 endpoint first-ship items — phase-7",
+        "FE changes",
+        "Stock handlers — shipped in phase-6"
+      ],
+      "files_expected": [
+        "services/etf_analyzer_v2.py",
+        "services/etf_question_analyzer/handlers_v2.py",
+        "services/etf_question_analyzer/comparison_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_general_etf_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_overview_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_detailed_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_comparison_handler_v2.py",
+        "tests/services/test_etf_analyzer_v2.py",
+        "api/analyze_v2.py (ETF branch edits)",
+        "tests/test_analyze_v2_endpoint.py (ETF path cases)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-7-endpoint-wiring"
+        ],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Per-ETF-handler 5-test phase-5 mirror: no-search v1-like sequence; no-search no-sources-event; search-on emits aggregated trusted-publisher thinking_status + final sources event once; dedupe; search-on with no [N] yields empty sources list",
+          "ETFComparisonHandlerV2: asyncio.Semaphore(5) cap honored",
+          "ETFComparisonHandlerV2: partial-failure semantics match phase-6 CompanyComparisonHandlerV2 (prompt marker + thinking_status)",
+          "ETFAnalyzerV2: dispatch by ETFQuestionType to correct handler",
+          "v1 ETF regression suite green"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "All ETF v2 handlers emit consistent event schema with stock v2 handlers",
+          "ETFAnalyzerV2.analyze_question dispatches by ETFQuestionType",
+          "v1 ETF handlers untouched"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/etf_question_analyzer/ tests/services/test_etf_analyzer_v2.py -v",
+            "source venv/bin/activate && pytest tests/services/ tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green logs per handler",
+            "v1 ETF regression suite still green"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof for each ETF handler",
+            "Gate B: v1 ETF regression suite green",
+            "Gate C: zero live external calls in tests",
+            "Gate D: healthcheck + ruff pass"
           ]
         }
       }
