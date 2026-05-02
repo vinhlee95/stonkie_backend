@@ -82,6 +82,7 @@ def retrieve_for_analyze(
             publisher=publisher_label_for(candidate.url),
             published_at=candidate.published_date,
             is_trusted=is_trusted(candidate.url, market),
+            raw_content=candidate.raw_content,
         )
         for candidate in selected_candidates
     ]

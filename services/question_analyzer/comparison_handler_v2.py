@@ -24,6 +24,7 @@ from services.question_analyzer.context_builders.comparison_builder import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
+    _BRAVE_CITATION_DIRECTIVE,
     _build_sources_block,
     _trusted_publisher_status,
 )
@@ -226,6 +227,8 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                 f"Answer using available data only and acknowledge this limitation."
             )
 
+        if flat_sources:
+            prompt += "\n\n" + _BRAVE_CITATION_DIRECTIVE
         prompt += _build_sources_block(flat_sources)
 
         agent = MultiAgent(model_name=preferred_model)

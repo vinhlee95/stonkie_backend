@@ -26,6 +26,15 @@ from utils.conversation_format import format_conversation_context
 logger = logging.getLogger(__name__)
 
 
+_BRAVE_CITATION_DIRECTIVE = (
+    "You have been provided with current, authoritative sources below. "
+    "Treat them as ground truth even if they post-date your training cutoff. "
+    "Ground your answer in the provided Content and cite each claim with inline "
+    "[N] markers matching the Source numbers. Do not refuse based on knowledge cutoff. "
+    "Do not emit [SOURCES_JSON] blocks."
+)
+
+
 class CompanyGeneralHandlerV2:
     """Company-general v2 handler with SearchDecision-based control flow."""
 
@@ -109,11 +118,9 @@ Do not add numbering.
                     total_steps=4,
                 )
 
-            source_lines = []
-            for idx, source in enumerate(retrieved_sources, start=1):
-                source_lines.append(f"[{idx}] {source.title}\n{source.url}")
-            if source_lines:
-                sources_context = "\n\nSources:\n" + "\n\n".join(source_lines)
+            sources_context = _build_sources_block(retrieved_sources)
+
+        citation_directive = _BRAVE_CITATION_DIRECTIVE if retrieved_sources else ""
 
         prompt = f"""
 You are an expert about a business.
@@ -122,8 +129,7 @@ Answer this question about {company_name} (ticker: {ticker}):
 IMPORTANT: Always respond in same language as the current question.
 Keep response concise under 200 words.
 Use short paragraphs and bullet points for readability.
-If you cite sources, use inline markers like [1], [2].
-When sources are provided, ground your answer in them and cite with matching [N] markers only.
+{citation_directive}
 {conversation_context}
 {sources_context}
         """.strip()
@@ -166,10 +172,19 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
 def _build_sources_block(retrieved_sources) -> str:
     if not retrieved_sources:
         return ""
-    lines = []
+    blocks = []
     for idx, source in enumerate(retrieved_sources, start=1):
-        lines.append(f"[{idx}] {source.title}\n{source.url}")
-    return "\n\nSources:\n" + "\n\n".join(lines)
+        published = source.published_at.isoformat() if source.published_at else "null"
+        content = (source.raw_content or "").strip()
+        block_lines = [
+            f"Source [{idx}]",
+            f"Title: {source.title}",
+            f"URL: {source.url}",
+            f"Published: {published}",
+            f"Content: {content}",
+        ]
+        blocks.append("\n".join(block_lines))
+    return "\n\nSources:\n" + "\n\n".join(blocks)
 
 
 class GeneralFinanceHandlerV2:
@@ -243,11 +258,7 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources)
 
-        citation_directive = (
-            "If you cite sources, use inline markers like [1], [2] matching the Sources list below."
-            if retrieved_sources
-            else ""
-        )
+        citation_directive = _BRAVE_CITATION_DIRECTIVE if retrieved_sources else ""
 
         prompt = f"""
 Please explain this financial concept or answer this question:
@@ -493,8 +504,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
             sources_block = _build_sources_block(retrieved_sources)
 
         analysis_prompt = PromptComponents.analysis_focus()
-        source_prompt = PromptComponents.source_instructions()
         visual_prompt = PromptComponents.visual_output_instructions()
+        if retrieved_sources:
+            source_prompt = _BRAVE_CITATION_DIRECTIVE
+        else:
+            source_prompt = PromptComponents.source_instructions()
         combined_prompt = (
             f"{financial_context}{conversation_context}\n\n"
             f"{analysis_prompt}\n\n{source_prompt}\n\n{visual_prompt}"

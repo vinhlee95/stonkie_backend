@@ -69,6 +69,27 @@ def test_retrieve_for_analyze_dedupes_filters_topk_and_preserves_stable_source_i
     assert all(source.is_trusted for source in result.sources)
 
 
+def test_retrieve_for_analyze_propagates_raw_content_to_analyze_source() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://reuters.com/a", "Fed held rates at 3.5-3.75%.", 0.9),
+            _candidate("https://cnbc.com/b", "Powell hinted at policy easing.", 0.8),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="What did the Fed do?",
+        market="GLOBAL",
+        request_id="req-rc",
+        brave_client=stub,
+    )
+
+    assert {source.raw_content for source in result.sources} == {
+        "Fed held rates at 3.5-3.75%.",
+        "Powell hinted at policy easing.",
+    }
+
+
 def test_retrieve_for_analyze_raises_on_empty_after_filtering() -> None:
     stub = _StubBraveClient(candidates=[_candidate("https://investing.com/b", "", 1.0)])
     with pytest.raises(BraveRetrievalError):

@@ -7,7 +7,7 @@ from datetime import UTC
 
 from services.analyze_retrieval.schemas import AnalyzeSource
 
-_CITATION_PATTERN = re.compile(r"\[(\d+)\]")
+_CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 logger = logging.getLogger("app.analyze_retrieval")
 
 
@@ -18,7 +18,10 @@ def _to_iso_z(source: AnalyzeSource) -> str | None:
 
 
 def build_sources_event(full_text: str, retrieved_sources: list[AnalyzeSource]) -> dict:
-    citation_numbers = [int(match) for match in _CITATION_PATTERN.findall(full_text)]
+    citation_numbers: list[int] = []
+    for match in _CITATION_PATTERN.findall(full_text):
+        for part in match.split(","):
+            citation_numbers.append(int(part.strip()))
     cited_indices: list[int] = []
     seen: set[int] = set()
     out_of_range_citation_count = 0

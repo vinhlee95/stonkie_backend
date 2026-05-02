@@ -14,6 +14,7 @@ class AnalyzeSource(BaseModel):
     publisher: str
     published_at: datetime | None = None
     is_trusted: bool
+    raw_content: str = ""
 
 
 class AnalyzeRetrievalResult(BaseModel):

@@ -553,3 +553,107 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
     prompt_text = call_kwargs.get("prompt", "")
     assert "REUTERS_TITLE_MARKER" in prompt_text
     assert "Sources:" in prompt_text
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+async def test_search_on_uses_brave_directive_and_drops_sources_json_instructions(mock_multi_agent_cls, mock_retrieve):
+    from services.question_analyzer.handlers_v2 import (
+        _BRAVE_CITATION_DIRECTIVE,
+        CompanySpecificFinanceHandlerV2,
+    )
+
+    company_connector, classifier, optimizer = _make_handler_deps()
+    mock_retrieve.return_value = AnalyzeRetrievalResult(
+        sources=[
+            AnalyzeSource(
+                id="s_1",
+                url="https://www.reuters.com/a",
+                title="A",
+                publisher="Reuters",
+                published_at=None,
+                is_trusted=True,
+                raw_content="Body",
+            )
+        ],
+        query="q",
+        market="GLOBAL",
+        request_id="req-d1",
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A [1]"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanySpecificFinanceHandlerV2(
+        company_connector=company_connector,
+        classifier=classifier,
+        data_optimizer=optimizer,
+    )
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    async for _event in handler.handle(
+        ticker="AAPL",
+        question="q",
+        search_decision=_decision(True),
+        use_url_context=False,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="req-d1",
+    ):
+        pass
+
+    prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
+    assert _BRAVE_CITATION_DIRECTIVE in prompt_text
+    assert '[SOURCES_JSON]{"sources"' not in prompt_text
+    assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+async def test_search_off_keeps_legacy_sources_json_instructions(mock_multi_agent_cls):
+    from services.question_analyzer.handlers_v2 import (
+        _BRAVE_CITATION_DIRECTIVE,
+        CompanySpecificFinanceHandlerV2,
+    )
+
+    company_connector, classifier, optimizer = _make_handler_deps()
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanySpecificFinanceHandlerV2(
+        company_connector=company_connector,
+        classifier=classifier,
+        data_optimizer=optimizer,
+    )
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    async for _event in handler.handle(
+        ticker="AAPL",
+        question="q",
+        search_decision=_decision(False),
+        use_url_context=False,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="req-d2",
+    ):
+        pass
+
+    prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
+    assert '[SOURCES_JSON]{"sources"' in prompt_text
+    assert _BRAVE_CITATION_DIRECTIVE not in prompt_text

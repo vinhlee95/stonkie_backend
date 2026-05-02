@@ -59,6 +59,23 @@ def test_build_sources_event_drops_out_of_range_citations_and_logs_counter(caplo
     assert payload["out_of_range_citation_count"] == 1
 
 
+def test_build_sources_event_handles_grouped_citations() -> None:
+    from services.analyze_retrieval.citation_index import build_sources_event
+
+    event = build_sources_event(
+        "Claim A [1, 4]. Claim B [2,5]. Claim C [3].",
+        [_source(1), _source(2), _source(3), _source(4), _source(5)],
+    )
+
+    assert [item["source_id"] for item in event["body"]["sources"]] == [
+        "s_1",
+        "s_4",
+        "s_2",
+        "s_5",
+        "s_3",
+    ]
+
+
 def test_build_sources_event_returns_empty_sources_when_no_citations() -> None:
     from services.analyze_retrieval.citation_index import build_sources_event
 
