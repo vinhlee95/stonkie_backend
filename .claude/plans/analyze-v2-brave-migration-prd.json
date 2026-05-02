@@ -9,7 +9,9 @@
     ],
     "related_documents": {
       "design_plan_markdown": ".claude/plans/analyze-v2-brave-migration.md",
-      "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings."
+      "phase_6_tdd_plan": ".claude/plans/phase-6-stock-handlers-v2-strict-tdd.md",
+      "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings.",
+      "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-6-75. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope. BraveRetrievalError translation to SSE error remains phase-7 route."
     },
     "scope": {
       "endpoint": "POST /api/v2/companies/{ticker}/analyze",
@@ -28,13 +30,13 @@
     "core_non_negotiables": {
       "tdd_required": "Every phase MUST follow /tdd: write failing tests first, then implementation. Tests committed before or with implementation in the same PR. No implementation-only commits.",
       "no_external_api_in_tests": "Tests must NEVER hit Brave or OpenRouter live. Use committed fixtures under tests/services/analyze_retrieval/fixtures/. tmp/ is gitignored and MUST NOT be referenced from tests.",
-      "grounding": "v2 LLM consumes only Brave-retrieved passages stuffed into the prompt. No :online mode in v2.",
+      "grounding": "v2 LLM consumes only text placed in the prompt: Brave-retrieved passages (retrieve_for_analyze) plus any explicitly ingested artifacts (SEC URL force path, validated non-SEC PDF stream path mirroring v1). User-pasted arbitrary URLs when use_url_context is true are phase-6-75 (parse/fetch pipeline), not implicit :online provider reads. No :online mode in v2.",
       "citation_contract": "LLM emits [N] inline. Backend streams raw text WITH [N] markers preserved (no buffering, no stripping). After stream ends, emit a single sources event mapping each N -> {source_id, url, title, publisher, published_at, is_trusted}. No paragraph_done event. No [SOURCES_JSON] block. FE renders [N] -> badge using the final sources event.",
       "fail_fast": "On Brave error or 0 results, emit {type: error, code: retrieval_failed} and close stream. No silent :online fallback.",
       "no_db_persistence": "No new table. Debug via structured JSON logs keyed on analyze_request_id (UUID4) emitted as first SSE meta event.",
       "v1_v2_cache_isolation": "SemanticAnalysisCache key prefix bumped to v2: to prevent cross-version replay.",
       "v2_cache_ttl": "v2 SemanticAnalysisCache entries expire after 30 minutes regardless of category. Bounds staleness for time-sensitive answers backed by Brave retrieval.",
-      "search_decision_respected": "v2 honors the existing SearchDecisionEngine. When the engine says 'no search', v2 takes a non-grounded path (no Brave call, no sources event). meta event with request_id is ALWAYS emitted, regardless of search decision.",
+      "search_decision_respected": "v2 honors the existing SearchDecisionEngine with the same inputs as v1 FinancialAnalyzer: force_google_search_reason (e.g. sec_url), available_periods, available_metrics from CompanyFinancialConnector when ticker is a real symbol. FinancialAnalyzerV2 passes these into decide(...). classify_question_type receives the raw ticker string (v1 parity). When the engine says 'no search', v2 takes a non-grounded path (no Brave call, no sources event). Phase-7 route emits {type:meta, request_id} first on every SSE stream; FinancialAnalyzerV2 mints request_id for handler/retrieval logging today.",
       "verbatim_query": "Pass user prompt verbatim to Brave; no rewriter.",
       "language_handling": "No explicit language directive. Trust Gemini30Flash multilingual. Citations remain in source language.",
       "rate_limiting": "No proactive throttling. Monitor 429s in prod; add reactively if observed.",
@@ -58,7 +60,7 @@
             "db_access_rule": "Only via Depends(get_db) passed straight to a service method. Routes never call session.query(...) themselves."
           },
           "L2_service": {
-            "location": "services/financial_analyzer_v2.py, services/etf_analyzer_v2.py, services/question_analyzer/handlers_v2.py, services/question_analyzer/comparison_handler_v2.py, services/analyze_retrieval/* (peer service module)",
+            "location": "services/financial_analyzer_v2.py, services/etf_analyzer_v2.py, services/question_analyzer/handlers_v2.py, services/question_analyzer/comparison_handler_v2.py, services/analyze_retrieval/* (peer service module); after phase-6-75 optionally services/analyze_retrieval/url_ingest.py (or services/url_ingest/*) for explicit user-URL fetch",
             "responsibilities": "Business logic, orchestration, prompt building, LLM streaming, classifier/search-decision dispatch.",
             "must_not_import": [
               "fastapi.* (no Request, Response, APIRouter, Depends, HTTPException)",
@@ -146,7 +148,7 @@
   "phases": [
     {
       "id": "phase-0-source-policy-for-chat",
-      "sort_order": 1,
+      "sort_order": 0,
       "impact_level": "HIGH",
       "state": "complete",
       "validation_summary": "Phase 0 complete on branch feat/analyze-v2-phase-0-source-policy. Created services/analyze_retrieval/source_policy.py with locked allowlist for GLOBAL/VN markets + FI extension, *.gov wildcard, DISCARDS list (incl. tradingview.com/ideas path-prefix), and tier_for/is_trusted/is_discarded helpers. 56 unit tests cover GLOBAL/VN/FI tier resolution, discards precedence, tier non-overlap, exact tier counts (G1=13/G2=16/VN1=7/VN2=10/FIext1=2/FIext2=3), independence-from-recap AST guard, and registrable_domain VN multi-suffix handling. TDD: ImportError red -> 56 passed green. 5 brave fixtures committed under tests/services/analyze_retrieval/fixtures/.",
@@ -331,7 +333,7 @@
     },
     {
       "id": "phase-1-retrieval-primitives",
-      "sort_order": 2,
+      "sort_order": 1,
       "impact_level": "HIGH",
       "state": "complete",
       "validation_summary": "Phase 1 complete. Implemented retrieval primitives under services/analyze_retrieval: schemas.py (AnalyzeSource, AnalyzeRetrievalResult, BraveRetrievalError), market.py (country normalization via direct map + GLOBAL default), goggle.py (market-aware goggle directives with wildcard *.gov omission and discard lines), publisher.py (label lookup + registrable-domain fallback), and __init__.py re-exports. Added unit tests for schemas/market/goggle/publisher and validated behavior for VN/GLOBAL/FI routing, goggle composition, publisher labeling, and schema validation. All phase tests and baseline gates pass.",
@@ -426,7 +428,7 @@
     },
     {
       "id": "phase-2-brave-client-and-ranking",
-      "sort_order": 3,
+      "sort_order": 2,
       "impact_level": "HIGH",
       "state": "complete",
       "validation_summary": "Phase 2 complete. Added Layer-3 Brave wrapper at connectors/brave_client.py with strict request contract (verbatim query, country/search_lang/goggles/count/context_threshold_mode, freshness omitted), fixture-based parsing to Candidate, and BraveRetrievalError handling for HTTP/shape failures. Added deterministic rank_for_chat in services/analyze_retrieval/ranking.py enforcing tier -> recency(<90d) -> raw_content length -> score -> URL ordering. As an approved narrow follow-on for stable source identity, added services/analyze_retrieval/retrieval.py + tests/services/analyze_retrieval/test_retrieval.py to prove canonical-url dedupe, empty-content filtering, top_k selection, and stable AnalyzeSource.id via source_id_for(...). No live external API calls in tests.",
@@ -510,7 +512,7 @@
     },
     {
       "id": "phase-3-retrieval-orchestrator-and-observability",
-      "sort_order": 4,
+      "sort_order": 3,
       "impact_level": "HIGH",
       "state": "complete",
       "validation_summary": "Phase 3 complete in strict TDD mode. Re-validated retrieve_for_analyze with additional behavior-focused tests and upgraded dedupe semantics to keep the strongest candidate per canonical URL (higher score, then longer content). Added services/analyze_retrieval/observability.py with a single-line structured JSON logger and wired retrieval to emit one observability event per request containing request_id, ticker, market, ranked_urls, selected_source_ids, and brave_latency_ms while explicitly excluding raw Brave payloads.",
@@ -589,7 +591,7 @@
     },
     {
       "id": "phase-4-citation-index-collector",
-      "sort_order": 5,
+      "sort_order": 4,
       "impact_level": "LOW",
       "state": "complete",
       "validation_summary": "Phase 4 complete in strict TDD. Added services/analyze_retrieval/citation_index.py with build_sources_event(full_text, retrieved_sources) that extracts [N], maps N -> retrieved_sources[N-1], dedupes in first-seen order, drops out-of-range citations, and emits the locked payload shape {type:'sources', body:{sources:[...]}} with full source metadata (source_id, url, title, publisher, published_at, is_trusted). Added observability counters out_of_range_citation_count and uncited_source_count via structured JSON logging and ensured no raw answer text is logged. Added tests/services/analyze_retrieval/test_citation_stream.py covering single mapping, dedupe, out-of-range handling, empty citations, and uncited-source counting. Optional package export added in services/analyze_retrieval/__init__.py.",
@@ -666,7 +668,7 @@
     },
     {
       "id": "phase-5-handler-v2-company-general",
-      "sort_order": 6,
+      "sort_order": 5,
       "impact_level": "HIGH",
       "state": "complete",
       "validation_summary": "Phase 5 complete. Implemented CompanyGeneralHandlerV2 in services/question_analyzer/handlers_v2.py (commit 0391ae7) — retrieval -> [N]-stuffed prompt -> mocked Gemini stream -> final sources event via citation_index.build_sources_event. Combined trusted-publisher thinking_status emitted only when retrieval ran (deduped, untrusted omitted). On no_search path, the only thinking_status emitted is the v1-style 'Analyzing {company}...' progress event (no Reading-sources status, no sources event). Tests at tests/services/question_analyzer/test_company_general_handler_v2.py cover all PRD red tests including the newly-added empty-citations case (5 tests, all green). Service-layer file imports no fastapi/starlette types (3LA respected).",
@@ -748,30 +750,57 @@
     },
     {
       "id": "phase-6-handler-v2-remaining",
-      "sort_order": 7,
+      "sort_order": 6,
       "impact_level": "HIGH",
-      "state": "not-started",
-      "title": "Remaining handlers v2 (general finance, specific finance, comparison, ETF)",
-      "objective": "Port remaining handlers to v2 pattern using shape established in phase 5. Per-handler PRs recommended.",
+      "state": "complete",
+      "validation_summary": "Phase 6 complete in strict TDD. Added GeneralFinanceHandlerV2 + CompanySpecificFinanceHandlerV2 in services/question_analyzer/handlers_v2.py and CompanyComparisonHandlerV2 in services/question_analyzer/comparison_handler_v2.py. Reused v1 infra read-only (FinancialDataOptimizer, QuestionClassifier, context_builders, PromptComponents, ComparisonCompanyBuilder, format_conversation_context). Comparison handler fans retrievals via asyncio.Semaphore(5), flat-numbers source IDs in ticker order, aggregates trusted-publisher thinking_status across all successful tickers (deduped) with ticker list, surfaces partial failure as both a thinking_status event and a prompt marker, and raises BraveRetrievalError if all retrievals fail. CompanySpecificFinanceHandlerV2 ports v1 fallback branches (missing/undefined ticker + conv; no DB data + conv) and attachment_url events verbatim; on no_search emits v1-style classify->data-fetch->analyze thinking_status sequence. FinancialAnalyzerV2 dispatches all 4 stock QuestionType values and matches v1 FinancialAnalyzer orchestration on L2: CompanyConnector + CompanyFinancialConnector, SEC URL + validated PDF early paths, full decide() kwargs (force_google_search_reason, available_periods, available_metrics), raw ticker passed to classify_question_type, available_metrics passed into company-specific handler, NONE/none ticker skips DB period/metric fetch. v1 provenance data_sources event preserved alongside v2 sources in comparison flow. use_url_context remains deferred to phase-6-75 (no implicit :online). VisualAnswerStreamSplitter and post-meta wrapper thinking_status are phase-7.",
+      "tdd_evidence": {
+        "red_run": "Initial pytest runs surfaced ImportError on missing classes: GeneralFinanceHandlerV2 / CompanySpecificFinanceHandlerV2 / CompanyComparisonHandlerV2 / FinancialAnalyzerV2(general_finance_handler=...) — all confirmed red before implementation.",
+        "green_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_general_finance_handler_v2.py tests/services/question_analyzer/test_company_specific_finance_handler_v2.py tests/services/question_analyzer/test_comparison_handler_v2.py tests/services/test_financial_analyzer_v2.py tests/services/test_financial_analyzer_v2_dispatch.py -q -> 37 passed (handler + analyzer slice). Full regression: source venv/bin/activate && PYTHONPATH=. pytest tests/services/ tests/test_healthcheck.py -q -> 231 passed; ruff check . -> All checks passed."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof for each handler)": "pass — 5 GeneralFinance + 10 CompanySpecificFinance + 8 Comparison + 9 FinancialAnalyzerV2 + 5 dispatch = 37 targeted; full services suite green",
+        "Gate B (v1 regression suite green)": "pass — pytest tests/services/ tests/test_healthcheck.py = 231 passed (counts drift as tests added; gate is suite green)",
+        "Gate C (zero live external calls in tests)": "pass — MultiAgent / retrieve_for_analyze / connectors mocked in handler tests; analyzer tests use MagicMock financial connector + patch validate_pdf_url where needed; no tmp/ fixture refs",
+        "Gate D (healthcheck + ruff pass)": "pass"
+      },
+      "learnings": [
+        "Putting helper functions (_trusted_publisher_status, _build_sources_block) in handlers_v2.py and importing them from comparison_handler_v2.py keeps the publisher-status formatting consistent across handlers without duplication; the helper accepts an optional ticker_list param to switch between single-ticker and aggregated-comparison status bodies.",
+        "Wrapping retrieve_for_analyze in asyncio.to_thread inside _retrieve_one_ticker — combined with asyncio.Semaphore(5) — gives both true concurrency on the sync HTTP client and a clean cap that can be unit-tested by overriding _retrieve_one_ticker on the handler instance.",
+        "Comparison partial-failure surfaces best as TWO channels: a user-visible thinking_status event ('Web retrieval failed for X') and an LLM-visible prompt marker ('Note: web retrieval failed for X'); the LLM weaves it into the answer naturally while the FE shows the status badge.",
+        "Test helper bug: `fundamental or default` overrides explicitly-passed empty dict; use a sentinel (_UNSET) when the test needs to pass an empty mapping.",
+        "v1 provenance ('data_sources') and v2 citation ('sources') events are different semantic classes; keeping them as separate events lets the FE renderer treat citation badges and provenance pills independently."
+      ],
+      "next_phase_considerations": [
+        "Phase 6.5 (ETF) mirrors stock handler shape; add tests/services/test_etf_analyzer_v2.py (or etf_question_analyzer package tests) when ETFAnalyzerV2 wiring lands — extend phase-6 verification command then.",
+        "Phase 6-75: implement explicit URL ingest for use_url_context (Brave parse vs first-party fetch) before public v2 endpoint; blocks phase-7 per dependency chain.",
+        "Phase 7: POST /api/v2/... route + meta first + BraveRetrievalError SSE mapping + SemanticAnalysisCache v2: TTL + VisualAnswerStreamSplitter on stock+ETF streams + post-search_decision_meta thinking_status parity + cache replay through splitter (see phase-7 scope_includes).",
+        "Phase 7 ETF-vs-stock guard at route delegates ETF tickers to ETFAnalyzerV2 and stock to FinancialAnalyzerV2.",
+        "Comparison all-ticker Brave failure: BraveRetrievalError must be caught at phase-7 route and mapped to retrieval_failed."
+      ],
+      "title": "Remaining stock handlers v2 (general finance, specific finance, comparison)",
+      "objective": "Port remaining stock handlers to v2 pattern using shape established in phase 5. Single bundled PR. ETF handlers v2 split into phase-6.5.",
       "scope_includes": [
         "GeneralFinanceHandlerV2",
-        "CompanySpecificFinanceHandlerV2 (DB financials + Brave passages; trim raw_content if context blows up)",
-        "CompanyComparisonHandlerV2: per-ticker Brave query fanned out via asyncio.gather with concurrency cap = 5; on partial failure proceed with successes + add a note to the answer naming the failed ticker(s); only fail the whole request if ALL ticker retrievals fail",
-        "ETFAnalyzerV2 + ETF handlers v2"
+        "CompanySpecificFinanceHandlerV2 (DB financials + Brave passages; no raw_content trim — Q6.3 closed)",
+        "CompanyComparisonHandlerV2: per-ticker Brave query fanned out via asyncio.gather with asyncio.Semaphore(5) concurrency cap; on partial failure proceed with successes + add a thinking_status event listing failed tickers AND inject a prompt marker naming the failed ticker(s); only fail the whole request if ALL ticker retrievals fail. Source IDs flat-numbered [1]..[K] across all tickers in ticker order.",
+        "FinancialAnalyzerV2 dispatch extended to all 4 stock QuestionType values; ETF dispatch deferred to phase-7 endpoint wiring"
       ],
       "scope_excludes": [
         "No endpoint wiring",
-        "No FE work"
+        "No FE work",
+        "ETF handlers v2 — split out into phase-6.5"
       ],
       "files_expected": [
-        "services/financial_analyzer_v2.py",
-        "services/etf_analyzer_v2.py",
+        "services/financial_analyzer_v2.py (dispatch + v1 orchestration parity on L2)",
         "services/question_analyzer/handlers_v2.py (extended)",
         "services/question_analyzer/comparison_handler_v2.py",
         "tests/services/question_analyzer/test_general_finance_handler_v2.py",
         "tests/services/question_analyzer/test_company_specific_finance_handler_v2.py",
         "tests/services/question_analyzer/test_comparison_handler_v2.py",
-        "tests/services/test_etf_analyzer_v2.py"
+        "tests/services/test_financial_analyzer_v2.py",
+        "tests/services/test_financial_analyzer_v2_dispatch.py",
+        ".claude/plans/phase-6-stock-handlers-v2-strict-tdd.md"
       ],
       "dependencies": {
         "technical_must_complete_before": ["phase-5-handler-v2-company-general"],
@@ -779,12 +808,17 @@
       },
       "tdd_plan": {
         "red_tests": [
-          "Per-handler: canned passages + mocked LLM -> expected SSE event sequence",
-          "CompanySpecificFinanceHandlerV2: when DB context large, raw_content trimmed to 3000 chars per passage",
-          "ComparisonHandlerV2: N tickers -> N parallel retrieval calls via asyncio.gather (mocked); total elapsed in test approximates max(per-call latency), not sum",
-          "ComparisonHandlerV2: 1 of 4 tickers fails retrieval -> handler still produces an answer using the 3 successful tickers' sources, and the prompt context includes a marker noting the failed ticker",
+          "Per-handler 5-test phase-5 mirror: no-search v1-like sequence; no-search no-sources-event; search-on emits aggregated trusted-publisher thinking_status and final sources event once; trusted-publisher dedupe; search-on with no [N] yields empty sources list",
+          "CompanySpecificFinanceHandlerV2: attachment_url emitted for single quarterly statement and single annual statement (v1 parity)",
+          "CompanySpecificFinanceHandlerV2: fallback path - missing/undefined ticker + conversation_messages -> conversation-context fallback (no data fetch, no Brave)",
+          "CompanySpecificFinanceHandlerV2: fallback path - data_requirement != NONE but no DB data + conversation_messages -> conversation-context fallback",
+          "CompanySpecificFinanceHandlerV2: search-on stuffs DB context first, Brave Sources block appended after",
+          "ComparisonHandlerV2: asyncio.Semaphore(5) cap honored - patched retrieve records max in-flight <= 5 across N=8 tickers",
+          "ComparisonHandlerV2: 1 of 4 tickers fails retrieval -> answer uses 3 successful tickers' sources; prompt context includes 'Note: web retrieval failed for {ticker}' marker; thinking_status event lists failed tickers",
           "ComparisonHandlerV2: ALL tickers fail retrieval -> raises BraveRetrievalError",
-          "ETF: existing context_builders preserved alongside Brave"
+          "ComparisonHandlerV2: flat [1]..[K] source-id numbering across tickers in ticker order",
+          "ComparisonHandlerV2: aggregated trusted-publisher thinking_status across all tickers, deduped, includes ticker list",
+          "FinancialAnalyzerV2 dispatch: each of 4 stock QuestionType values routes to correct handler; unknown classification yields error answer"
         ]
       },
       "definition_of_done": {
@@ -795,13 +829,13 @@
         ],
         "verification": {
           "required_commands": [
-            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/ tests/services/test_etf_analyzer_v2.py -v",
-            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_general_finance_handler_v2.py tests/services/question_analyzer/test_company_specific_finance_handler_v2.py tests/services/question_analyzer/test_comparison_handler_v2.py tests/services/test_financial_analyzer_v2.py tests/services/test_financial_analyzer_v2_dispatch.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/ tests/test_healthcheck.py -q",
             "source venv/bin/activate && ruff check ."
           ],
           "required_evidence": [
-            "Red then green logs per handler",
-            "v1 test suite still green (regression check)"
+            "Red then green logs per handler + FinancialAnalyzerV2 analyzer tests",
+            "Full tests/services + healthcheck green (231+ passes; count may rise as tests are added)"
           ],
           "phase_gates": [
             "Gate A: TDD red->green proof for each handler",
@@ -813,12 +847,153 @@
       }
     },
     {
+      "id": "phase-6-5-etf-handlers-v2",
+      "sort_order": 6.5,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "ETF handlers v2 (split from phase-6)",
+      "objective": "Port ETF analyzer + ETF handlers to v2 Brave-grounded pattern. Mirrors phase-6 shape: retrieval -> [N]-stuffed prompt -> stream -> final sources event; v1 ETF infra reused read-only.",
+      "scope_includes": [
+        "ETFAnalyzerV2 (services/etf_analyzer_v2.py) - fork of v1 ETFAnalyzer with v2 handler wiring; dispatch by ETFQuestionType",
+        "GeneralETFHandlerV2 (analog of CompanyGeneralHandlerV2 for ETF general questions)",
+        "ETFOverviewHandlerV2",
+        "ETFDetailedAnalysisHandlerV2",
+        "ETFComparisonHandlerV2 (per-ticker Brave fanout with asyncio.Semaphore(5), partial-failure semantics aligned with phase-6 CompanyComparisonHandlerV2)",
+        "Reuse v1 ETF infra read-only: ETFQuestionClassifier, ETFDataOptimizer, etf_question_analyzer/context_builders (VisualAnswerStreamSplitter placement is phase-7 alongside stock v2 — single SSE contract for both analyzers)"
+      ],
+      "scope_excludes": [
+        "Endpoint wiring - phase-7",
+        "FE changes",
+        "Stock handlers - shipped in phase-6"
+      ],
+      "files_expected": [
+        "services/etf_analyzer_v2.py",
+        "services/etf_question_analyzer/handlers_v2.py",
+        "services/etf_question_analyzer/comparison_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_general_etf_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_overview_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_detailed_handler_v2.py",
+        "tests/services/etf_question_analyzer/test_etf_comparison_handler_v2.py",
+        "tests/services/test_etf_analyzer_v2.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-6-handler-v2-remaining"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "Per-ETF-handler 5-test phase-5 mirror: no-search v1-like sequence; no-search no-sources-event; search-on emits aggregated trusted-publisher thinking_status + final sources event once; dedupe; search-on with no [N] yields empty sources list",
+          "ETFComparisonHandlerV2: asyncio.Semaphore(5) cap honored",
+          "ETFComparisonHandlerV2: partial-failure semantics match phase-6 CompanyComparisonHandlerV2 (prompt marker + thinking_status)",
+          "ETFAnalyzerV2: dispatch by ETFQuestionType to correct handler",
+          "v1 ETF regression suite green"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "All ETF v2 handlers emit consistent event schema with stock v2 handlers",
+          "ETFAnalyzerV2.analyze_question dispatches by ETFQuestionType",
+          "v1 ETF handlers untouched"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/etf_question_analyzer/ tests/services/test_etf_analyzer_v2.py -v",
+            "source venv/bin/activate && pytest tests/services/ tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red then green logs per handler",
+            "v1 ETF regression suite still green"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red->green proof for each ETF handler",
+            "Gate B: v1 ETF regression suite green",
+            "Gate C: zero live external calls in tests",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-6-75-v2-url-context-parse-grounding",
+      "sort_order": 6.75,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "v2 URL context — parse/fetch grounding (replaces :online URL read)",
+      "objective": "v1 `use_url_context` relies on OpenRouter `:online` so the provider reads URLs opaquely. v2 is Brave-grounded: the LLM only sees prompt text we supply, so user-supplied URLs must be ingested explicitly (parse API or equivalent fetch→extract→truncate pipeline), composed with existing Brave passages, and reflected in the citation contract.",
+      "scope_includes": [
+        "Design doc: when `use_url_context` is true, define precedence vs Brave `retrieve_for_analyze` (merge order, duplicate URL handling, token budget split)",
+        "Security + abuse: SSRF controls (block private/link-local IPs, file://, redirect cap), max response bytes, wall-clock timeout, optional domain allowlist for user-pasted URLs",
+        "Implementation surface: new L2 module under `services/analyze_retrieval/` or `services/url_ingest/` (name TBD) callable from v2 handlers — no `fastapi` imports",
+        "Parser strategy: Brave-hosted parse/readability API vs first-party HTML→article extraction + existing PDF path patterns — pick one with TOS/cost rationale documented in PRD learnings",
+        "Wire into `GeneralFinanceHandlerV2`, `CompanyGeneralHandlerV2`, `CompanySpecificFinanceHandlerV2` (and ETF v2 handlers after phase-6.5 if same contract) when `use_url_context` is true: fetched text becomes additional grounded passages with stable `[N]` indices or a dedicated preface block; final `sources` event includes URL-derived rows with `source_id` stable relative to prompt numbering",
+        "Thinking_status UX: user-visible step when URL ingest runs (success, partial truncation, blocked domain, timeout) without leaking internal URLs in logs beyond existing observability rules",
+        "TDD: fixtures only — no live HTTP to arbitrary URLs in CI; mock parser/fetch boundary",
+        "Keep prd_meta.core_non_negotiables.grounding in sync with shipped ingest behavior (already states no :online; extend with ingest module path in learnings when code lands)"
+      ],
+      "scope_excludes": [
+        "v1 behavior change (`:online` remains v1-only)",
+        "FE renderer changes",
+        "Phase-7 route wiring (this phase prepares handler + service contracts only)"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/url_ingest.py (or equivalent — finalized in phase kickoff)",
+        "tests/services/analyze_retrieval/test_url_ingest.py",
+        "Edits to services/question_analyzer/handlers_v2.py and post-phase-6.5 ETF handlers if unified contract",
+        ".claude/plans/analyze-v2-url-context-spec.md (short ADR saved alongside PRD updates)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-6-handler-v2-remaining"
+        ],
+        "parallelizable": true,
+        "parallel_with": [
+          "phase-6-5-etf-handlers-v2"
+        ],
+        "blocks": [
+          "phase-7-endpoint-wiring"
+        ]
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "use_url_context=False -> zero calls to url ingest adapter (mocked)",
+          "use_url_context=True + successful parse -> prompt contains extracted text marker; LLM stream unchanged aside from grounding; sources event lists ingested URL with metadata",
+          "use_url_context=True + parser timeout -> fail_fast or degraded prompt per locked policy; test encodes chosen policy",
+          "use_url_context=True + SSRF-blocked target -> error or skip with user-visible thinking_status (per policy)",
+          "Citation indices remain consistent when both Brave passages and URL extract are present (no duplicate [N] collision)"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "All stock v2 handlers that accept `use_url_context` honor the new contract",
+          "No live arbitrary URL fetch in unit tests",
+          "ADR/spec markdown committed under `.claude/plans/`"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_url_ingest.py tests/services/question_analyzer/test_*_handler_v2.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red→green logs for url ingest + at least one handler integration test",
+            "ADR excerpt: parser choice + threat model summary"
+          ],
+          "phase_gates": [
+            "Gate A: TDD red→green on ingest + handler wiring",
+            "Gate B: SSRF/size/timeout behavior covered by tests",
+            "Gate C: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
       "id": "phase-7-endpoint-wiring",
-      "sort_order": 8,
+      "sort_order": 7,
       "impact_level": "HIGH",
       "state": "not-started",
       "title": "POST /api/v2/companies/{ticker}/analyze",
-      "objective": "Mount the v2 endpoint parallel to v1, with request_id meta event, error stream contract, and v2: cache namespace.",
+      "objective": "Mount the v2 endpoint parallel to v1, with request_id meta event, error stream contract, v2: cache namespace, and v1-parity SSE shaping (visual splitter + wrapper progress) so the FE contract does not regress when FE switches analyzers.",
       "scope_includes": [
         "NEW file api/analyze_v2.py with its own APIRouter; mounted from main.py via app.include_router(analyze_v2_router). Mirrors api/markets.py. v1 route in main.py is NOT touched.",
         "Route /api/v2/companies/{ticker}/analyze defined in api/analyze_v2.py only",
@@ -828,7 +1003,11 @@
         "v2 endpoint always honors SearchDecisionEngine — when it returns no_search, skip retrieval and run handler in non-grounded mode (still emits meta event with request_id)",
         "BraveRetrievalError -> {type:error, code:retrieval_failed} + clean stream close",
         "Startup healthcheck: BRAVE_API_KEY present",
-        "Architecture test tests/architecture/test_v2_layering.py asserting the L1/L2/L3 import rules from core_non_negotiables.three_layer_architecture"
+        "Architecture test tests/architecture/test_v2_layering.py asserting the L1/L2/L3 import rules from core_non_negotiables.three_layer_architecture",
+        "SSE answer shaping parity with v1: apply utils.visual_stream.VisualAnswerStreamSplitter to streamed LLM answer text for stock AND ETF v2 analyzer paths exactly where v1 FinancialAnalyzer / ETFAnalyzer do today — including the comparison branch — so ```html / ```svg / <html>… streams emit the same answer vs answer_visual_* event shapes the FE already handles. Implementation MUST live in L2 (e.g. FinancialAnalyzerV2 / ETFAnalyzerV2) or a dedicated L2 stream adapter those services call; L1 route remains a thin forwarder.",
+        "Post-search_decision_meta progress parity: emit the same v1-style thinking_status pair after meta (search-on: 'Searching for the latest …' / search-off: database message) before delegating into v2 handlers, unless validation_summary documents an explicit FE-approved omission.",
+        "Cached v2 replay: SemanticAnalysisCache replay path for v2 keys MUST run stored answer text through the same VisualAnswerStreamSplitter behavior as live v2 (mirrors existing v1 cache replay invariant in tests/test_semantic_analysis_cache.py).",
+        "Optional v1 wrapper parity: post-handler 'no recent sources' thinking_status when search was on but no source-like events were observed — only if still relevant once v2 sources event is always present; decide in phase kickoff and record in validation_summary."
       ],
       "scope_excludes": [
         "v1 deprecation",
@@ -837,12 +1016,17 @@
       "files_expected": [
         "api/analyze_v2.py (NEW)",
         "main.py (only adds app.include_router(analyze_v2_router); v1 untouched)",
-        "services/semantic_analysis_cache.py (namespace + TTL)",
-        "tests/api/test_analyze_v2_endpoint.py",
+        "services/semantic_analysis_cache.py (namespace + TTL + v2 replay uses VisualAnswerStreamSplitter)",
+        "services/financial_analyzer_v2.py and/or services/etf_analyzer_v2.py (or small L2 helper) for splitter + post-meta thinking_status wiring",
+        "tests/test_analyze_v2_endpoint.py (or tests/api/ — align with repo convention)",
         "tests/architecture/test_v2_layering.py"
       ],
       "dependencies": {
-        "technical_must_complete_before": ["phase-6-handler-v2-remaining"],
+        "technical_must_complete_before": [
+          "phase-6-handler-v2-remaining",
+          "phase-6-5-etf-handlers-v2",
+          "phase-6-75-v2-url-context-parse-grounding"
+        ],
         "parallelizable": false
       },
       "tdd_plan": {
@@ -856,14 +1040,19 @@
           "Cache: v1 entry does not satisfy v2 request and vice versa",
           "Cache: v2 entry written at t=0 is NOT returned at t=31min (TTL expired); IS returned at t=29min",
           "SearchDecisionEngine returns no_search -> endpoint skips retrieval; meta event still emitted; no sources event; answer streams normally",
-          "Missing BRAVE_API_KEY at startup -> healthcheck fails (test via env override)"
+          "Missing BRAVE_API_KEY at startup -> healthcheck fails (test via env override)",
+          "Visual stream: mocked LLM emits a ```html\\n…``` fenced chunk through v2 stock path -> SSE contains at least one answer_visual_* style event (same discriminator fields as v1 path in tests/test_visual_stream_splitter.py contract)",
+          "Post-meta thinking_status: after search_decision_meta, next thinking_status body matches v1 pattern for search-on vs search-off (string snapshot or shared constant test)",
+          "SemanticAnalysisCache: replay of a v2-cached answer containing a visual fence reproduces the same visual event sequence as live v2 stream (regression on splitter in cache path)"
         ]
       },
       "definition_of_done": {
         "implementation_checks": [
           "v1 endpoint untouched and still works",
           "v2 endpoint uses identical conversation/cookie flow as v1",
-          "Cache namespace isolation verified"
+          "Cache namespace isolation verified",
+          "v2 live + cached streams match v1 VisualAnswerStreamSplitter semantics for HTML/SVG fenced output",
+          "v2 emits post-meta search/database thinking_status unless omission explicitly documented in phase validation_summary with FE sign-off"
         ],
         "verification": {
           "required_commands": [
@@ -879,7 +1068,7 @@
           "phase_gates": [
             "Gate A: TDD red->green proof",
             "Gate B: v1 regression suite green",
-            "Gate C: SSE schema matches PRD (meta first, error contract honored)",
+            "Gate C: SSE schema matches PRD (meta first, error contract honored, visual splitter parity, post-meta thinking_status policy)",
             "Gate D: cache namespace + TTL isolated",
             "Gate E: 3LA architecture test passes (L1/L2/L3 import rules)",
             "Gate F: route lives in api/analyze_v2.py, NOT main.py",
@@ -890,7 +1079,7 @@
     },
     {
       "id": "phase-8-validation-and-eval-parity",
-      "sort_order": 9,
+      "sort_order": 8,
       "impact_level": "MEDIUM",
       "state": "not-started",
       "title": "End-to-end validation against eval harness",
@@ -948,7 +1137,7 @@
     },
     {
       "id": "phase-9-frontend-handoff",
-      "sort_order": 10,
+      "sort_order": 9,
       "impact_level": "LOW",
       "state": "not-started",
       "title": "Frontend handoff doc",
@@ -999,10 +1188,11 @@
     }
   ],
   "global_unresolved_questions": [
-    "Q6.1: Strip [N] markers backend-side or pass through? Default: strip.",
+    "Q6.1: [CLOSED — aligns with citation_contract] Backend streams answer chunks with [N] preserved; build_sources_event maps cited indices only; no backend strip of markers before FE.",
     "Q14.1: Comparison handler — per-ticker queries (default) or single combined?",
-    "Q6.3: When DB context + Brave passages are large, trim raw_content to 3000 chars/passage — confirm threshold once measured.",
+    "Q6.3: [CLOSED in phase-6] No raw_content trim. Modern Gemini context (~1M tokens) absorbs full Brave passages; revisit only if eval shows latency/cost pain.",
     "Q3.1: Country normalization table — what other values appear in company_fundamental.data['country']? Run a quick distinct query before phase 1.",
-    "Q6.4: Retain :online as hidden ops flag in v2? Default: no."
+    "Q6.4: Retain :online as hidden ops flag in v2? Default: no.",
+    "Q6.5: [TRACKED in phase-6-75] v2 URL context — Brave parse API vs first-party fetch/extract; merge order with Brave search passages; fail_fast vs degrade on timeout/blocked URL."
   ]
 }
