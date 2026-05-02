@@ -265,3 +265,70 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(
 
     publisher_status = [event for event in events if event["type"] == "thinking_status"][1]["body"]
     assert publisher_status.count("Reuters") == 1
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+@patch("services.question_analyzer.handlers_v2.CompanyConnector")
+async def test_search_on_with_no_citations_emits_empty_sources_list(
+    mock_company_connector_cls, mock_multi_agent_cls, mock_retrieve_for_analyze
+):
+    from services.question_analyzer.handlers_v2 import CompanyGeneralHandlerV2
+
+    mock_company_connector = MagicMock()
+    mock_company_connector.get_by_ticker.return_value = SimpleNamespace(name="Apple Inc.", country="United States")
+    mock_company_connector_cls.return_value = mock_company_connector
+
+    mock_retrieve_for_analyze.return_value = AnalyzeRetrievalResult(
+        sources=[
+            AnalyzeSource(
+                id="s_1",
+                url="https://www.reuters.com/a",
+                title="A",
+                publisher="Reuters",
+                published_at=None,
+                is_trusted=True,
+            ),
+        ],
+        query="What changed?",
+        market="GLOBAL",
+        request_id="req-3",
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["Answer with no citations."])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyGeneralHandlerV2(company_connector=mock_company_connector)
+
+    async def _fake_related_questions(*_args, **_kwargs):
+        if False:
+            yield {"type": "related_question", "body": "unused"}
+
+    handler._generate_related_questions = _fake_related_questions  # type: ignore[attr-defined]
+
+    decision = SearchDecision(
+        use_google_search=True,
+        reason_code="latest_info",
+        confidence=0.9,
+        decision_model="test",
+        decision_fallback="none",
+    )
+
+    events: list[dict] = []
+    async for event in handler.handle(
+        ticker="AAPL",
+        question="What changed?",
+        search_decision=decision,
+        use_url_context=False,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="req-3",
+    ):
+        events.append(event)
+
+    sources_events = [event for event in events if event["type"] == "sources"]
+    assert len(sources_events) == 1
+    assert sources_events[0]["body"]["sources"] == []

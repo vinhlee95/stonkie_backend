@@ -668,7 +668,28 @@
       "id": "phase-5-handler-v2-company-general",
       "sort_order": 6,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 5 complete. Implemented CompanyGeneralHandlerV2 in services/question_analyzer/handlers_v2.py (commit 0391ae7) — retrieval -> [N]-stuffed prompt -> mocked Gemini stream -> final sources event via citation_index.build_sources_event. Combined trusted-publisher thinking_status emitted only when retrieval ran (deduped, untrusted omitted). On no_search path, the only thinking_status emitted is the v1-style 'Analyzing {company}...' progress event (no Reading-sources status, no sources event). Tests at tests/services/question_analyzer/test_company_general_handler_v2.py cover all PRD red tests including the newly-added empty-citations case (5 tests, all green). Service-layer file imports no fastapi/starlette types (3LA respected).",
+      "tdd_evidence": {
+        "red_run": "Initial red run for handler + first 4 tests captured in commit 0391ae7. Follow-on red for the missing PRD red-test 'LLM stream with no [N] -> empty sources list': test_search_on_with_no_citations_emits_empty_sources_list did not exist in tests/services/question_analyzer/test_company_general_handler_v2.py prior to this update.",
+        "green_run": "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_company_general_handler_v2.py -v -> 5 passed in 1.46s; pytest tests/test_healthcheck.py -q -> 3 passed; ruff check . -> All checks passed."
+      },
+      "gates_result_snapshot": {
+        "Gate A (TDD red->green proof)": "pass — 5/5 handler tests green, including newly-added empty-citations test",
+        "Gate B (event sequence matches PRD schema)": "pass — meta is endpoint-level (phase 7); handler emits thinking_status -> answer chunks (with [N] preserved) -> sources (when search ran) -> model_used -> related_question",
+        "Gate C (zero live LLM/Brave calls in tests)": "pass — MultiAgent and retrieve_for_analyze fully mocked",
+        "Gate D (healthcheck + ruff pass)": "pass"
+      },
+      "learnings": [
+        "Keeping the v1-style 'Analyzing {company}...' progress thinking_status on no_search path preserves UX continuity; only the retrieval-derived 'Reading N sources: <publishers>' status is gated on search_decision.use_google_search. PRD red-test wording was tightened to match this shipped behavior.",
+        "Trusted-publisher dedupe via list-membership check (preserves first-seen ordering) is simpler than building a set + sorted list and matches the order users see in the SSE stream.",
+        "build_sources_event is only invoked when retrieval ran, so the no_search path emits zero sources events and the search-on path emits exactly one — even when the LLM produced no [N] markers (sources list is empty in that case)."
+      ],
+      "next_phase_considerations": [
+        "Phase 6 handlers should reuse the same shape: trusted-publisher thinking_status only when retrieval ran; final sources event exactly once; raw [N] markers preserved in answer stream.",
+        "Comparison handler will fan out retrieval per-ticker; thinking_status body should aggregate trusted publishers across all successful tickers (deduped) to avoid event spam.",
+        "Endpoint-level meta event (request_id) is owned by phase 7; handlers continue to accept request_id as a kwarg and pass it into retrieve_for_analyze for observability correlation."
+      ],
       "title": "CompanyGeneralHandlerV2 (smallest handler first)",
       "objective": "Port simplest handler to v2 pattern: retrieval -> stuff prompt -> stream -> paragraph events. Establishes the shape used by remaining handlers.",
       "scope_includes": [
@@ -696,7 +717,8 @@
           "Given canned passages + mocked LLM stream emitting '[1][2]', handler yields: single thinking_status with all publishers in body -> raw answer chunks containing [1][2] verbatim -> final sources event with s_1, s_2 metadata only",
           "Combined thinking_status body lists only trusted (tier-1/tier-2) publishers; untrusted are omitted",
           "LLM stream with no [N] -> final sources event has empty sources list",
-          "Search-decision = no_search path -> handler emits answer only, no thinking_status, no sources event",
+          "Search-decision = no_search path -> handler emits the v1-style 'Analyzing {company}...' progress thinking_status only (no 'Reading N sources' status), no sources event, answer streams normally",
+          "LLM stream with no [N] but retrieval ran -> exactly one final sources event with body.sources == []",
           "No live LLM call in tests (mocked OpenRouterClient)"
         ]
       },
