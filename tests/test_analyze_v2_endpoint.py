@@ -182,7 +182,9 @@ def test_v2_analyze_cache_hit_uses_v2_ticker_namespace_and_skips_analyzer():
 
 def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_ttl():
     async def fake_analyze(*_args, **_kwargs):
-        yield {"type": "answer", "body": "live v2 answer"}
+        yield {"type": "answer", "body": "live [1] "}
+        yield {"type": "answer", "body": "v2 answer"}
+        yield {"type": "sources", "body": [{"source_id": "s_1", "url": "https://example.com/1"}]}
         yield {"type": "model_used", "body": "test-model"}
         yield {"type": "related_question", "body": "Related one?"}
 
@@ -211,6 +213,7 @@ def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_t
     assert kwargs["last_model_used"] == "test-model"
     assert kwargs["related_questions"] == ["Related one?"]
     assert kwargs["ttl_seconds"] == 30 * 60
+    assert kwargs["last_sources_payload"] == [{"source_id": "s_1", "url": "https://example.com/1"}]
 
 
 def test_v2_live_stream_splits_visual_answer_blocks():

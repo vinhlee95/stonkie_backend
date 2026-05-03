@@ -314,7 +314,7 @@ async def test_flat_source_id_numbering_across_tickers(mock_multi_agent_cls, moc
 
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
-    ids = [s["source_id"] for s in sources_events[0]["body"]["sources"]]
+    ids = [s["source_id"] for s in sources_events[0]["body"]]
     assert ids == ["aapl_1", "aapl_2", "msft_1", "msft_2", "goog_1", "goog_2"]
 
 
@@ -352,7 +352,7 @@ async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
     # No "Reading N sources" thinking_status (no Brave)
     assert not any(e["type"] == "thinking_status" and "Reading" in e["body"] for e in events)
     # No v2 sources event from build_sources_event
-    v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), dict)]
+    v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
     assert len(v2_sources) == 0
 
 
@@ -394,9 +394,9 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_a
     ):
         events.append(event)
 
-    v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), dict)]
+    v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
     assert len(v2_sources) == 1
-    assert v2_sources[0]["body"]["sources"] == []
+    assert v2_sources[0]["body"] == []
 
 
 @pytest.mark.asyncio
@@ -439,3 +439,49 @@ async def test_dedupes_trusted_publishers_across_tickers(mock_multi_agent_cls, m
 
     reading = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]][0]
     assert reading["body"].count("Reuters") == 1
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
+async def test_comparison_prompt_drops_sources_json_instructions_for_v2(mock_multi_agent_cls, mock_retrieve):
+    from services.question_analyzer.comparison_handler_v2 import (
+        _BRAVE_CITATION_DIRECTIVE,
+        CompanyComparisonHandlerV2,
+    )
+
+    mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
+        sources=[_src(f"{kw['ticker']}_1", "Reuters")],
+        query="q",
+        market="GLOBAL",
+        request_id=kw["ticker"],
+    )
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A [1]"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyComparisonHandlerV2()
+    _patch_fetch(handler, ["AAPL", "MSFT"])
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    async for _event in handler.handle(
+        tickers=["AAPL", "MSFT"],
+        question="compare",
+        search_decision=_decision(True),
+        short_analysis=True,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="rq",
+    ):
+        pass
+
+    prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
+    assert _BRAVE_CITATION_DIRECTIVE in prompt_text
+    assert '[SOURCES_JSON]{"sources"' not in prompt_text
+    assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text

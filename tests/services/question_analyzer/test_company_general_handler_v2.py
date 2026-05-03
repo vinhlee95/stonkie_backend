@@ -185,12 +185,11 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
     assert mock_retrieve_for_analyze.call_count == 1
 
     answer_events = [event for event in events if event["type"] == "answer"]
-    assert answer_events[0]["body"] == "Alpha [1]"
-    assert answer_events[1]["body"] == " and beta [2]"
+    assert "".join(event["body"] for event in answer_events) == "Alpha and beta"
 
     sources_events = [event for event in events if event["type"] == "sources"]
     assert len(sources_events) == 1
-    assert [source["source_id"] for source in sources_events[0]["body"]["sources"]] == ["s_1", "s_2"]
+    assert [source["source_id"] for source in sources_events[0]["body"]] == ["s_1", "s_2"]
 
 
 @pytest.mark.asyncio
@@ -331,4 +330,4 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(
 
     sources_events = [event for event in events if event["type"] == "sources"]
     assert len(sources_events) == 1
-    assert sources_events[0]["body"]["sources"] == []
+    assert sources_events[0]["body"] == []

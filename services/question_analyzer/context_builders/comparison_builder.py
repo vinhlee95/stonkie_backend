@@ -6,7 +6,11 @@ from typing import Any
 from connectors.company import CompanyFundamentalDto
 from core.financial_statement_type import FinancialStatementType
 
-from .components import PromptComponents
+_V2_COMPARISON_SOURCE_POLICY = (
+    "Do not emit [SOURCES_JSON] blocks. Do not include inline citation markers unless explicit numbered web sources "
+    "are later provided in the prompt. If the comparison relies only on database or training-data context, answer "
+    "directly without source tags."
+)
 
 
 @dataclass
@@ -86,7 +90,7 @@ class ComparisonCompanyBuilder:
 
             {training_data_warning}
 
-            {PromptComponents.source_instructions()}
+            {_V2_COMPARISON_SOURCE_POLICY}
 
             Answer in a professional, informative tone. Prioritize clarity and scannability.
             REMINDER: Your response language MUST match the User Question language.
@@ -127,7 +131,7 @@ class ComparisonCompanyBuilder:
     def _build_source_instructions(self, input: ComparisonCompanyBuilderInput) -> str:
         has_google_search = any(c.data_source == "google_search" for c in input.companies_data)
         if has_google_search:
-            return PromptComponents.source_instructions()
+            return _V2_COMPARISON_SOURCE_POLICY
         return "Do NOT include [SOURCES_JSON] blocks. The data is from our database and has no URLs to cite."
 
     def _build_training_data_warning(self, input: ComparisonCompanyBuilderInput) -> str:
@@ -150,7 +154,7 @@ class ComparisonCompanyBuilder:
             parts.append(
                 f"The following tickers are NOT in our database: {tickers_str}. "
                 f"Use Google Search results to find current financial data for these tickers. "
-                f"Cite your sources using [SOURCES_JSON] blocks."
+                f"Rely on the provided web results for current data and do not emit [SOURCES_JSON] blocks."
             )
 
         return "**IMPORTANT — Data Source Warning:**\n" + "\n".join(parts)

@@ -13,6 +13,7 @@ from connectors.conversation_store import (
     generate_conversation_id,
     get_conversation_history_for_prompt,
 )
+from services.analyze_retrieval.citation_index import CitationTextStreamCleaner
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.etf import get_etf_by_ticker
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
@@ -80,6 +81,7 @@ class AnalyzeV2StreamService:
         last_sources_payload: dict | list | None = None
         last_model_used: str | None = None
         last_related_questions: list[str] = []
+        answer_cleaner = CitationTextStreamCleaner()
 
         def append_assistant_output(event: dict[str, Any]) -> None:
             event_type = event.get("type")
@@ -147,17 +149,30 @@ class AnalyzeV2StreamService:
                 if await is_disconnected():
                     return
 
-                append_assistant_output(event)
-                track_stream_meta(event)
+                event_to_emit = event
                 if event.get("type") == "answer" and isinstance(event.get("body"), str):
-                    for visual_event in visual_splitter.process_text(event["body"]):
+                    cleaned_chunk = answer_cleaner.process(event["body"])
+                    if not cleaned_chunk:
+                        continue
+                    event_to_emit = {**event, "body": cleaned_chunk}
+
+                append_assistant_output(event_to_emit)
+                track_stream_meta(event_to_emit)
+                if event_to_emit.get("type") == "answer" and isinstance(event_to_emit.get("body"), str):
+                    for visual_event in visual_splitter.process_text(event_to_emit["body"]):
                         yield visual_event
                 else:
-                    yield event
+                    yield event_to_emit
         except BraveRetrievalError:
             logger.exception("v2 analyze retrieval failed", extra={"ticker": normalized_ticker or ticker})
             yield {"type": "error", "code": "retrieval_failed", "body": "Retrieval failed"}
             return
+
+        trailing_answer = answer_cleaner.finalize()
+        if trailing_answer:
+            append_assistant_output({"type": "answer", "body": trailing_answer})
+            for visual_event in visual_splitter.process_text(trailing_answer):
+                yield visual_event
 
         for visual_event in visual_splitter.finalize():
             yield visual_event

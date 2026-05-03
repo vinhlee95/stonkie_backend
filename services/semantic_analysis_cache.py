@@ -168,12 +168,12 @@ class SemanticAnalysisCache:
         raw_sources = cached_entry.sources
         sources_out = None
         if isinstance(raw_sources, dict) and isinstance(raw_sources.get("sources"), list):
-            sources_out = raw_sources["sources"] or None
-        elif isinstance(raw_sources, list) and raw_sources:
+            sources_out = raw_sources["sources"]
+        elif isinstance(raw_sources, list):
             sources_out = raw_sources
         elif isinstance(raw_sources, dict):
             sources_out = raw_sources
-        if sources_out:
+        if sources_out is not None:
             yield {"type": "sources", "body": sources_out}
             await asyncio.sleep(_CACHE_REPLAY_PACE_DEFAULT_SEC)
 

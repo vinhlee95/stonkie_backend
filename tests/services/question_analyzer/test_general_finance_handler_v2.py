@@ -149,12 +149,11 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
     assert "Example Blog" not in thinking_events[1]["body"]
 
     answer_events = [e for e in events if e["type"] == "answer"]
-    assert answer_events[0]["body"] == "Latest [1] "
-    assert answer_events[1]["body"] == "and [2]"
+    assert "".join(event["body"] for event in answer_events) == "Latest and"
 
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
-    assert [s["source_id"] for s in sources_events[0]["body"]["sources"]] == ["s_1", "s_2"]
+    assert [s["source_id"] for s in sources_events[0]["body"]] == ["s_1", "s_2"]
 
 
 @pytest.mark.asyncio
@@ -263,4 +262,4 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_a
 
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
-    assert sources_events[0]["body"]["sources"] == []
+    assert sources_events[0]["body"] == []

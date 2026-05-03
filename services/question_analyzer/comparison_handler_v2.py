@@ -26,6 +26,7 @@ from services.question_analyzer.context_builders.components import PromptCompone
 from services.question_analyzer.handlers_v2 import (
     _BRAVE_CITATION_DIRECTIVE,
     _build_sources_block,
+    _stream_clean_answer_chunks,
     _trusted_publisher_status,
 )
 from services.search_decision_engine import SearchDecision
@@ -232,15 +233,14 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         prompt += _build_sources_block(flat_sources)
 
         agent = MultiAgent(model_name=preferred_model)
-        full_chunks: list[str] = []
-        for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
-            if not isinstance(chunk, str):
-                continue
-            full_chunks.append(chunk)
+        raw_answer_text, clean_chunks = _stream_clean_answer_chunks(
+            agent.generate_content(prompt=prompt, use_google_search=False)
+        )
+        for chunk in clean_chunks:
             yield {"type": "answer", "body": chunk}
 
         if flat_sources or use_google_search:
-            yield build_sources_event("".join(full_chunks), flat_sources)
+            yield build_sources_event(raw_answer_text, flat_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
 

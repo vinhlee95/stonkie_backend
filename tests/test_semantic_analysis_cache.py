@@ -15,7 +15,7 @@ def test_stream_hit_replay_splits_visual_blocks():
 
         entry = MagicMock()
         entry.answer_text = "Intro\n\n```html\n<div>x</div>\n```\n"
-        entry.sources = None
+        entry.sources = [{"source_id": "s_1", "url": "https://example.com/1"}]
         entry.model_used = "model-x"
         entry.related_questions = ["One?", "Two?", "Three?"]
 
@@ -29,6 +29,8 @@ def test_stream_hit_replay_splits_visual_blocks():
     assert "thinking_status" in types
     assert "answer_visual_start" in types
     assert "answer_visual_done" in types
+    assert "sources" in types
+    assert events[types.index("sources")]["body"] == [{"source_id": "s_1", "url": "https://example.com/1"}]
     assert "cache_meta" in types
     assert events[types.index("cache_meta")]["body"].get("semantic_cache_hit") is True
     assert types.count("related_question") == 3

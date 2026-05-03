@@ -10,9 +10,10 @@
     "related_documents": {
       "design_plan_markdown": ".claude/plans/analyze-v2-brave-migration.md",
       "phase_6_tdd_plan": ".claude/plans/phase-6-stock-handlers-v2-strict-tdd.md",
+      "frontend_handoff_plan_markdown": "../frontend-ssr/.agent/plans/analyze-v2-frontend-handoff.md",
       "usage_note": "If implementation details are ambiguous, consult the design plan first, then update this PRD with phase learnings.",
       "sync_note_2026_05": "Phase 6 shipped stock v2 handlers + FinancialAnalyzerV2 dispatch and v1 analyzer parity on L2 (full SearchDecisionEngine.decide kwargs including SEC sec_url force, available_periods/metrics, classify_question_type receives raw ticker like v1, available_metrics into CompanySpecificFinanceHandlerV2, NONE ticker placeholder for DB skip, SEC + non-SEC PDF paths mirroring v1). use_url_context in v2 handlers remains unimplemented here — explicit URL ingest is phase-7.25. SSE VisualAnswerStreamSplitter + post-meta thinking_status + v2 cache replay parity are phase-7 scope (stock path). ETF v2 handlers + route ETF delegation deferred to phase-7.5 (low usage). BraveRetrievalError translation to SSE error remains phase-7 route.",
-      "sync_note_2026_05_phase_7_2": "Phase-7-2 deferred + descoped: renumbered to phase-8-5 (sort_order 8.5), impact LOW. Live probes against /api/v2/companies/AAPL/analyze on 2026-05-02 showed Brave-on path already emits structured {type:'sources'} event + inline [N] markers with zero SOURCES_JSON output (phase-6 work covered the headline goal). Remaining work: (a) DB-only path still dumps inline [SOURCES_JSON]{...}[/SOURCES_JSON] in answer text — needs structured provenance + prompt strip; (b) training-weights-only sink unimplemented; (c) [N] out-of-range observed when model cites an index past build_sources_event survivors; (d) prompt audit for residual source_instructions() injection; (e) mixed Brave+DB probe still needed. Removed as a hard dependency from phase-7-25, phase-7-5, and phase-8; added as dependency for phase-9 FE handoff so FE inherits the locked DB/training contract."
+      "sync_note_2026_05_phase_7_2": "Phase-7-2 deferred + descoped: renumbered to phase-8-5 (sort_order 8.5), impact LOW. Live probes against /api/v2/companies/AAPL/analyze on 2026-05-02 showed Brave-on path already emits structured {type:'sources'} event + inline [N] markers with zero SOURCES_JSON output (phase-6 work covered the headline goal). Remaining work: (a) DB-only path still dumps inline [SOURCES_JSON]{...}[/SOURCES_JSON] in answer text — needs structured provenance + prompt strip; (b) training-weights-only sink unimplemented; (c) [N] out-of-range observed when model cites an index past build_sources_event survivors; (d) prompt audit for residual source_instructions() injection; (e) mixed Brave+DB probe still needed. Removed as a hard dependency from phase-7-25, phase-7-5, and phase-8; added as dependency for phase-9 FE handoff so FE inherits the locked DB/training contract. FE handoff decisions locked on 2026-05-02: stock chat hard-switches to v2 (no FE flag), inline citations render first as raw [N] text during streaming, then FE replaces them in-place with market-recap-style chip UI once structured sources arrives, and FE strips redundant trailing standalone 'Sources: ...' summary lines from rendered answer content."
     },
     "scope": {
       "endpoint": "POST /api/v2/companies/{ticker}/analyze",
@@ -43,6 +44,8 @@
         "partial_brave_failure": "If some Brave legs fail or return empty but DB and/or remaining Brave rows still support a defensible answer: continue; sources remain cited-only via build_sources_event; thinking_status may note partial web failure. If all Brave legs fail but DB financial grounding exists: complete DB-only with financial_db provenance (not training_weights_only). retrieval_failed fail-fast applies when zero usable grounding remains per product-locked policy in phase-7.2 (narrow global fail_fast where DB salvage is allowed).",
         "use_url_context_vs_brave": "Per request, use_url_context=true and Brave web retrieval do not combine: use_url_context=true is URL-grounding mode only (ingested user URL text + optional DB); skip retrieve_for_analyze/Brave for that turn. use_url_context=false uses SearchDecision + Brave when search on. Phase-7.25 implements ingest; this lock is contract-level.",
         "semantic_cache_replay_sources": "On cache hit, emit the sources snapshot persisted on the cache entry for the sources SSE; if the row has no stored sources payload, emit empty sources. Do not re-fetch Brave on replay to fabricate provenance.",
+        "frontend_render_contract": "Frontend render contract for stock v2 is locked for handoff: while answer text is streaming and no structured sources payload has arrived yet, FE renders raw inline [N] / [N, M] markers as plain text. Once the final sources event arrives, FE replaces those exact inline markers in-place with market-recap-style chip-like citation UI resolved by 1-based display order from the sources payload. If a cited index cannot be resolved, FE leaves the raw marker visible instead of showing a broken chip.",
+        "frontend_sources_summary_line": "Backend may currently emit a trailing standalone summary line like 'Sources: [1], [2]' inside answer text on some Brave-grounded turns. FE is expected to strip that final summary-style line from rendered answer content once inline citation chips plus the canonical sources footer are present. Backend should not rely on that line as the sole user-visible provenance surface.",
         "etf_v2_provenance_parity": "Phase-7.5 ETF v2 uses the same citation_contract_v2 mode matrix as stock; user-facing labels tuned for ETF factsheet/holdings/fundamentals while mechanics stay aligned."
       },
       "fail_fast": "BraveRetrievalError / zero usable web results: emit {type: error, code: retrieval_failed} and close when no salvage path exists. When DB (or other non-Brave) grounding still yields a defensible answer, completion may continue per citation_contract_v2.partial_brave_failure (no silent :online fallback).",
@@ -1054,10 +1057,10 @@
       "title": "v2 DB-only + training-weights provenance + prompt audit (descoped from phase-7-2)",
       "objective": "Close the remaining citation_contract_v2 gaps after live probes (2026-05-02) showed the Brave-on path already emits structured {type:'sources'} + inline [N] markers with no SOURCES_JSON output. Remaining: (1) replace the inline [SOURCES_JSON]{...}[/SOURCES_JSON] tail still emitted on DB-only answers with structured DB-financial provenance (and strip the prompt instruction that produces it); (2) emit a training-weights-only provenance sink for turns with neither Brave rows nor DB financial grounding (no fabricated URLs); (3) decide and enforce [N] out-of-range behavior (model cited an index beyond build_sources_event survivors in the AAPL news probe); (4) one-pass prompt audit confirming no residual source_instructions() injection on Brave-on or DB-only handler paths; (5) mixed Brave+DB observation probe before locking the contract.",
       "scope_includes": [
-        "DB-only path: replace inline [SOURCES_JSON]{...}[/SOURCES_JSON] answer-text dump with v1-parity structured provenance. Lock SSE shape at kickoff: structured {type:'sources'} with synthetic financial row vs. dedicated {type:'provenance'} event (FE-reviewed).",
+        "DB-only path: replace inline [SOURCES_JSON]{...}[/SOURCES_JSON] answer-text dump with v1-parity structured provenance. Lock SSE shape at kickoff: reuse structured {type:'sources'} with synthetic financial/training rows rather than introducing a dedicated {type:'provenance'} event, so FE can stay on one citation/provenance collection path.",
         "Strip PromptComponents.source_instructions() (or equivalent) from DB-only handler prompts so the model stops generating [SOURCES_JSON] at all.",
         "Training-weights-only sink: detect when search_decision.use_search=false AND no DB financial grounding; emit single explicit training-data provenance row matching the SSE shape chosen above.",
-        "[N] out-of-range contract: choose between (a) strip uncited / out-of-range markers from streamed text, or (b) leave intact and document for FE; add regression test for chosen behavior.",
+        "[N] out-of-range contract: preserve uncited / out-of-range markers in streamed text, document that FE leaves unresolved markers as raw text, and add a regression test for that rule.",
         "Prompt audit (one pass): grep handlers_v2.py + comparison_handler_v2.py for residual source_instructions / SOURCES_JSON template usage; remove on Brave-on and DB-only paths; add a per-handler prompt-string assertion test.",
         "Mixed Brave+DB observation: run an earnings-vs-estimates style probe before locking; document current behavior in validation_summary; only expand scope here if the probe surfaces a contract violation.",
         "Cache replay compatibility: ensure SemanticAnalysisCache replay reproduces the new structured provenance event(s) for both DB-only and training-only stored answers."
@@ -1097,8 +1100,8 @@
       },
       "definition_of_done": {
         "implementation_checks": [
-          "DB-only and training-only modes emit structured provenance per locked SSE shape; no [SOURCES_JSON] text leaks into answer chunks for any v2 stock handler.",
-          "[N] out-of-range rule documented in citation_contract_v2 and enforced by a regression test.",
+        "DB-only and training-only modes emit structured provenance via the existing {type:'sources'} event shape; no [SOURCES_JSON] text leaks into answer chunks for any v2 stock handler.",
+        "[N] out-of-range rule documented in citation_contract_v2 as preserve-in-text / omit-from-sources and enforced by a regression test.",
           "Prompt audit results recorded in validation_summary (which handler/prompt files touched, what was removed).",
           "Mixed Brave+DB probe transcript captured in validation_summary; any newly discovered violation either fixed in this phase or explicitly deferred with FE sign-off."
         ],
@@ -1121,9 +1124,7 @@
         }
       },
       "open_questions_for_kickoff": [
-        "Q1: structured {type:'sources'} event with a synthetic financial row, or dedicated {type:'provenance'} event? (FE impact)",
-        "Q2: [N] out-of-range — strip uncited markers from streamed text, or leave intact and document for FE renderer?",
-        "Q3: keep prompt audit scope to single-ticker stock handlers only, or include comparison_handler_v2 (only if mixed-grounding probe shows a violation)?"
+        "Q1: keep prompt audit scope to single-ticker stock handlers only, or include comparison_handler_v2 (only if mixed-grounding probe shows a violation)?"
       ]
     },
     {
@@ -1262,17 +1263,22 @@
         }
       }
     },
-    {
+  {
       "id": "phase-9-frontend-handoff",
       "sort_order": 9,
       "impact_level": "LOW",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 9 complete on 2026-05-02. Frontend handoff plan saved in the frontend repo at ../frontend-ssr/.agent/plans/analyze-v2-frontend-handoff.md and linked from prd_meta.related_documents. The handoff locks the FE rendering contract for stock v2: hard-switch to /api/v2/companies/{ticker}/analyze, render raw [N] markers first during streaming, replace them in-place with market-recap-style citation chips once structured sources arrives, preserve unresolved markers as raw text, and strip trailing standalone 'Sources: ...' summary lines from rendered answer content. Live v2 probes used to ground the handoff covered DB-only, Brave-grounded latest-news, and comparison shapes.",
       "title": "Frontend handoff doc",
-      "objective": "Hand frontend the v2 SSE contract so they can ship the inline-citation renderer and switch the endpoint URL.",
+      "objective": "Hand frontend the locked v2 SSE + rendering contract so they can ship the inline-citation renderer, hard-switch stock chat to v2, and avoid backend/FE drift on citation UX.",
       "scope_includes": [
         "Document v2 SSE event schema in a single markdown delivered to FE",
+        "Document the FE rendering contract explicitly: raw [N] text first during streaming; replace in-place with market-recap-style citation chips once sources arrives; unresolved markers remain raw text",
+        "Document that stock chat hard-switches to /api/v2/companies/{ticker}/analyze with no FE rollout flag",
+        "Document the FE cleanup rule for trailing standalone 'Sources: ...' summary lines",
         "Include a sample SSE transcript per category",
-        "Note the request_id meta event for debug/reporting flows"
+        "Call out array-vs-object normalization for sources payloads on live vs cache-replay paths",
+        "Clarify that request_id meta event is not part of the active FE contract unless a later observability phase reopens it"
       ],
       "scope_excludes": [
         "FE implementation (different repo)",
@@ -1296,6 +1302,8 @@
       "definition_of_done": {
         "implementation_checks": [
           "Doc covers every event type with example payload",
+          "Doc explicitly locks the FE rendering lifecycle for citations (raw marker -> resolved chip) and the unresolved-marker fallback",
+          "Doc explicitly states hard-switch-to-v2 for stock chat and the trailing 'Sources: ...' strip rule",
           "Drift detector passes",
           "FE confirms ack (out-of-band)"
         ],
