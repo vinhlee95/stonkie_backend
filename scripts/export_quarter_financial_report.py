@@ -6,6 +6,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +22,7 @@ load_dotenv()
 
 def validate_quarterly_periods(periods):
     """
-    Validate that periods are quarterly (3 months apart) and properly formatted.
+    Validate that periods are sub-annual (< 8 months apart) to guard against scraping the annual tab.
     Returns (is_valid, error_message)
     """
     try:
@@ -56,21 +57,17 @@ def validate_quarterly_periods(periods):
         # Sort dates in descending order (most recent first)
         parsed_dates.sort(key=lambda x: x[1], reverse=True)
 
-        # Check if consecutive periods are 3 months apart (allowing for some tolerance)
+        # Check that consecutive periods are sub-annual (guards against scraping annual tab by mistake)
         for i in range(len(parsed_dates) - 1):
             current_period, current_date = parsed_dates[i]
             next_period, next_date = parsed_dates[i + 1]
 
-            # Calculate the difference
-            expected_previous_date = current_date - relativedelta(months=3)
+            actual_diff = abs((current_date - next_date).days)
 
-            # Allow for some tolerance (up to 5 days difference)
-            date_diff = abs((next_date - expected_previous_date).days)
-
-            if date_diff > 5:
+            if actual_diff >= 243:  # 8 months
                 return (
                     False,
-                    f"Periods are not quarterly: {current_period} and {next_period} are not 3 months apart (difference: {date_diff} days from expected)",
+                    f"Periods are not sub-annual: {current_period} and {next_period} are {actual_diff} days apart (annual data?)",
                 )
 
         return True, "All periods are valid quarterly intervals"
@@ -573,10 +570,24 @@ def fetch_and_save_filing_urls(ticker):
         return False
 
 
+def is_us_company(ticker):
+    with sessionmaker(autocommit=False, autoflush=False, bind=engine)() as db:
+        row = db.execute(
+            text("SELECT data->>'country' FROM company_fundamental WHERE company_symbol = :ticker"),
+            {"ticker": ticker},
+        ).scalar()
+    if row is None:
+        return False
+    return row.strip().lower() in ("united states", "usa", "us")
+
+
 def fetch_filing_urls_worker(ticker):
     """
     Worker function for parallel execution of filing URL fetching
     """
+    if not is_us_company(ticker):
+        print(f"⏭️  Skipping {ticker} — Finnhub only covers US/SEC filings")
+        return True
     return fetch_and_save_filing_urls(ticker)
 
 
