@@ -12,6 +12,7 @@ from services.market_recap.url_utils import source_id_for
 class _StubBraveClient:
     def __init__(self, candidates: list[Candidate]) -> None:
         self._candidates = candidates
+        self.last_query: str | None = None
 
     def search(
         self,
@@ -22,7 +23,8 @@ class _StubBraveClient:
         goggle: str,
         count: int = 20,
     ) -> list[Candidate]:
-        _ = (query, country, search_lang, goggle, count)
+        self.last_query = query
+        _ = (country, search_lang, goggle, count)
         return self._candidates
 
 
@@ -153,3 +155,36 @@ def test_retrieve_for_analyze_logs_observability_fields(monkeypatch: pytest.Monk
         "brave_latency_ms": 42,
         "raw_brave_response": None,
     }
+
+
+def test_retrieve_for_analyze_builds_company_aware_query_for_pronoun_questions() -> None:
+    stub = _StubBraveClient(candidates=[_candidate("https://reuters.com/a", "body a", 0.9)])
+
+    result = retrieve_for_analyze(
+        question="What are the specific profit margins across its primary product lines?",
+        market="GLOBAL",
+        request_id="req-query-1",
+        brave_client=stub,
+        ticker="SPOT",
+        company_name="Spotify Technology",
+    )
+
+    assert result.query == (
+        "Spotify Technology SPOT What are the specific profit margins across "
+        "Spotify Technology primary product lines?"
+    )
+    assert stub.last_query == result.query
+
+
+def test_retrieve_for_analyze_keeps_raw_question_when_company_context_missing() -> None:
+    stub = _StubBraveClient(candidates=[_candidate("https://reuters.com/a", "body a", 0.9)])
+
+    result = retrieve_for_analyze(
+        question="What are the specific profit margins across its primary product lines?",
+        market="GLOBAL",
+        request_id="req-query-2",
+        brave_client=stub,
+    )
+
+    assert result.query == "What are the specific profit margins across its primary product lines?"
+    assert stub.last_query == result.query

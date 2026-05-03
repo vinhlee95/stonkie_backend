@@ -190,6 +190,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
     sources_events = [event for event in events if event["type"] == "sources"]
     assert len(sources_events) == 1
     assert [source["source_id"] for source in sources_events[0]["body"]] == ["s_1", "s_2"]
+    assert mock_retrieve_for_analyze.call_args.kwargs["company_name"] == "Apple Inc."
 
 
 @pytest.mark.asyncio

@@ -123,6 +123,7 @@ Do not add numbering.
                 request_id=request_id,
                 brave_client=brave_client,
                 ticker=ticker.upper(),
+                company_name=company_name,
             )
             retrieved_sources = retrieval_result.sources
 
@@ -519,6 +520,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 request_id=request_id,
                 brave_client=brave_client,
                 ticker=ticker_norm.upper(),
+                company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
             )
             retrieved_sources = retrieval_result.sources
             status_event = _trusted_publisher_status(retrieved_sources)

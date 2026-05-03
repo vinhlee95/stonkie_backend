@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from services.analyze_retrieval.goggle import build_chat_goggle
@@ -32,6 +33,36 @@ def _country_and_lang_for(market: Market) -> tuple[str, str]:
     return ("US", "en")
 
 
+def _clean_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _rewrite_company_question(question: str, *, company_name: str) -> str:
+    rewritten = question
+    for pattern in (
+        r"\bits\b",
+        r"\bit\b",
+        r"\bthis company\b",
+        r"\bthe company\b",
+        r"\bthis stock\b",
+        r"\bthe business\b",
+    ):
+        rewritten = re.sub(pattern, company_name, rewritten, flags=re.IGNORECASE)
+    return _clean_whitespace(rewritten)
+
+
+def build_company_aware_query(question: str, *, ticker: str | None = None, company_name: str | None = None) -> str:
+    base_question = _clean_whitespace(question)
+    if not company_name:
+        return base_question
+
+    rewritten_question = _rewrite_company_question(base_question, company_name=company_name)
+    ticker_token = (ticker or "").strip().upper()
+    return _clean_whitespace(
+        " ".join(part for part in (company_name.strip(), ticker_token, rewritten_question) if part)
+    )
+
+
 def retrieve_for_analyze(
     *,
     question: str,
@@ -39,12 +70,14 @@ def retrieve_for_analyze(
     request_id: str,
     brave_client: BraveSearchClient,
     ticker: str = "UNKNOWN",
+    company_name: str | None = None,
     brave_latency_ms: int = 0,
     top_k: int = 5,
 ) -> AnalyzeRetrievalResult:
     country, search_lang = _country_and_lang_for(market)
+    brave_query = build_company_aware_query(question, ticker=ticker, company_name=company_name)
     candidates = brave_client.search(
-        query=question,
+        query=brave_query,
         country=country,
         search_lang=search_lang,
         goggle=build_chat_goggle(market),
@@ -99,7 +132,7 @@ def retrieve_for_analyze(
 
     return AnalyzeRetrievalResult(
         sources=sources,
-        query=question,
+        query=brave_query,
         market=market,
         request_id=request_id,
     )
