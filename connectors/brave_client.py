@@ -44,6 +44,7 @@ class BraveClient:
         search_lang: str,
         goggle: str,
         count: int = 20,
+        freshness: str | None = None,
     ) -> list[Candidate]:
         params = {
             "q": query,
@@ -53,6 +54,8 @@ class BraveClient:
             "context_threshold_mode": "strict",
             "goggles": goggle,
         }
+        if freshness:
+            params["freshness"] = freshness
         try:
             response = self._http_client.get(
                 _BRAVE_CONTEXT_URL,

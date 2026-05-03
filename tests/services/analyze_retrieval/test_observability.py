@@ -13,17 +13,35 @@ def test_log_retrieval_emits_single_json_line_with_required_fields(caplog) -> No
             ranked_urls=["https://example.com/a", "https://example.com/b"],
             selected_source_ids=["s1", "s2"],
             brave_latency_ms=123,
+            freshness="pw",
+            returned_candidates=9,
+            unique_candidates=7,
+            unique_domains=5,
+            selected_domains=["reuters.com", "cnbc.com"],
+            selected_source_ages=["pw", "pm"],
+            stale_dropped=2,
+            trusted_selected=2,
+            used_untrusted_backfill=False,
         )
 
     assert len(caplog.records) == 1
     payload = json.loads(caplog.records[0].message)
     assert payload == {
         "brave_latency_ms": 123,
+        "freshness": "pw",
         "market": "GLOBAL",
         "ranked_urls": ["https://example.com/a", "https://example.com/b"],
         "request_id": "req-1",
+        "returned_candidates": 9,
         "selected_source_ids": ["s1", "s2"],
+        "selected_domains": ["reuters.com", "cnbc.com"],
+        "selected_source_ages": ["pw", "pm"],
+        "stale_dropped": 2,
         "ticker": "AAPL",
+        "trusted_selected": 2,
+        "unique_candidates": 7,
+        "unique_domains": 5,
+        "used_untrusted_backfill": False,
     }
 
 

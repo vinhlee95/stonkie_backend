@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,18 +22,25 @@ class _StubBraveClient:
         search_lang: str,
         goggle: str,
         count: int = 20,
+        freshness: str | None = None,
     ) -> list[Candidate]:
         self.last_query = query
-        _ = (country, search_lang, goggle, count)
+        _ = (country, search_lang, goggle, count, freshness)
         return self._candidates
 
 
-def _candidate(url: str, raw_content: str, score: float) -> Candidate:
+def _candidate(
+    url: str,
+    raw_content: str,
+    score: float,
+    *,
+    published_date: datetime | None = None,
+) -> Candidate:
     return Candidate(
         title="title",
         url=url,
         snippet="snippet",
-        published_date=datetime(2026, 4, 24, 12, 0, tzinfo=UTC),
+        published_date=published_date or (datetime.now(UTC) - timedelta(days=1)),
         raw_content=raw_content,
         score=score,
         provider="brave",
@@ -122,6 +129,108 @@ def test_retrieve_for_analyze_keeps_best_duplicate_by_canonical_url() -> None:
     assert [source.url for source in result.sources] == ["https://example.com/a"]
 
 
+def test_retrieve_for_analyze_prefers_trusted_domains_and_backfills_untrusted() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://random.example.com/1", "untrusted one", 1.0),
+            _candidate("https://www.reuters.com/a", "trusted one", 1.0),
+            _candidate("https://another.example.com/2", "untrusted two", 1.0),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="Company background overview",
+        market="GLOBAL",
+        request_id="req-trust-1",
+        brave_client=stub,
+        top_k=3,
+    )
+
+    assert [source.url for source in result.sources] == [
+        "https://www.reuters.com/a",
+        "https://random.example.com/1",
+        "https://another.example.com/2",
+    ]
+    assert [source.is_trusted for source in result.sources] == [True, False, False]
+
+
+def test_retrieve_for_analyze_applies_one_per_domain_on_first_pass() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://www.cnbc.com/a", "cnbc one", 1.0),
+            _candidate("https://www.cnbc.com/b", "cnbc two", 1.0),
+            _candidate("https://www.reuters.com/c", "reuters one", 1.0),
+            _candidate("https://www.wsj.com/d", "wsj one", 1.0),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="Latest market news",
+        market="GLOBAL",
+        request_id="req-domain-1",
+        brave_client=stub,
+        top_k=3,
+    )
+
+    assert [source.url for source in result.sources] == [
+        "https://www.cnbc.com/a",
+        "https://www.reuters.com/c",
+        "https://www.wsj.com/d",
+    ]
+
+
+def test_retrieve_for_analyze_drops_old_results_for_fresh_questions() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate(
+                "https://www.reuters.com/old",
+                "old but trusted",
+                1.0,
+                published_date=datetime.now(UTC) - timedelta(days=90),
+            ),
+            _candidate(
+                "https://www.cnbc.com/new",
+                "fresh trusted",
+                1.0,
+                published_date=datetime.now(UTC) - timedelta(days=1),
+            ),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="latest earnings news for AAPL",
+        market="GLOBAL",
+        request_id="req-fresh-1",
+        brave_client=stub,
+        top_k=5,
+    )
+
+    assert [source.url for source in result.sources] == ["https://www.cnbc.com/new"]
+
+
+def test_retrieve_for_analyze_keeps_old_authoritative_results_for_evergreen_questions() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate(
+                "https://www.reuters.com/old",
+                "old but useful",
+                1.0,
+                published_date=datetime.now(UTC) - timedelta(days=400),
+            ),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="Explain Apple's business model",
+        market="GLOBAL",
+        request_id="req-evergreen-1",
+        brave_client=stub,
+        top_k=5,
+    )
+
+    assert [source.url for source in result.sources] == ["https://www.reuters.com/old"]
+
+
 def test_retrieve_for_analyze_logs_observability_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     stub = _StubBraveClient(
         candidates=[
@@ -153,6 +262,15 @@ def test_retrieve_for_analyze_logs_observability_fields(monkeypatch: pytest.Monk
         "ranked_urls": ["https://reuters.com/a", "https://cnbc.com/b"],
         "selected_source_ids": [result.sources[0].id, result.sources[1].id],
         "brave_latency_ms": 42,
+        "freshness": "pm",
+        "returned_candidates": 2,
+        "unique_candidates": 2,
+        "unique_domains": 2,
+        "selected_domains": ["reuters.com", "cnbc.com"],
+        "selected_source_ages": ["pw", "pw"],
+        "stale_dropped": 0,
+        "trusted_selected": 2,
+        "used_untrusted_backfill": False,
         "raw_brave_response": None,
     }
 

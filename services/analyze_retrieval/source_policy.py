@@ -16,8 +16,8 @@ Market = Literal["GLOBAL", "VN", "FI"]
 _VN_MULTI_SUFFIXES = (".com.vn", ".gov.vn", ".org.vn", ".net.vn", ".edu.vn")
 
 # Locked policy from PRD analyze-v2-brave-migration-prd.json (locked_policy).
-# Counts asserted by tests: GLOBAL T1=13, T2=16; VN T1=7, T2=10; FI ext T1=2, T2=3.
-# The literal "*.gov" entry occupies one of GLOBAL_TIER_1's 13 slots; matching is
+# Counts asserted by tests: GLOBAL T1=16, T2=20; VN T1=10, T2=13; FI ext T1=2, T2=3.
+# The literal "*.gov" entry occupies one of GLOBAL_TIER_1's 16 slots; matching is
 # handled via GLOBAL_TIER_1_WILDCARDS at runtime.
 GLOBAL_TIER_1: frozenset[str] = frozenset(
     {
@@ -31,6 +31,9 @@ GLOBAL_TIER_1: frozenset[str] = frozenset(
         "ft.com",
         "wsj.com",
         "cnbc.com",
+        "apnews.com",
+        "nytimes.com",
+        "axios.com",
         "barrons.com",
         "economist.com",
         "marketwatch.com",
@@ -57,6 +60,10 @@ GLOBAL_TIER_2: frozenset[str] = frozenset(
         "fidelity.com",
         "am.jpmorgan.com",
         "statestreet.com",
+        "nasdaq.com",
+        "investopedia.com",
+        "etf.com",
+        "tradingeconomics.com",
     }
 )
 
@@ -68,18 +75,23 @@ VN_TIER_1: frozenset[str] = frozenset(
         "hsx.vn",
         "hnx.vn",
         "ssc.gov.vn",
+        "sbv.gov.vn",
         "cafef.vn",
         "vneconomy.vn",
         "vietstock.vn",
         "vir.com.vn",
+        "baodautu.vn",
+        "nhandan.vn",
     }
 )
 
 VN_TIER_2: frozenset[str] = frozenset(
     {
         "tinnhanhchungkhoan.vn",
-        "en.vietnamplus.vn",
+        "vietnamplus.vn",
         "thesaigontimes.vn",
+        "dnse.com.vn",
+        "bnews.vn",
         "ssi.com.vn",
         "vndirect.com.vn",
         "vcsc.com.vn",

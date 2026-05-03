@@ -131,3 +131,24 @@ def test_search_raises_brave_retrieval_error_on_unparseable_payload() -> None:
 
     with pytest.raises(BraveRetrievalError):
         client.search(query="q", country="US", search_lang="en", goggle="")
+
+
+def test_search_includes_freshness_when_provided() -> None:
+    payload = _fixture_payload()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["freshness"] == "pw"
+        return httpx.Response(status_code=200, json=payload)
+
+    client = BraveClient(
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    client.search(
+        query="latest market news",
+        country="US",
+        search_lang="en",
+        goggle="",
+        freshness="pw",
+    )
