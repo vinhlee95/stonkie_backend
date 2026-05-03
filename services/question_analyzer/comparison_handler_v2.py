@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY_CAP = 5
 
 
+def _comparison_company_name(company_data: CompanyComparisonData) -> str | None:
+    fundamental = company_data.fundamental
+    if isinstance(fundamental, dict):
+        return fundamental.get("Name") or fundamental.get("name") or company_data.ticker
+    return getattr(fundamental, "name", None) or getattr(fundamental, "company_name", None) or company_data.ticker
+
+
 class CompanyComparisonHandlerV2:
     """Multi-ticker comparison v2 handler."""
 
@@ -103,6 +110,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         market: str,
         request_id: str,
         sem: asyncio.Semaphore,
+        company_name: str | None = None,
     ) -> tuple[str, list[AnalyzeSource], Optional[BraveRetrievalError]]:
         async with sem:
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -114,6 +122,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     request_id=request_id,
                     brave_client=brave_client,
                     ticker=ticker,
+                    company_name=company_name,
                 )
                 return ticker, result.sources, None
             except BraveRetrievalError as e:
@@ -180,6 +189,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     market=resolve_market(country_by_ticker.get(c.ticker), question),
                     request_id=request_id,
                     sem=sem,
+                    company_name=_comparison_company_name(c),
                 )
                 for c in companies_data
             ]
