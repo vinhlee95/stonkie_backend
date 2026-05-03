@@ -359,7 +359,9 @@ async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
 @pytest.mark.asyncio
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
-async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_agent_cls, mock_retrieve):
+async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citations(
+    mock_multi_agent_cls, mock_retrieve
+):
     from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 
     mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
@@ -396,7 +398,7 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_a
 
     v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
     assert len(v2_sources) == 1
-    assert v2_sources[0]["body"] == []
+    assert {s["source_id"] for s in v2_sources[0]["body"]} == {"AAPL_1", "MSFT_1"}
 
 
 @pytest.mark.asyncio

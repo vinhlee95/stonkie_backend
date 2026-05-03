@@ -182,7 +182,7 @@ def test_v2_analyze_cache_hit_uses_v2_ticker_namespace_and_skips_analyzer():
 
 def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_ttl():
     async def fake_analyze(*_args, **_kwargs):
-        yield {"type": "answer", "body": "live [1] "}
+        yield {"type": "answer", "body": "live "}
         yield {"type": "answer", "body": "v2 answer"}
         yield {"type": "sources", "body": [{"source_id": "s_1", "url": "https://example.com/1"}]}
         yield {"type": "model_used", "body": "test-model"}
@@ -278,3 +278,98 @@ def test_v2_cache_replay_splits_visual_answer_blocks():
     assert "answer_visual_delta" in types
     assert "answer_visual_done" in types
     assert "cache_meta" in types
+
+
+def test_v2_analyze_does_not_strip_whitespace_inside_visual_block():
+    """Citation cleaner must not run on text inside ```html / ```svg fenced blocks.
+
+    Reproduces the META cache id=123 bug: chunk-boundary leading-space loss inside
+    a visual block fused `var canvas` into `varcanvas`, breaking Chart.js.
+    """
+
+    async def fake_analyze(*_args, **_kwargs):
+        yield {"type": "answer", "body": "Intro.\n\n```html\n<script>var"}
+        yield {"type": "answer", "body": " canvas = document.getElementById('c');"}
+        yield {"type": "answer", "body": "</script>\n```\n\nOutro."}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store"),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                json={"question": "show chart", "conversationId": "conv-vis-1"},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    events = _parse_sse(body)
+    done = next(e for e in events if e["type"] == "answer_visual_done")
+    assert "var canvas" in done["body"]["content"]
+    assert "varcanvas" not in done["body"]["content"]
+
+
+def test_v2_analyze_does_not_strip_bracket_indexing_inside_visual_block():
+    """Citation marker stripping (`[N]`) must not eat array indexing inside visual blocks."""
+
+    async def fake_analyze(*_args, **_kwargs):
+        yield {"type": "answer", "body": "Intro.\n\n```html\n<script>var x = arr[1] + arr[2];</script>\n```\n"}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store"),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                json={"question": "indexing", "conversationId": "conv-vis-2"},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    events = _parse_sse(body)
+    done = next(e for e in events if e["type"] == "answer_visual_done")
+    assert "arr[1]" in done["body"]["content"]
+    assert "arr[2]" in done["body"]["content"]
+
+
+def test_v2_analyze_does_not_strip_grouped_citation_pattern_inside_visual_block():
+    """A JS array literal `[26, 13, 24, 14]` matches the citation pattern. Must survive."""
+
+    async def fake_analyze(*_args, **_kwargs):
+        yield {"type": "answer", "body": "Intro [1].\n\n```html\n<script>var data = [26, 13, 24, 14];</script>\n```\n"}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store"),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/META/analyze",
+                json={"question": "compare ads", "conversationId": "conv-vis-3"},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    events = _parse_sse(body)
+    done = next(e for e in events if e["type"] == "answer_visual_done")
+    assert "[26, 13, 24, 14]" in done["body"]["content"]

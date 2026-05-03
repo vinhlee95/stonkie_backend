@@ -12,7 +12,7 @@ from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
 from services.analysis_progress import AnalysisPhase, thinking_status
-from services.analyze_retrieval.citation_index import CitationTextStreamCleaner, build_sources_event
+from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.question_analyzer.classifier import QuestionClassifier
@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 _BRAVE_CITATION_DIRECTIVE = (
     "You have been provided with current, authoritative sources below. "
     "Treat them as ground truth even if they post-date your training cutoff. "
-    "Ground your answer in the provided Content and cite each claim with inline "
-    "[N] markers matching the Source numbers. Do not refuse based on knowledge cutoff. "
-    "Do not emit [SOURCES_JSON] blocks."
+    "Ground your answer in the provided Content. Do not refuse based on knowledge cutoff. "
+    "Do not emit [SOURCES_JSON] blocks. Do not include inline citation markers like [1] or [2] in the answer; "
+    "all sources are surfaced in a footer rendered separately by the UI."
 )
 
 _V2_NO_SOURCE_TAGS_DIRECTIVE = (
@@ -40,24 +40,8 @@ _V2_NO_SOURCE_TAGS_DIRECTIVE = (
 )
 
 
-def _stream_clean_answer_chunks(chunks) -> tuple[str, list[str]]:
-    raw_chunks: list[str] = []
-    clean_chunks: list[str] = []
-    cleaner = CitationTextStreamCleaner()
-
-    for chunk in chunks:
-        if not isinstance(chunk, str):
-            continue
-        raw_chunks.append(chunk)
-        cleaned = cleaner.process(chunk)
-        if cleaned:
-            clean_chunks.append(cleaned)
-
-    tail = cleaner.finalize()
-    if tail:
-        clean_chunks.append(tail)
-
-    return "".join(raw_chunks), clean_chunks
+def _collect_answer_chunks(chunks) -> list[str]:
+    return [chunk for chunk in chunks if isinstance(chunk, str)]
 
 
 class CompanyGeneralHandlerV2:
@@ -161,14 +145,11 @@ Use short paragraphs and bullet points for readability.
         """.strip()
 
         agent = MultiAgent(model_name=preferred_model)
-        raw_answer_text, clean_chunks = _stream_clean_answer_chunks(
-            agent.generate_content(prompt=prompt, use_google_search=False)
-        )
-        for chunk in clean_chunks:
+        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources:
-            yield build_sources_event(raw_answer_text, retrieved_sources)
+            yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
 
@@ -296,14 +277,11 @@ Keep the answer under 150 words. Break into short paragraphs.
         """.strip()
 
         agent = MultiAgent(model_name=preferred_model)
-        raw_answer_text, clean_chunks = _stream_clean_answer_chunks(
-            agent.generate_content(prompt=prompt, use_google_search=False)
-        )
-        for chunk in clean_chunks:
+        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources:
-            yield build_sources_event(raw_answer_text, retrieved_sources)
+            yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
 
@@ -541,14 +519,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
         )
 
         agent = MultiAgent(model_name=preferred_model)
-        raw_answer_text, clean_chunks = _stream_clean_answer_chunks(
-            agent.generate_content(prompt=combined_prompt, use_google_search=False)
-        )
-        for chunk in clean_chunks:
+        for chunk in _collect_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources:
-            yield build_sources_event(raw_answer_text, retrieved_sources)
+            yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
 
