@@ -26,7 +26,7 @@ from services.question_analyzer.context_builders.components import PromptCompone
 from services.question_analyzer.handlers_v2 import (
     _BRAVE_CITATION_DIRECTIVE,
     _build_sources_block,
-    _stream_clean_answer_chunks,
+    _collect_answer_chunks,
     _trusted_publisher_status,
 )
 from services.search_decision_engine import SearchDecision
@@ -34,6 +34,13 @@ from services.search_decision_engine import SearchDecision
 logger = logging.getLogger(__name__)
 
 _CONCURRENCY_CAP = 5
+
+
+def _comparison_company_name(company_data: CompanyComparisonData) -> str | None:
+    fundamental = company_data.fundamental
+    if isinstance(fundamental, dict):
+        return fundamental.get("Name") or fundamental.get("name") or company_data.ticker
+    return getattr(fundamental, "name", None) or getattr(fundamental, "company_name", None) or company_data.ticker
 
 
 class CompanyComparisonHandlerV2:
@@ -103,6 +110,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         market: str,
         request_id: str,
         sem: asyncio.Semaphore,
+        company_name: str | None = None,
     ) -> tuple[str, list[AnalyzeSource], Optional[BraveRetrievalError]]:
         async with sem:
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -114,6 +122,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     request_id=request_id,
                     brave_client=brave_client,
                     ticker=ticker,
+                    company_name=company_name,
                 )
                 return ticker, result.sources, None
             except BraveRetrievalError as e:
@@ -180,6 +189,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     market=resolve_market(country_by_ticker.get(c.ticker), question),
                     request_id=request_id,
                     sem=sem,
+                    company_name=_comparison_company_name(c),
                 )
                 for c in companies_data
             ]
@@ -233,14 +243,11 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         prompt += _build_sources_block(flat_sources)
 
         agent = MultiAgent(model_name=preferred_model)
-        raw_answer_text, clean_chunks = _stream_clean_answer_chunks(
-            agent.generate_content(prompt=prompt, use_google_search=False)
-        )
-        for chunk in clean_chunks:
+        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if flat_sources or use_google_search:
-            yield build_sources_event(raw_answer_text, flat_sources)
+            yield build_sources_event(flat_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
 

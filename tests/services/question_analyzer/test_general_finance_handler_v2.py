@@ -121,7 +121,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
 
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
-    mock_agent.generate_content.return_value = iter(["Latest [1] ", "and [2]"])
+    mock_agent.generate_content.return_value = iter(["Latest ", "and"])
     mock_multi_agent_cls.return_value = mock_agent
 
     handler = GeneralFinanceHandlerV2()
@@ -217,7 +217,9 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(mock_multi_
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
-async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_agent_cls, mock_retrieve):
+async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citations(
+    mock_multi_agent_cls, mock_retrieve
+):
     from services.question_analyzer.handlers_v2 import GeneralFinanceHandlerV2
 
     mock_retrieve.return_value = AnalyzeRetrievalResult(
@@ -262,4 +264,4 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_a
 
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
-    assert sources_events[0]["body"] == []
+    assert [s["source_id"] for s in sources_events[0]["body"]] == ["s_1"]

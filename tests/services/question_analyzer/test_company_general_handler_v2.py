@@ -147,7 +147,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
 
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
-    mock_agent.generate_content.return_value = iter(["Alpha [1]", " and beta [2]"])
+    mock_agent.generate_content.return_value = iter(["Alpha", " and beta"])
     mock_multi_agent_cls.return_value = mock_agent
 
     handler = CompanyGeneralHandlerV2(company_connector=mock_company_connector)
@@ -271,7 +271,7 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(
 @patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
 @patch("services.question_analyzer.handlers_v2.CompanyConnector")
-async def test_search_on_with_no_citations_emits_empty_sources_list(
+async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citations(
     mock_company_connector_cls, mock_multi_agent_cls, mock_retrieve_for_analyze
 ):
     from services.question_analyzer.handlers_v2 import CompanyGeneralHandlerV2
@@ -331,4 +331,4 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(
 
     sources_events = [event for event in events if event["type"] == "sources"]
     assert len(sources_events) == 1
-    assert sources_events[0]["body"] == []
+    assert [source["source_id"] for source in sources_events[0]["body"]] == ["s_1"]

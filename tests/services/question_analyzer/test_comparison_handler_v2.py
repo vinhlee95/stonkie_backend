@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,6 +58,87 @@ def _patch_fetch(handler, tickers):
 @pytest.mark.asyncio
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
+async def test_search_on_passes_company_names_to_per_ticker_retrieval(mock_multi_agent_cls, mock_retrieve):
+    from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
+    from services.question_analyzer.context_builders.comparison_builder import CompanyComparisonData
+
+    mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
+        sources=[_src(f"{kw['ticker']}_1", "Reuters")],
+        query="q",
+        market="GLOBAL",
+        request_id=kw["ticker"],
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyComparisonHandlerV2()
+
+    async def fake_fetch(self_, tickers_arg):
+        _ = tickers_arg
+        return [
+            CompanyComparisonData(
+                ticker="AAPL",
+                fundamental=SimpleNamespace(
+                    name="Apple Inc.",
+                    sector="Technology",
+                    industry="Consumer Electronics",
+                    market_cap=1_000_000,
+                    pe_ratio=25.0,
+                    basic_eps=6.0,
+                    revenue=500_000,
+                    net_income=100_000,
+                    dividend_yield=0.5,
+                ),
+                data_source="database",
+            ),
+            CompanyComparisonData(
+                ticker="MSFT",
+                fundamental=SimpleNamespace(
+                    name="Microsoft Corporation",
+                    sector="Technology",
+                    industry="Software",
+                    market_cap=2_000_000,
+                    pe_ratio=30.0,
+                    basic_eps=8.0,
+                    revenue=700_000,
+                    net_income=200_000,
+                    dividend_yield=0.7,
+                ),
+                data_source="database",
+            ),
+        ]
+
+    handler._fetch_companies_parallel = fake_fetch.__get__(handler, type(handler))
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    async for _event in handler.handle(
+        tickers=["AAPL", "MSFT"],
+        question="How do its margins compare?",
+        search_decision=_decision(True),
+        short_analysis=True,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="rq",
+    ):
+        pass
+
+    assert [call.kwargs["company_name"] for call in mock_retrieve.call_args_list] == [
+        "Apple Inc.",
+        "Microsoft Corporation",
+    ]
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
 async def test_per_ticker_brave_fanout_with_semaphore_cap_5(mock_multi_agent_cls, mock_retrieve):
     from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 
@@ -80,7 +162,8 @@ async def test_per_ticker_brave_fanout_with_semaphore_cap_5(mock_multi_agent_cls
     _patch_fetch(handler, ["A", "B", "C", "D", "E", "F", "G", "H"])
 
     # Inject a tracking wrapper around the per-ticker retrieval coroutine
-    async def tracked(*, ticker, question, market, request_id, sem):
+    async def tracked(*, ticker, question, market, request_id, sem, company_name=None):
+        _ = (question, market, request_id, company_name)
         async with sem:
             nonlocal in_flight, max_in_flight
             async with lock:
@@ -359,7 +442,9 @@ async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
 @pytest.mark.asyncio
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
-async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_agent_cls, mock_retrieve):
+async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citations(
+    mock_multi_agent_cls, mock_retrieve
+):
     from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 
     mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
@@ -396,7 +481,7 @@ async def test_search_on_with_no_citations_emits_empty_sources_list(mock_multi_a
 
     v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
     assert len(v2_sources) == 1
-    assert v2_sources[0]["body"] == []
+    assert {s["source_id"] for s in v2_sources[0]["body"]} == {"AAPL_1", "MSFT_1"}
 
 
 @pytest.mark.asyncio
