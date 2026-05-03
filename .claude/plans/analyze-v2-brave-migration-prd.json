@@ -864,7 +864,7 @@
     },
     {
       "id": "phase-7-25-v2-url-context-parse-grounding",
-      "sort_order": 7.25,
+      "sort_order": 10,
       "impact_level": "HIGH",
       "state": "not-started",
       "title": "v2 URL context — parse/fetch grounding (replaces :online URL read)",
