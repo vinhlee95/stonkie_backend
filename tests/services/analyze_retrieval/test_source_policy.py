@@ -25,7 +25,11 @@ from services.analyze_retrieval import source_policy as sp
         ("https://anything.gov/x", 1),
         ("https://sub.dept.gov/x", 1),
         ("https://companieshouse.gov.uk/x", 1),
+        ("https://apnews.com/x", 1),
+        ("https://www.nytimes.com/x", 1),
         ("https://investing.com/x", 2),
+        ("https://www.nasdaq.com/x", 2),
+        ("https://www.etf.com/x", 2),
         ("https://finance.yahoo.com/x", 2),
         ("https://random-blog.com/x", None),
     ],
@@ -46,7 +50,11 @@ def test_tier_for_global(url: str, expected: int | None) -> None:
         ("https://www.hsx.vn/x", 1),
         ("https://hnx.vn/x", 1),
         ("https://ssc.gov.vn/x", 1),
+        ("https://sbv.gov.vn/x", 1),
+        ("https://nhandan.vn/x", 1),
         ("https://ssi.com.vn/x", 2),
+        ("https://www.vietnamplus.vn/x", 2),
+        ("https://www.dnse.com.vn/x", 2),
         ("https://www.vndirect.com.vn/x", 2),
         ("https://reuters.com/x", None),
         ("https://random-blog.vn/x", None),
@@ -169,14 +177,14 @@ def test_resolved_tier_counts_per_market(capsys: pytest.CaptureFixture[str]) -> 
     print(f"FI TIER_1 ({len(fi_t1)}): {sorted(fi_t1)}")
     print(f"FI TIER_2 ({len(fi_t2)}): {sorted(fi_t2)}")
 
-    assert len(global_t1) == 13
-    assert len(global_t2) == 16
-    assert len(vn_t1) == 7
-    assert len(vn_t2) == 10
+    assert len(global_t1) == 16
+    assert len(global_t2) == 20
+    assert len(vn_t1) == 10
+    assert len(vn_t2) == 12
     assert len(sp.FI_EXTENSION_TIER_1) == 2
     assert len(sp.FI_EXTENSION_TIER_2) == 3
-    assert len(fi_t1) == 13 + 2
-    assert len(fi_t2) == 16 + 3
+    assert len(fi_t1) == 16 + 2
+    assert len(fi_t2) == 20 + 3
 
 
 # ---------------------------------------------------------------------------
