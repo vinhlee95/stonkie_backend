@@ -1448,6 +1448,169 @@
           ]
         }
       }
+    },
+    {
+      "id": "phase-10-1-passage-level-source-selection",
+      "sort_order": 10.1,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Passage-level source selection + wider retrieval pool",
+      "objective": "Improve the quality of evidence fed to the v2 LLM by ranking and selecting at passage level instead of whole-source level. Widen the Brave candidate pool beyond the current top-5-source budget, then compress that wider pool into a token-bounded set of the most relevant passages.",
+      "context": {
+        "why_now": "Current v2 selection is source-level and capped to 5 selected sources before prompt assembly. Useful evidence can be dropped when a source has only one strong paragraph, when multiple strong sources sit below the top-5 cut, or when large raw_content blobs from mediocre sources crowd out narrower but more relevant passages.",
+        "current_behavior_snapshot": [
+          "retrieve_for_analyze fetches a wider Brave pool, dedupes by canonical_url, applies freshness filtering, then selects a small source set for prompt inclusion",
+          "Handlers currently feed full source.raw_content blocks into the prompt rather than cherry-picked passages",
+          "rank_for_chat exists but live retrieval behavior is still mostly governed by retrieval.py filtering and selection rather than an explicit passage-ranking stage"
+        ],
+        "design_intent": "Keep retrieval broad, but make prompt inclusion narrow and evidence-driven."
+      },
+      "scope_includes": [
+        "Introduce a passage-selection stage after Brave retrieval and before prompt assembly for stock v2 handlers",
+        "Split each selected Brave source raw_content into stable passages/chunks with preserved source metadata (url, title, publisher, published_at, source_id, passage_index)",
+        "Score passages using a deterministic lexical-relevance baseline; BM25 is the preferred starting point unless phase kickoff documents a better equally-cheap alternative",
+        "Blend lexical relevance with existing trust/freshness signals so passage selection reflects both query match and source quality",
+        "Widen the source candidate pool beyond the current 5-source prompt budget; exact retrieval and shortlist counts are locked at phase kickoff and documented in PRD learnings",
+        "Apply diversity controls at passage-selection time: cap passages per source, cap sources per registrable domain, and preserve room for high-trust sources when available",
+        "Replace full raw_content prompt stuffing with a passage-oriented prompt block that includes only the chosen evidence slices",
+        "Keep final sources-event provenance source-level and stable for FE chip rendering even when multiple passages from the same source are used",
+        "Add structured observability for passage selection decisions (candidate counts, kept passages, dropped-for-domain-cap, dropped-for-token-budget)"
+      ],
+      "scope_excludes": [
+        "LLM-as-judge passage ranking in the online path",
+        "Semantic/vector retrieval infrastructure",
+        "FE renderer changes",
+        "SemanticAnalysisCache invalidation changes (handled in phase-10.2)"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/retrieval.py",
+        "services/analyze_retrieval/ranking.py",
+        "services/analyze_retrieval/schemas.py",
+        "services/question_analyzer/handlers_v2.py",
+        "tests/services/analyze_retrieval/test_ranking.py",
+        "tests/services/analyze_retrieval/test_retrieval.py",
+        "tests/services/question_analyzer/test_*_handler_v2.py"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-8-validation-and-eval-parity"
+        ],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "passage chunking: a source raw_content blob is split into multiple stable passages with deterministic passage_index values",
+          "BM25/lexical ranking: a passage containing the core question terms outranks a broader same-source passage with weaker lexical overlap",
+          "wider-pool selection: when the 6th/7th source contains the strongest matching passage, that passage can still make the prompt shortlist",
+          "diversity controls: no more than configured passages per source and no more than configured sources per registrable domain in the final prompt evidence set",
+          "handler prompt assembly: prompt contains selected passage excerpts rather than full raw_content dumps while sources event remains source-level"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Stock v2 Brave-grounded handlers build prompts from selected passages rather than entire source.raw_content bodies",
+          "The retrieval shortlist is widened beyond 5 candidate sources before passage selection",
+          "At least one regression fixture demonstrates a useful passage from below the old top-5 source cut surviving into the prompt evidence set",
+          "Observability logs clearly explain why passages were selected or dropped"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/analyze_retrieval/test_ranking.py tests/services/analyze_retrieval/test_retrieval.py -v",
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/services/question_analyzer/test_*_handler_v2.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red->green test logs for passage chunking/ranking and at least one handler prompt-assembly test",
+            "One before/after prompt excerpt in PRD validation_summary showing full-source stuffing replaced by selected passages",
+            "One eval or fixture transcript proving a useful passage from a non-top-5 source is now preserved"
+          ],
+          "phase_gates": [
+            "Gate A: passage chunking + ranking tests pass",
+            "Gate B: prompt assembly uses selected passages instead of full raw_content",
+            "Gate C: wider-pool regression closed (below-old-cut useful passage survives)",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
+    },
+    {
+      "id": "phase-10-2-semantic-cache-invalidation",
+      "sort_order": 10.2,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Semantic cache invalidation + refusal poisoning guardrails",
+      "objective": "Prevent stale or low-value v2 semantic cache entries from replaying as authoritative answers, with special focus on refusal/insufficient-data responses that become wrong once DB financial data or fresh retrieval evidence changes.",
+      "context": {
+        "why_now": "Phase-10 eval surfaced a concrete stale-cache failure on csf-01 where v2 replayed a refusal from SemanticAnalysisCache even though current DB-backed analysis could answer the prompt.",
+        "current_behavior_snapshot": [
+          "SemanticAnalysisCache.schedule_background_store currently stores any non-empty answer text when semantic cache is enabled",
+          "lookup_hit currently has no freshness/version guard tied to DB updates or answer refusal semantics",
+          "Cache replay can therefore preserve bad refusals or stale time-sensitive answers until TTL expiry"
+        ],
+        "design_intent": "Make cacheability explicit and make replay conditional on freshness semantics rather than treating every answer blob as equally reusable."
+      },
+      "scope_includes": [
+        "Define explicit cacheability rules for v2 analyze responses, including refusal/insufficient-data answers and time-sensitive search-grounded answers",
+        "Add a guard so refusal-pattern answers for DB-answerable ticker questions are not stored, or are stored with metadata that prevents replay when DB-backed freshness would make them stale",
+        "Introduce a cache invalidation strategy keyed to freshness semantics, DB freshness/versioning, or another explicit low-cost signal chosen at phase kickoff",
+        "Ensure lookup-hit logic respects the new invalidation metadata before replaying cached answers",
+        "Add a one-shot script or operational procedure to evict known-bad existing cache rows produced before this phase",
+        "Add observability for cache-skip, cache-store, cache-replay, and cache-invalidated reasons so future stale-answer incidents are diagnosable"
+      ],
+      "scope_excludes": [
+        "Passage-level retrieval improvements (handled in phase-10.1)",
+        "Changing the FE cache-hit UX",
+        "Reworking the entire semantic-cache embedding or storage backend"
+      ],
+      "files_expected": [
+        "services/semantic_analysis_cache.py",
+        "services/analyze_v2_stream.py",
+        "tests/test_semantic_analysis_cache.py",
+        "tests/test_analyze_semantic_cache.py",
+        "tests/test_analyze_v2_endpoint.py",
+        "scripts/semantic_cache/* (if an eviction tool is added)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": [
+          "phase-8-validation-and-eval-parity"
+        ],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "cache store guard: refusal/insufficient-data answer for a DB-answerable ticker question does not create a replayable cache entry",
+          "cache lookup invalidation: a cached entry marked stale by the chosen freshness/version rule is skipped and the request falls through to live analysis",
+          "time-sensitive question cacheability: a latest/this-week style answer obeys the stricter cacheability or replay window chosen in the phase design",
+          "eviction path: known-bad refusal entries are removed or ignored by the cleanup tooling/logic"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "csf-01-style stale refusal replay is structurally blocked by cacheability or invalidation logic, not just by manual row deletion",
+          "Cache replay path records why an entry was reused or skipped",
+          "A cleanup path exists for pre-phase poisoned rows",
+          "The chosen invalidation policy is documented in PRD learnings/validation_summary with its tradeoffs"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. pytest tests/test_semantic_analysis_cache.py tests/test_analyze_semantic_cache.py tests/test_analyze_v2_endpoint.py -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Red->green logs for cache guard/invalidation tests",
+            "One cache-hit skipped example in validation_summary showing the request falling through to live analysis",
+            "One note describing the cleanup/eviction path for already-poisoned rows"
+          ],
+          "phase_gates": [
+            "Gate A: refusal-poisoning regression blocked by tests",
+            "Gate B: invalidation/replay policy enforced at lookup time",
+            "Gate C: cleanup path for old poisoned rows exists",
+            "Gate D: healthcheck + ruff pass"
+          ]
+        }
+      }
     }
   ],
   "global_unresolved_questions": [
