@@ -48,7 +48,7 @@ async def analyze_financial_report(
         if not company_filing_url:
             yield {
                 "type": "error",
-                "content": f"No filing found for {ticker} for period {period_end_at} ({period_type})",
+                "body": f"No filing found for {ticker} for period {period_end_at} ({period_type})",
             }
             return
 
@@ -115,7 +115,7 @@ async def analyze_financial_report(
             yield {"type": "related_question", "body": question}
     except Exception as e:
         logger.error(f"Error analyzing financial report for {ticker} ({period_end_at}): {str(e)}")
-        yield {"type": "error", "content": f"Error during analysis: {str(e)}"}
+        yield {"type": "error", "body": f"Error during analysis: {str(e)}"}
 
 
 async def analyze_uploaded_file(
@@ -223,4 +223,4 @@ async def analyze_uploaded_file(
 
     except Exception as e:
         logger.error(f"Error analyzing uploaded file for {ticker}: {str(e)}")
-        yield {"type": "error", "content": f"Error during file analysis: {str(e)}"}
+        yield {"type": "error", "body": f"Error during file analysis: {str(e)}"}

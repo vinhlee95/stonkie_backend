@@ -247,7 +247,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
 
     except Exception as e:
         logger.error("Error getting growth insights for company", {"ticker": ticker, "error": str(e)})
-        yield {"type": "error", "content": "Error getting growth insights for company"}
+        yield {"type": "error", "body": "Error getting growth insights for company"}
 
 
 async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
@@ -327,7 +327,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
 
     except Exception as e:
         logger.error("Error getting earnings insights for company", {"ticker": ticker, "error": str(e)})
-        yield {"type": "error", "content": "Error getting earnings insights for company"}
+        yield {"type": "error", "body": "Error getting earnings insights for company"}
 
 
 async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str, Any], None]:
@@ -411,7 +411,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
 
     except Exception as e:
         logger.error("Error getting cash flow insights for company", {"ticker": ticker, "error": str(e)})
-        yield {"type": "error", "content": "Error getting cash flow insights for company"}
+        yield {"type": "error", "body": "Error getting cash flow insights for company"}
 
 
 def get_insights_for_ticker(ticker: str, type: InsightType) -> AsyncGenerator[Dict[str, Any], None]:

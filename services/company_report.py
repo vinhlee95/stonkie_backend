@@ -150,17 +150,17 @@ async def generate_detailed_report_for_insight(ticker: str, slug: str):
     """
     insight = company_insight_connector.get_by_slug(slug)
     if not insight:
-        yield {"type": "error", "content": "Insight not found"}
+        yield {"type": "error", "body": "Insight not found"}
         return
 
     if insight.company_symbol != ticker:
-        yield {"type": "error", "content": "Insight does not belong to the ticker"}
+        yield {"type": "error", "body": "Insight does not belong to the ticker"}
         return
 
     insight_type = insight.insight_type
     # TODO: support other insight types
     if insight_type != "growth":
-        yield {"type": "error", "content": "Only growth insights are supported for now"}
+        yield {"type": "error", "body": "Only growth insights are supported for now"}
         return
 
     # Fetch financial statements for the ticker

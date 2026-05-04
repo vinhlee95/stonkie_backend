@@ -78,7 +78,7 @@ async def get_revenue_insights_for_company_product(ticker: str):
     try:
         financial_data_list = await get_filtered_financial_data(ticker, "product")
         if not financial_data_list:
-            yield {"type": "error", "content": "No revenue data found for that company"}
+            yield {"type": "error", "body": "No revenue data found for that company"}
             return
 
         agent = Agent(model_type="gemini")
@@ -127,14 +127,14 @@ async def get_revenue_insights_for_company_product(ticker: str):
 
     except Exception as e:
         logger.error("Error getting revenue insights for company", {"ticker": ticker, "error": str(e)})
-        yield {"type": "error", "content": str(e)}
+        yield {"type": "error", "body": str(e)}
 
 
 async def get_revenue_insights_for_company_region(ticker: str):
     try:
         financial_data_list = await get_filtered_financial_data(ticker, "region")
         if not financial_data_list:
-            yield {"type": "error", "content": "No revenue data found for that company"}
+            yield {"type": "error", "body": "No revenue data found for that company"}
             return
 
         agent = Agent(model_type="gemini")
@@ -183,4 +183,4 @@ async def get_revenue_insights_for_company_region(ticker: str):
 
     except Exception as e:
         logger.error("Error getting revenue insights for company", {"ticker": ticker, "error": str(e)})
-        yield {"type": "error", "content": str(e)}
+        yield {"type": "error", "body": str(e)}
