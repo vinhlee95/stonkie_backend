@@ -1,18 +1,20 @@
-"""Compare retrieval strategies for /analyze: OpenRouter :online vs Brave→stuff.
+"""Compare retrieval strategies for /analyze.
 
-Throwaway harness. For each prompt in prompts.json, runs both arms through the
-same base model + same answer template, captures answer/citations/timings/tokens,
-writes per-prompt artifacts under tmp/analyze_eval/<run_id>/.
+Arms:
+- online        : OpenRouter :online (in-process, no backend needed)
+- brave         : Brave search top-K=5 → stuff (in-process, no backend needed)
+- v1-endpoint   : POST live backend /api/companies/{ticker}/analyze (SSE)
+- v2-endpoint   : POST live backend /api/v2/companies/{ticker}/analyze (SSE)
 
-Both arms use the prompt verbatim (no query rewriting), matching how :online
-works today. Brave arm uses top-K=5 with full raw_content, no allowlist, no
-freshness gate (covers /analyze's full evergreen + breaking-news surface).
+Endpoint arms hit a running backend (default http://localhost:8080) and parse
+the JSON-lines SSE stream that both v1 and v2 emit (each event is
+`json.dumps({type, body}) + "\\n\\n"`).
 
 Usage:
     source venv/bin/activate
     PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py
     PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py --only csf-01,news-01
-    PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py --arm brave
+    PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py --arm v1-endpoint,v2-endpoint
 """
 
 from __future__ import annotations
@@ -235,6 +237,170 @@ def run_brave_arm(prompt: dict, *, client: OpenRouterClient, brave_api_key: str)
     }
 
 
+# ---------- Endpoint arms (live backend) ----------
+
+
+ENDPOINT_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
+
+
+def _iter_endpoint_events(response: httpx.Response):
+    """Parse v1/v2 stream: each event is `json.dumps(...) + '\\n\\n'`. Robust to chunking."""
+    buffer = ""
+    for chunk in response.iter_text():
+        if not chunk:
+            continue
+        buffer += chunk
+        while "\n\n" in buffer:
+            raw, buffer = buffer.split("\n\n", 1)
+            raw = raw.strip()
+            if not raw:
+                continue
+            # Some SSE-style implementations may prefix with "data: "; strip if present.
+            if raw.startswith("data:"):
+                raw = raw[5:].lstrip()
+            try:
+                yield json.loads(raw)
+            except json.JSONDecodeError:
+                yield {"type": "_parse_error", "body": raw[:200]}
+    tail = buffer.strip()
+    if tail:
+        if tail.startswith("data:"):
+            tail = tail[5:].lstrip()
+        try:
+            yield json.loads(tail)
+        except json.JSONDecodeError:
+            yield {"type": "_parse_error", "body": tail[:200]}
+
+
+def _normalize_ticker_for_path(prompt: dict) -> str:
+    return (prompt.get("ticker") or "NONE").strip().upper() or "NONE"
+
+
+def _flatten_sources_payload(body) -> list[dict]:
+    """v2 sends {sources:[...]}; v1 may send list or dict variants."""
+    if isinstance(body, dict):
+        if isinstance(body.get("sources"), list):
+            return [s for s in body["sources"] if isinstance(s, dict)]
+        # sources_grouped style: {group_name: [sources]}
+        flat: list[dict] = []
+        for v in body.values():
+            if isinstance(v, list):
+                flat.extend(s for s in v if isinstance(s, dict))
+        return flat
+    if isinstance(body, list):
+        return [s for s in body if isinstance(s, dict)]
+    return []
+
+
+def run_endpoint_arm(prompt: dict, *, arm: str, base_url: str, preferred_model: str) -> dict:
+    ticker = _normalize_ticker_for_path(prompt)
+    path = "/api/companies" if arm == "v1-endpoint" else "/api/v2/companies"
+    url = f"{base_url.rstrip('/')}{path}/{ticker}/analyze"
+    payload = {
+        "question": prompt["text"],
+        "useUrlContext": False,
+        "deepAnalysis": False,
+        "preferredModel": preferred_model,
+    }
+
+    event_types: dict[str, int] = {}
+    answer_parts: list[str] = []
+    sources: list[dict] = []
+    thinking_msgs: list[str] = []
+    related: list[str] = []
+    model_used: str | None = None
+    request_id: str | None = None
+    error_event: dict | None = None
+    first_event_at: float | None = None
+    first_answer_at: float | None = None
+    first_source_at: float | None = None
+
+    error: str | None = None
+    t0 = time.monotonic()
+    try:
+        with httpx.stream(
+            "POST",
+            url,
+            json=payload,
+            timeout=ENDPOINT_TIMEOUT,
+            headers={"accept": "text/event-stream"},
+        ) as response:
+            if response.status_code >= 400:
+                # Drain body for diagnostics.
+                try:
+                    body_text = "".join(response.iter_text())
+                except Exception:
+                    body_text = ""
+                error = f"HTTP {response.status_code}: {body_text[:300]}"
+            else:
+                for ev in _iter_endpoint_events(response):
+                    et = ev.get("type", "_unknown") if isinstance(ev, dict) else "_unknown"
+                    event_types[et] = event_types.get(et, 0) + 1
+                    body = ev.get("body") if isinstance(ev, dict) else None
+                    now = time.monotonic() - t0
+                    if first_event_at is None:
+                        first_event_at = now
+                    if et == "answer" and isinstance(body, str):
+                        if first_answer_at is None:
+                            first_answer_at = now
+                        answer_parts.append(body)
+                    elif et in ("sources", "sources_grouped"):
+                        flat = _flatten_sources_payload(body)
+                        if flat and first_source_at is None:
+                            first_source_at = now
+                        sources.extend(flat)
+                    elif et == "thinking_status" and isinstance(body, str):
+                        thinking_msgs.append(body)
+                    elif et == "model_used" and isinstance(body, str):
+                        model_used = body
+                    elif et == "related_question" and isinstance(body, str):
+                        related.append(body)
+                    elif et == "meta" and isinstance(body, dict):
+                        rid = body.get("request_id") or body.get("requestId")
+                        if isinstance(rid, str):
+                            request_id = rid
+                    elif et == "error":
+                        error_event = ev
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+
+    total = round(time.monotonic() - t0, 3)
+    answer = "".join(answer_parts)
+
+    citations = [
+        {
+            "source_id": s.get("source_id") or s.get("id"),
+            "url": s.get("url"),
+            "title": s.get("title"),
+            "publisher": s.get("publisher"),
+            "published_at": s.get("published_at"),
+            "is_trusted": s.get("is_trusted"),
+        }
+        for s in sources
+    ]
+
+    return {
+        "arm": arm,
+        "prompt_id": prompt["id"],
+        "url": url,
+        "model": model_used,
+        "preferred_model": preferred_model,
+        "request_id": request_id,
+        "answer": answer,
+        "citations": citations,
+        "thinking_status": thinking_msgs,
+        "related_questions": related,
+        "event_type_counts": event_types,
+        "ttfb_seconds": round(first_event_at, 3) if first_event_at is not None else None,
+        "first_answer_seconds": round(first_answer_at, 3) if first_answer_at is not None else None,
+        "first_source_seconds": round(first_source_at, 3) if first_source_at is not None else None,
+        "retrieval_seconds": None,
+        "generation_seconds": total,
+        "error_event": error_event,
+        "error": error,
+    }
+
+
 # ---------- Driver ----------
 
 
@@ -247,14 +413,47 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-root", default="tmp/analyze_eval")
     parser.add_argument("--only", help="Comma-separated prompt ids to run (default: all)")
-    parser.add_argument("--arm", choices=["online", "brave", "both"], default="both")
+    parser.add_argument(
+        "--arm",
+        default="both",
+        help=(
+            "Comma-separated arms: online,brave,v1-endpoint,v2-endpoint. "
+            "Aliases: 'both'=online,brave; 'endpoints'=v1-endpoint,v2-endpoint; "
+            "'all'=all four."
+        ),
+    )
     parser.add_argument("--run-id", help="Override run id (default: timestamp)")
+    parser.add_argument(
+        "--base-url",
+        default=os.getenv("ANALYZE_EVAL_BASE_URL", "http://localhost:8080"),
+        help="Backend base URL for endpoint arms (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--preferred-model",
+        default="fastest",
+        help="preferredModel sent to /analyze endpoints (default: fastest)",
+    )
     args = parser.parse_args(argv)
 
+    arm_aliases = {
+        "both": ["online", "brave"],
+        "endpoints": ["v1-endpoint", "v2-endpoint"],
+        "all": ["online", "brave", "v1-endpoint", "v2-endpoint"],
+    }
+    raw_arms = arm_aliases.get(args.arm)
+    if raw_arms is None:
+        raw_arms = [a.strip() for a in args.arm.split(",") if a.strip()]
+    valid = {"online", "brave", "v1-endpoint", "v2-endpoint"}
+    invalid = [a for a in raw_arms if a not in valid]
+    if invalid:
+        raise SystemExit(f"Invalid arm(s): {invalid}. Valid: {sorted(valid)}")
+    arms = raw_arms
+
     brave_key = os.getenv("BRAVE_API_KEY")
-    if args.arm in ("brave", "both") and not brave_key:
+    if "brave" in arms and not brave_key:
         raise SystemExit("BRAVE_API_KEY missing")
-    if not os.getenv("OPENROUTER_API_KEY"):
+    needs_openrouter = bool({"online", "brave"} & set(arms))
+    if needs_openrouter and not os.getenv("OPENROUTER_API_KEY"):
         raise SystemExit("OPENROUTER_API_KEY missing")
 
     spec = json.loads(PROMPTS_PATH.read_text())
@@ -269,11 +468,11 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(args.out_root) / run_id
     print(f"Run: {run_id}")
     print(f"Out: {out_root}")
-    print(f"Prompts: {len(prompts)}  Arms: {args.arm}  Model: {DEFAULT_MODEL.value}")
+    print(f"Prompts: {len(prompts)}  Arms: {arms}  Model: {DEFAULT_MODEL.value}")
 
     write_json(out_root / "prompts.json", spec)
 
-    client = OpenRouterClient(model_name=DEFAULT_MODEL)
+    client = OpenRouterClient(model_name=DEFAULT_MODEL) if needs_openrouter else None
 
     summary_rows: list[dict] = []
 
@@ -281,7 +480,8 @@ def main(argv: list[str] | None = None) -> int:
         prompt_dir = out_root / prompt["id"]
         print(f"\n[{prompt['id']}] {prompt['category']}: {prompt['text'][:80]}...")
 
-        if args.arm in ("online", "both"):
+        if "online" in arms:
+            assert client is not None
             print("  -> online ...", end=" ", flush=True)
             result = run_online_arm(prompt, client=client)
             write_json(prompt_dir / "online.json", result)
@@ -290,13 +490,32 @@ def main(argv: list[str] | None = None) -> int:
             )
             summary_rows.append(_row(prompt, result))
 
-        if args.arm in ("brave", "both"):
+        if "brave" in arms:
+            assert client is not None and brave_key is not None
             print("  -> brave  ...", end=" ", flush=True)
             result = run_brave_arm(prompt, client=client, brave_api_key=brave_key)
             write_json(prompt_dir / "brave.json", result)
             print(
                 f"done (ret={result['retrieval_seconds']}s, gen={result['generation_seconds']}s, "
                 f"{len(result['citations'])} citations, err={result['error']})"
+            )
+            summary_rows.append(_row(prompt, result))
+
+        for endpoint_arm in ("v1-endpoint", "v2-endpoint"):
+            if endpoint_arm not in arms:
+                continue
+            print(f"  -> {endpoint_arm:11} ...", end=" ", flush=True)
+            result = run_endpoint_arm(
+                prompt,
+                arm=endpoint_arm,
+                base_url=args.base_url,
+                preferred_model=args.preferred_model,
+            )
+            filename = endpoint_arm.replace("-endpoint", "_endpoint") + ".json"
+            write_json(prompt_dir / filename, result)
+            print(
+                f"done (total={result['generation_seconds']}s, ttfb={result['ttfb_seconds']}s, "
+                f"{len(result['citations'])} sources, err={result['error']})"
             )
             summary_rows.append(_row(prompt, result))
 

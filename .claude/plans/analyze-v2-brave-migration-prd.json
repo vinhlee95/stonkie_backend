@@ -1323,6 +1323,131 @@
           ]
         }
       }
+    },
+    {
+      "id": "phase-10-retrieval-and-cache-quality",
+      "sort_order": 10,
+      "impact_level": "HIGH",
+      "state": "not-started",
+      "title": "Retrieval + cache quality fixes surfaced by phase-8 v1-vs-v2 eval",
+      "objective": "Close the correctness/source-quality regressions found when comparing v1 and v2 endpoints on a 10-prompt live eval (2026-05-04). v2 is ~13% faster at p50 but loses to v1 on stale-cache refusals, single-domain VN retrieval, missing primary sources, and stale results on breaking-news prompts.",
+      "evidence": {
+        "eval_run_id": "v1_vs_v2_10",
+        "run_date": "2026-05-04",
+        "prompts": ["csf-01", "csf-02", "csf-04", "cg-01", "cg-02", "cg-04", "news-01", "news-02", "etf-01", "vn-01"],
+        "headline_metrics": {
+          "latency_p50_v1_s": 8.4,
+          "latency_p50_v2_s": 7.28,
+          "v2_vs_v1_p50_delta_pct": -13.3,
+          "domain_jaccard_overlap_mean_pct": 4.8,
+          "domain_jaccard_overlap_median_pct": 0.0,
+          "v2_inline_N_count": 0,
+          "v2_inline_N_note": "Intentionally suppressed via _BRAVE_CITATION_DIRECTIVE — sources rendered as FE chips. Not a regression; not in scope here."
+        },
+        "scripts": [
+          "scripts/eval_analyze_search/run_eval.py (--arm v1-endpoint,v2-endpoint or --arm endpoints)",
+          "scripts/eval_analyze_search/compare_v1_v2.py"
+        ],
+        "artifacts": [
+          "tmp/analyze_eval/v1_vs_v2_10/<prompt_id>/{v1_endpoint,v2_endpoint}.json",
+          "tmp/analyze_eval/v1_vs_v2_10/compare_v1_v2.json",
+          "tmp/analyze_eval/v1_vs_v2_10/compare.txt"
+        ]
+      },
+      "findings": [
+        {
+          "id": "F1-cache-poisoning",
+          "severity": "HIGH",
+          "prompt": "csf-01 (AAPL FCF margin)",
+          "summary": "v2 served a stale SemanticAnalysisCache hit (cache_meta event present, total=1.04s) that refused with 'data does not contain information on Apple's free cash flow… for any quarter in 2026 or 2025'. Same prompt on v1 produced a substantive answer (~65% FCF margin) using current DB. The cached refusal is now factually wrong against current DB state.",
+          "evidence_path": "tmp/analyze_eval/v1_vs_v2_10/csf-01/v2_endpoint.json"
+        },
+        {
+          "id": "F2-vn-monoculture-and-stale",
+          "severity": "HIGH",
+          "prompt": "vn-01 (VCB tuần này)",
+          "summary": "v2 returned 5 sources, all from vn.investing.com, all with published_at in 2023-06 / 2023-09. Answer text literally cites events from 16/6/2023 against a 'this week' question (eval pinned 2026-04-28). v1 returned dnse.com.vn + vneconomy.vn + vietnam.vn with current Q1/2026 figures. Two compounding bugs: (a) no per-registrable-domain dedup at ranking time so a single domain monopolises the top-K, (b) recency penalty for 2.5y-old results not strong enough to push them below empty slots / other-domain candidates.",
+          "evidence_path": "tmp/analyze_eval/v1_vs_v2_10/vn-01/v2_endpoint.json"
+        },
+        {
+          "id": "F3-primary-source-loss",
+          "severity": "MEDIUM",
+          "prompts": ["csf-01", "csf-02", "cg-04", "news-02"],
+          "summary": "v2 retrieval rarely surfaces tier-1 primary sources that phase-0 source_policy explicitly lists (sec.gov, *.gov, issuer IR domains like apple.com / microsoft.com / intc.com / newsroom.intel.com / federalreserve.gov / clevelandfed.org). v1 reaches them on csf-01 (sec.gov, apple.com), csf-02 (sec.gov, cnbc.com), cg-04 (intc.com, newsroom.intel.com), news-02 (federalreserve.gov, clevelandfed.org). v2 substitutes aggregators (finance.yahoo.com, simplywall.st, seekingalpha.com, investing.com, morningstar.com). Tier-1 weighting in rank_for_chat is not winning against aggregator recency/length on these queries.",
+          "evidence_path": "tmp/analyze_eval/v1_vs_v2_10/compare.txt (DOMAIN DIFFS section)"
+        },
+        {
+          "id": "F4-aggregator-skew",
+          "severity": "MEDIUM",
+          "prompts": ["cg-01", "cg-02", "etf-01", "news-02"],
+          "summary": "Even on prompts where v2 returned 5–10 sources and was factually defensible, the source mix skews heavily to aggregator sites. Domain Jaccard overlap with v1 is mean 4.8% / median 0% — the two endpoints are retrieving disjoint web slices, which makes A/B answer comparison unstable and undermines trust signalling for the FE chip UI.",
+          "evidence_path": "tmp/analyze_eval/v1_vs_v2_10/compare.txt"
+        }
+      ],
+      "scope_includes": [
+        "Per-registrable-domain dedup in services/analyze_retrieval/ranking.py and/or retrieval.py keep-strongest pass; cap N hits per domain (default 2) before top_k slice",
+        "Recency floor for time-sensitive queries: when classify_question_type indicates breaking_news / 'this week' / 'latest' phrasing, drop candidates older than configurable max_age_days (default 30 for news, 14 for 'this week') before ranking",
+        "Tier-1 boost rebalance: revisit weights in rank_for_chat so tier-1 hits (issuer IR, *.gov, SEC) outrank aggregator recency wins on company-specific finance and macro/Fed prompts; verify with regression on csf-01/csf-02/news-02/cg-04",
+        "Vietnam (VN) retrieval coverage check: ensure dnse.com.vn, vneconomy.vn, vietnam.vn (and other VN_TIER_1/2 entries) actually surface for breaking-news VN prompts; investigate whether goggle.py or country/lang routing suppresses them",
+        "SemanticAnalysisCache refusal-poisoning fix: do not store v2 entries whose answer matches a refusal/insufficient-data pattern when the question is DB-answerable for the ticker, OR introduce a TTL/version key keyed on DB freshness for that ticker so newly-arrived financials invalidate stale refusals; add a one-shot eviction script for the existing cache to clear known-bad rows",
+        "Add v1-vs-v2 eval as a recurring smoke (manual) — document the run_eval + compare_v1_v2 commands in scripts/eval_analyze_search/README or PRD reference so future phases can re-run cheaply"
+      ],
+      "scope_excludes": [
+        "Re-introducing inline [N] markers in v2 — deliberately suppressed by _BRAVE_CITATION_DIRECTIVE; FE renders structured chips only",
+        "Reducing duplicate sources/sources_grouped events in v1 (v1 quirk, FE already only consumes v2)",
+        "LLM-judged answer quality scoring (deferred; current scope is mechanical retrieval/cache fixes)"
+      ],
+      "files_expected": [
+        "services/analyze_retrieval/ranking.py",
+        "services/analyze_retrieval/retrieval.py",
+        "services/analyze_retrieval/source_policy.py (tier weights only — allowlist already locked)",
+        "services/semantic_analysis_cache.py (or wherever SemanticAnalysisCache lives)",
+        "scripts/eval_analyze_search/run_eval.py (already extended with v1-endpoint + v2-endpoint arms in phase-8)",
+        "scripts/eval_analyze_search/compare_v1_v2.py (new in phase-8)"
+      ],
+      "dependencies": {
+        "technical_must_complete_before": ["phase-8-validation-and-eval-parity"],
+        "parallelizable": false
+      },
+      "tdd_plan": {
+        "red_tests": [
+          "ranking: per-domain cap test — given 6 candidates from same domain + 2 from other domains, top_k=5 returns at most 2 from any single domain",
+          "ranking: recency floor — given a news classification + max_age_days=30, results older than that are dropped before tier scoring",
+          "tier-1 boost: regression fixtures from csf-01/csf-02/news-02/cg-04 retrievals — assert tier-1 issuer/IR/gov hits land in top-K when present",
+          "cache: storing a refusal-pattern answer for a DB-backed ticker is a no-op (or marks the entry refusal=true so lookup_hit skips it)",
+          "cache: eviction script removes pre-existing refusal-poisoned rows on a fixture sqlite/pg snapshot"
+        ]
+      },
+      "definition_of_done": {
+        "implementation_checks": [
+          "Re-run scripts/eval_analyze_search/run_eval.py --arm endpoints --only csf-01,csf-02,csf-04,cg-01,cg-02,cg-04,news-01,news-02,etf-01,vn-01 against the live backend",
+          "csf-01 v2 no longer serves the stale refusal (either cache evicted or new live answer)",
+          "vn-01 v2 returns >=3 distinct registrable domains AND median published_at within 30 days of run_date",
+          "Domain Jaccard overlap between v1 and v2 rises from <5% to >=25% on the 10-prompt set (proxy for tier-1 parity)",
+          "No latency regression: v2 p50 stays within +10% of phase-8 baseline (7.28s)"
+        ],
+        "verification": {
+          "required_commands": [
+            "source venv/bin/activate && PYTHONPATH=. python scripts/eval_analyze_search/run_eval.py --arm endpoints --only csf-01,csf-02,csf-04,cg-01,cg-02,cg-04,news-01,news-02,etf-01,vn-01 --run-id phase10_post",
+            "source venv/bin/activate && PYTHONPATH=. python scripts/eval_analyze_search/compare_v1_v2.py tmp/analyze_eval/phase10_post",
+            "source venv/bin/activate && pytest tests/services/analyze_retrieval -v",
+            "source venv/bin/activate && pytest tests/test_healthcheck.py -v",
+            "source venv/bin/activate && ruff check ."
+          ],
+          "required_evidence": [
+            "Pre/post compare.txt diff captured in PRD validation_summary",
+            "vn-01 v2_endpoint.json showing distinct-domain + recent published_at",
+            "csf-01 v2_endpoint.json showing live (non-cache_meta) answer with FCF figure"
+          ],
+          "phase_gates": [
+            "Gate A: F1 cache-poisoning regression closed (csf-01 fix verified)",
+            "Gate B: F2 VN monoculture closed (per-domain cap + recency floor verified on vn-01)",
+            "Gate C: F3 tier-1 boost closed (>=3 of csf-01/csf-02/news-02/cg-04 surface a primary source in top-K)",
+            "Gate D: domain Jaccard overlap target met",
+            "Gate E: healthcheck + ruff pass"
+          ]
+        }
+      }
     }
   ],
   "global_unresolved_questions": [
