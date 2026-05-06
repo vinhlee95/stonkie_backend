@@ -13,9 +13,9 @@ class NoneContextBuilder(ContextBuilder):
 
         return f"""
             {base_context}
-            
-            This is a general question about {input.ticker.upper()} that doesn't require financial data analysis.
-            Provide a clear, informative answer using your general knowledge about the company.
+
+            {PromptComponents.grounding_rules()}
+
+            This is a general question about {input.ticker.upper()}.
             Keep the response under 150 words and make it engaging.
-            Use Google Search to get the most up-to-date information if needed.
         """

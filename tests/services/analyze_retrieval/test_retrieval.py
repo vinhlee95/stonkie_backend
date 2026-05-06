@@ -306,3 +306,65 @@ def test_retrieve_for_analyze_keeps_raw_question_when_company_context_missing() 
 
     assert result.query == "What are the specific profit margins across its primary product lines?"
     assert stub.last_query == result.query
+
+
+def test_retrieve_for_analyze_selects_ranked_passages_with_stable_indexes() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate(
+                "https://www.reuters.com/aapl-margins",
+                (
+                    "Apple is a consumer technology company with multiple product lines.\n\n"
+                    "Gross margin expanded to 45% in the latest quarter due to services mix.\n\n"
+                    "Management also discussed buybacks and capital returns."
+                ),
+                0.9,
+            )
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="What was Apple's gross margin in the latest quarter?",
+        market="GLOBAL",
+        request_id="req-passages-1",
+        brave_client=stub,
+        top_k=5,
+    )
+
+    assert [passage.passage_index for passage in result.selected_passages] == [1, 0]
+    assert result.selected_passages[0].source_id == result.sources[0].id
+    assert result.selected_passages[0].content == (
+        "Gross margin expanded to 45% in the latest quarter due to services mix."
+    )
+    assert result.selected_passages[1].content == (
+        "Apple is a consumer technology company with multiple product lines."
+    )
+
+
+def test_retrieve_for_analyze_keeps_useful_passage_from_below_old_top_five_source_cut() -> None:
+    stub = _StubBraveClient(
+        candidates=[
+            _candidate("https://www.reuters.com/a", "Overview. " * 40, 10.0),
+            _candidate("https://www.cnbc.com/b", "Management commentary. " * 35, 9.0),
+            _candidate("https://www.wsj.com/c", "Market backdrop. " * 30, 8.0),
+            _candidate("https://www.bloomberg.com/d", "Strategy summary. " * 25, 7.0),
+            _candidate("https://www.marketwatch.com/e", "Investor reaction. " * 20, 6.0),
+            _candidate(
+                "https://www.barrons.com/f",
+                "Free cash flow rose to $12 billion in 2025 after capex normalized.",
+                1.0,
+            ),
+        ]
+    )
+
+    result = retrieve_for_analyze(
+        question="How much free cash flow did the company generate?",
+        market="GLOBAL",
+        request_id="req-passages-2",
+        brave_client=stub,
+        top_k=5,
+    )
+
+    assert result.selected_passages[0].url == "https://www.barrons.com/f"
+    assert result.selected_passages[0].content == ("Free cash flow rose to $12 billion in 2025 after capex normalized.")
+    assert "https://www.barrons.com/f" in [source.url for source in result.sources]

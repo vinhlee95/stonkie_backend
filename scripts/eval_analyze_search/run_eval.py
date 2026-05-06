@@ -301,6 +301,8 @@ def run_endpoint_arm(prompt: dict, *, arm: str, base_url: str, preferred_model: 
         "useUrlContext": False,
         "deepAnalysis": False,
         "preferredModel": preferred_model,
+        "disableCache": True,
+        "debugPromptContext": True,
     }
 
     event_types: dict[str, int] = {}
@@ -311,6 +313,7 @@ def run_endpoint_arm(prompt: dict, *, arm: str, base_url: str, preferred_model: 
     model_used: str | None = None
     request_id: str | None = None
     error_event: dict | None = None
+    debug_prompt_context_payload: dict | None = None
     first_event_at: float | None = None
     first_answer_at: float | None = None
     first_source_at: float | None = None
@@ -353,6 +356,8 @@ def run_endpoint_arm(prompt: dict, *, arm: str, base_url: str, preferred_model: 
                         thinking_msgs.append(body)
                     elif et == "model_used" and isinstance(body, str):
                         model_used = body
+                    elif et == "debug_prompt_context" and isinstance(body, dict):
+                        debug_prompt_context_payload = body
                     elif et == "related_question" and isinstance(body, str):
                         related.append(body)
                     elif et == "meta" and isinstance(body, dict):
@@ -397,6 +402,7 @@ def run_endpoint_arm(prompt: dict, *, arm: str, base_url: str, preferred_model: 
         "retrieval_seconds": None,
         "generation_seconds": total,
         "error_event": error_event,
+        "debug_prompt_context": debug_prompt_context_payload,
         "error": error,
     }
 

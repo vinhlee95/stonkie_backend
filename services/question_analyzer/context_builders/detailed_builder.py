@@ -21,7 +21,6 @@ class DetailedContextBuilder(ContextBuilder):
         """Build context for short, scannable analysis (default)."""
         base_context = PromptComponents.base_context(input.ticker, input.question)
         section_structure = PromptComponents.section_structure_template()
-        example_structure = PromptComponents.example_structure()
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements
         )
@@ -29,6 +28,8 @@ class DetailedContextBuilder(ContextBuilder):
 
         return f"""
             {base_context}
+
+            {PromptComponents.grounding_rules()}
 
             Company Fundamental Data:
             {input.company_fundamental}
@@ -49,13 +50,7 @@ class DetailedContextBuilder(ContextBuilder):
             Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
             Use AT MOST 2-3 sections. Start each section heading on its own line in markdown bold: **Section Title**
 
-            {PromptComponents.data_grounding_rules()}
-
             {section_structure}
-
-            {example_structure}
-
-            {PromptComponents.source_instructions()}
 
             Answer in a professional, informative tone. Prioritize clarity and directness.
         """
@@ -72,6 +67,8 @@ class DetailedContextBuilder(ContextBuilder):
         return f"""
             {base_context}
 
+            {PromptComponents.grounding_rules()}
+
             Company Fundamental Data:
             {input.company_fundamental}
 
@@ -86,8 +83,6 @@ class DetailedContextBuilder(ContextBuilder):
             {available_sources}
 
             **Instructions for your analysis:**
-
-            {PromptComponents.data_grounding_rules()}
 
             Structure your response with EXACTLY 3 sections in this order:
 
@@ -113,7 +108,4 @@ class DetailedContextBuilder(ContextBuilder):
             - IDENTIFY DRIVERS: Explain the underlying business factors, market conditions, or strategic decisions behind the numbers
             - CONNECT THE DOTS: Link financial performance to business strategy, competitive position, and market dynamics
             - NO DUPLICATION: Each sentence should add new information
-            - USE SEARCH WISELY: Get up-to-date context for industry trends and competitive landscape
-
-            {PromptComponents.source_instructions()}
         """

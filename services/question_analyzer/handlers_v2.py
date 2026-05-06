@@ -15,6 +15,7 @@ from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
+from services.analyze_retrieval.schemas import AnalyzePassage
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.context_builders.components import PromptComponents
@@ -26,22 +27,52 @@ from utils.conversation_format import format_conversation_context
 logger = logging.getLogger(__name__)
 
 
-_BRAVE_CITATION_DIRECTIVE = (
-    "You have been provided with current, authoritative sources below. "
-    "Treat them as ground truth even if they post-date your training cutoff. "
-    "Ground your answer in the provided Content. Do not refuse based on knowledge cutoff. "
-    "Do not emit [SOURCES_JSON] blocks. Do not include inline citation markers like [1] or [2] in the answer; "
-    "all sources are surfaced in a footer rendered separately by the UI."
-)
-
-_V2_NO_SOURCE_TAGS_DIRECTIVE = (
-    "Do not emit [SOURCES_JSON] blocks. Do not include inline citation markers or raw source tags in the answer. "
-    "If no web sources are provided, answer directly from the supplied financial context and conversation context only."
-)
+_GROUNDING_RULES = PromptComponents.grounding_rules()
+_NO_DATA_DECLINE = PromptComponents.no_data_decline()
 
 
 def _collect_answer_chunks(chunks) -> list[str]:
     return [chunk for chunk in chunks if isinstance(chunk, str)]
+
+
+def _build_prompt_debug_event(
+    *,
+    handler: str,
+    prompt: str,
+    retrieved_sources,
+    selected_passages: list[AnalyzePassage] | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "debug_prompt_context",
+        "body": {
+            "handler": handler,
+            "prompt": prompt,
+            "source_count": len(retrieved_sources or []),
+            "selected_passage_count": len(selected_passages or []),
+            "sources": [
+                {
+                    "source_id": source.id,
+                    "title": source.title,
+                    "url": source.url,
+                    "publisher": source.publisher,
+                    "published_at": source.published_at.isoformat() if source.published_at else None,
+                    "is_trusted": source.is_trusted,
+                }
+                for source in retrieved_sources or []
+            ],
+            "selected_passages": [
+                {
+                    "source_id": passage.source_id,
+                    "title": passage.title,
+                    "url": passage.url,
+                    "publisher": passage.publisher,
+                    "passage_index": passage.passage_index,
+                    "content": passage.content,
+                }
+                for passage in selected_passages or []
+            ],
+        },
+    }
 
 
 class CompanyGeneralHandlerV2:
@@ -79,6 +110,7 @@ Do not add numbering.
         preferred_model: ModelName = ModelName.Auto,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         company = self.company_connector.get_by_ticker(ticker)
         company_name = company.name if company else ticker.upper()
@@ -98,6 +130,7 @@ Do not add numbering.
 
         retrieved_sources = []
         sources_context = ""
+        selected_passages: list[AnalyzePassage] = []
         if search_decision.use_google_search:
             market = resolve_market(getattr(company, "country", None), question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -110,6 +143,7 @@ Do not add numbering.
                 company_name=company_name,
             )
             retrieved_sources = retrieval_result.sources
+            selected_passages = retrieval_result.selected_passages
 
             trusted_publishers: list[str] = []
             for source in retrieved_sources:
@@ -128,21 +162,31 @@ Do not add numbering.
                     total_steps=4,
                 )
 
-            sources_context = _build_sources_block(retrieved_sources)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        citation_directive = _BRAVE_CITATION_DIRECTIVE if retrieved_sources else ""
+        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
 
         prompt = f"""
 You are an expert about a business.
 Answer this question about {company_name} (ticker: {ticker}):
 {question}
+
+{grounding_directive}
+
 IMPORTANT: Always respond in same language as the current question.
 Keep response concise under 200 words.
 Use short paragraphs and bullet points for readability.
-{citation_directive}
 {conversation_context}
 {sources_context}
         """.strip()
+
+        if debug_prompt_context:
+            yield _build_prompt_debug_event(
+                handler="company_general_v2",
+                prompt=prompt,
+                retrieved_sources=retrieved_sources,
+                selected_passages=selected_passages,
+            )
 
         agent = MultiAgent(model_name=preferred_model)
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
@@ -175,19 +219,28 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
     return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
 
 
-def _build_sources_block(retrieved_sources) -> str:
+def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassage] | None = None) -> str:
     if not retrieved_sources:
         return ""
+    passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
+    for passage in selected_passages or []:
+        passages_by_source_id.setdefault(passage.source_id, []).append(passage)
     blocks = []
     for idx, source in enumerate(retrieved_sources, start=1):
         published = source.published_at.isoformat() if source.published_at else "null"
-        content = (source.raw_content or "").strip()
+        passage_lines = []
+        for passage in passages_by_source_id.get(source.id, []):
+            passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
+        if not passage_lines:
+            fallback_content = (source.raw_content or "").strip()
+            if fallback_content:
+                passage_lines.append(f"Content: {fallback_content}")
         block_lines = [
             f"Source [{idx}]",
             f"Title: {source.title}",
             f"URL: {source.url}",
             f"Published: {published}",
-            f"Content: {content}",
+            *passage_lines,
         ]
         blocks.append("\n".join(block_lines))
     return "\n\nSources:\n" + "\n\n".join(blocks)
@@ -224,6 +277,7 @@ Do not add numbering.
         preferred_model: ModelName = ModelName.Auto,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         yield thinking_status(
             "Writing your answer...",
@@ -246,6 +300,7 @@ Do not add numbering.
 
         retrieved_sources = []
         sources_context = ""
+        selected_passages: list[AnalyzePassage] = []
         if search_decision.use_google_search:
             market = resolve_market(None, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -257,24 +312,35 @@ Do not add numbering.
                 ticker=None,
             )
             retrieved_sources = retrieval_result.sources
+            selected_passages = retrieval_result.selected_passages
 
             status_event = _trusted_publisher_status(retrieved_sources)
             if status_event is not None:
                 yield status_event
 
-            sources_context = _build_sources_block(retrieved_sources)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        citation_directive = _BRAVE_CITATION_DIRECTIVE if retrieved_sources else ""
+        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
 
         prompt = f"""
 Please explain this financial concept or answer this question:
 {question}
+
+{grounding_directive}
+
 IMPORTANT: Always respond in the same language as the current question.
 Keep the answer under 150 words. Break into short paragraphs.
-{citation_directive}
 {conversation_context}
 {sources_context}
         """.strip()
+
+        if debug_prompt_context:
+            yield _build_prompt_debug_event(
+                handler="general_finance_v2",
+                prompt=prompt,
+                retrieved_sources=retrieved_sources,
+                selected_passages=selected_passages,
+            )
 
         agent = MultiAgent(model_name=preferred_model)
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
@@ -362,6 +428,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         available_metrics: Optional[list[str]] = None,
         request_id: str = "request-unknown",
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         ticker_norm = (ticker or "").lower().strip()
 
@@ -488,6 +555,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
 
         retrieved_sources = []
         sources_block = ""
+        selected_passages: list[AnalyzePassage] = []
         if search_decision.use_google_search:
             country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
             market = resolve_market(country, question)
@@ -501,22 +569,22 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
             )
             retrieved_sources = retrieval_result.sources
+            selected_passages = retrieval_result.selected_passages
             status_event = _trusted_publisher_status(retrieved_sources)
             if status_event is not None:
                 yield status_event
-            sources_block = _build_sources_block(retrieved_sources)
+            sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
-        analysis_prompt = PromptComponents.analysis_focus()
         visual_prompt = PromptComponents.visual_output_instructions()
-        if retrieved_sources:
-            source_prompt = _BRAVE_CITATION_DIRECTIVE
-        else:
-            source_prompt = _V2_NO_SOURCE_TAGS_DIRECTIVE
-        combined_prompt = (
-            f"{financial_context}{conversation_context}\n\n"
-            f"{analysis_prompt}\n\n{source_prompt}\n\n{visual_prompt}"
-            f"{sources_block}"
-        )
+        combined_prompt = f"{financial_context}{conversation_context}\n\n" f"{visual_prompt}" f"{sources_block}"
+
+        if debug_prompt_context:
+            yield _build_prompt_debug_event(
+                handler="company_specific_finance_v2",
+                prompt=combined_prompt,
+                retrieved_sources=retrieved_sources,
+                selected_passages=selected_passages,
+            )
 
         agent = MultiAgent(model_name=preferred_model)
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):

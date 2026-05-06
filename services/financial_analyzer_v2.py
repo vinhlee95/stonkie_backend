@@ -143,6 +143,7 @@ class FinancialAnalyzerV2:
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         conversation_id: Optional[str] = None,
         anon_user_id: Optional[str] = None,
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         _ = (conversation_id, anon_user_id)
 
@@ -229,6 +230,7 @@ class FinancialAnalyzerV2:
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
                 request_id=request_id,
+                debug_prompt_context=debug_prompt_context,
             )
         elif classification == QuestionType.GENERAL_FINANCE.value:
             iterator = self.general_finance_handler.handle(
@@ -238,6 +240,7 @@ class FinancialAnalyzerV2:
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
                 request_id=request_id,
+                debug_prompt_context=debug_prompt_context,
             )
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
             iterator = self.company_specific_finance_handler.handle(
@@ -250,6 +253,7 @@ class FinancialAnalyzerV2:
                 conversation_messages=conversation_messages,
                 available_metrics=available_metrics,
                 request_id=request_id,
+                debug_prompt_context=debug_prompt_context,
             )
         elif classification == QuestionType.COMPANY_COMPARISON.value:
             iterator = self.comparison_handler.handle(
@@ -260,6 +264,7 @@ class FinancialAnalyzerV2:
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
                 request_id=request_id,
+                debug_prompt_context=debug_prompt_context,
             )
         else:
             yield {"type": "answer", "body": f"❌ Unsupported question type: {classification}"}

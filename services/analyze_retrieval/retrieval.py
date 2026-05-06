@@ -12,6 +12,7 @@ from services.analyze_retrieval.freshness import (
 from services.analyze_retrieval.goggle import build_chat_goggle
 from services.analyze_retrieval.observability import log_retrieval
 from services.analyze_retrieval.publisher import publisher_label_for
+from services.analyze_retrieval.ranking import rank_for_chat, rank_passages_for_chat
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource, BraveRetrievalError
 from services.analyze_retrieval.source_policy import Market, is_trusted, registrable_domain
 from services.market_recap.schemas import Candidate
@@ -80,6 +81,7 @@ def retrieve_for_analyze(
     brave_latency_ms: int = 0,
     top_k: int = 5,
 ) -> AnalyzeRetrievalResult:
+    source_pool_limit = max(top_k * 3, top_k)
     country, search_lang = _country_and_lang_for(market)
     brave_query = build_company_aware_query(question, ticker=ticker, company_name=company_name)
     freshness_policy = freshness_for_question(question)
@@ -110,6 +112,8 @@ def retrieve_for_analyze(
         unique_candidates,
         freshness_policy=freshness_policy,
     )
+    ranked_candidates = rank_for_chat(freshness_filtered_candidates, market)
+    candidate_pool = ranked_candidates[:source_pool_limit]
     selected_candidates, selection_stats = _select_candidates(
         freshness_filtered_candidates,
         market=market,
@@ -118,7 +122,7 @@ def retrieve_for_analyze(
     if not selected_candidates:
         raise BraveRetrievalError("No Brave results available after filtering")
 
-    sources = [
+    pool_sources = [
         AnalyzeSource(
             id=source_id_for(candidate.url),
             url=candidate.url,
@@ -128,10 +132,43 @@ def retrieve_for_analyze(
             is_trusted=is_trusted(candidate.url, market),
             raw_content=candidate.raw_content,
         )
-        for candidate in selected_candidates
+        for candidate in candidate_pool
     ]
+    selected_source_ids_in_priority_order = [source_id_for(candidate.url) for candidate in selected_candidates]
+    source_by_id = {source.id: source for source in pool_sources}
+    prioritized_pool_sources = [
+        *[source_by_id[source_id] for source_id in selected_source_ids_in_priority_order if source_id in source_by_id],
+        *[source for source in pool_sources if source.id not in selected_source_ids_in_priority_order],
+    ]
+    selected_passages = rank_passages_for_chat(
+        question=question,
+        sources=prioritized_pool_sources,
+        max_sources=top_k,
+    )
 
-    selected_source_ages = [_age_bucket(candidate.published_date) for candidate in selected_candidates]
+    selected_source_ids_in_order: list[str] = []
+    for passage in selected_passages:
+        if passage.source_id not in selected_source_ids_in_order:
+            selected_source_ids_in_order.append(passage.source_id)
+
+    if selected_source_ids_in_order:
+        source_by_id = {source.id: source for source in pool_sources}
+        sources = [source_by_id[source_id] for source_id in selected_source_ids_in_order if source_id in source_by_id]
+    else:
+        sources = [
+            AnalyzeSource(
+                id=source_id_for(candidate.url),
+                url=candidate.url,
+                title=candidate.title,
+                publisher=publisher_label_for(candidate.url),
+                published_at=candidate.published_date,
+                is_trusted=is_trusted(candidate.url, market),
+                raw_content=candidate.raw_content,
+            )
+            for candidate in selected_candidates
+        ]
+
+    selected_source_ages = [_age_bucket(source.published_at) for source in sources]
 
     log_retrieval(
         request_id=request_id,
@@ -157,6 +194,7 @@ def retrieve_for_analyze(
         query=brave_query,
         market=market,
         request_id=request_id,
+        selected_passages=selected_passages,
     )
 
 

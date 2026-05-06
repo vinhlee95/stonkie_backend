@@ -16,7 +16,7 @@ from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
-from services.analyze_retrieval.schemas import AnalyzeSource, BraveRetrievalError
+from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
 from services.question_analyzer.context_builders.comparison_builder import (
     CompanyComparisonData,
     ComparisonCompanyBuilder,
@@ -24,7 +24,7 @@ from services.question_analyzer.context_builders.comparison_builder import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
-    _BRAVE_CITATION_DIRECTIVE,
+    _build_prompt_debug_event,
     _build_sources_block,
     _collect_answer_chunks,
     _trusted_publisher_status,
@@ -111,7 +111,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         request_id: str,
         sem: asyncio.Semaphore,
         company_name: str | None = None,
-    ) -> tuple[str, list[AnalyzeSource], Optional[BraveRetrievalError]]:
+    ) -> tuple[str, list[AnalyzeSource], list[AnalyzePassage], Optional[BraveRetrievalError]]:
         async with sem:
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
             try:
@@ -124,9 +124,9 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     ticker=ticker,
                     company_name=company_name,
                 )
-                return ticker, result.sources, None
+                return ticker, result.sources, result.selected_passages, None
             except BraveRetrievalError as e:
-                return ticker, [], e
+                return ticker, [], [], e
 
     async def handle(
         self,
@@ -137,6 +137,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         preferred_model: ModelName,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         tickers_str = ", ".join(tickers)
         yield thinking_status(
@@ -167,7 +168,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
         google_search_tickers = [c.ticker for c in companies_data if c.data_source == "google_search"]
         use_google_search = search_decision.use_google_search or bool(google_search_tickers)
 
-        retrieved_per_ticker: list[tuple[str, list[AnalyzeSource]]] = []
+        retrieved_per_ticker: list[tuple[str, list[AnalyzeSource], list[AnalyzePassage]]] = []
         failed_tickers: list[str] = []
         if use_google_search:
             sem = asyncio.Semaphore(_CONCURRENCY_CAP)
@@ -194,22 +195,24 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                 for c in companies_data
             ]
             results = await asyncio.gather(*coros)
-            for ticker, sources, err in results:
+            for ticker, sources, passages, err in results:
                 if err is not None:
                     failed_tickers.append(ticker)
                 else:
-                    retrieved_per_ticker.append((ticker, sources))
+                    retrieved_per_ticker.append((ticker, sources, passages))
 
             if not retrieved_per_ticker:
                 raise BraveRetrievalError(f"All ticker retrievals failed: {', '.join(failed_tickers)}")
 
         # Flat-concatenate sources in ticker order
         flat_sources: list[AnalyzeSource] = []
-        for _ticker, sources in retrieved_per_ticker:
+        flat_passages: list[AnalyzePassage] = []
+        for _ticker, sources, passages in retrieved_per_ticker:
             flat_sources.extend(sources)
+            flat_passages.extend(passages)
 
         if flat_sources:
-            successful_tickers = [t for t, _s in retrieved_per_ticker]
+            successful_tickers = [t for t, _sources, _passages in retrieved_per_ticker]
             status_event = _trusted_publisher_status(flat_sources, ticker_list=successful_tickers)
             if status_event is not None:
                 yield status_event
@@ -238,9 +241,15 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                 f"Answer using available data only and acknowledge this limitation."
             )
 
-        if flat_sources:
-            prompt += "\n\n" + _BRAVE_CITATION_DIRECTIVE
-        prompt += _build_sources_block(flat_sources)
+        prompt += _build_sources_block(flat_sources, flat_passages)
+
+        if debug_prompt_context:
+            yield _build_prompt_debug_event(
+                handler="company_comparison_v2",
+                prompt=prompt,
+                retrieved_sources=flat_sources,
+                selected_passages=flat_passages,
+            )
 
         agent = MultiAgent(model_name=preferred_model)
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):

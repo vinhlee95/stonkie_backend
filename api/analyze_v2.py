@@ -31,6 +31,8 @@ async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingR
         deep_analysis = body.get("deepAnalysis", False)
         preferred_model_str = body.get("preferredModel", "fastest")
         conversation_id = body.get("conversationId")
+        disable_cache = body.get("disableCache", False)
+        debug_prompt_context = body.get("debugPromptContext", False)
 
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
@@ -50,6 +52,8 @@ async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingR
                     anon_user_id=anon_user_id,
                     is_disconnected=request.is_disconnected,
                     cache_replay_request=request,
+                    disable_cache=disable_cache,
+                    debug_prompt_context=debug_prompt_context,
                 ):
                     yield json.dumps(event) + "\n\n"
             except asyncio.CancelledError:

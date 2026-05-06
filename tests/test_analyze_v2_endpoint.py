@@ -216,6 +216,63 @@ def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_t
     assert kwargs["last_sources_payload"] == [{"source_id": "s_1", "url": "https://example.com/1"}]
 
 
+def test_v2_analyze_debug_prompt_context_event_is_streamed_when_requested():
+    async def fake_analyze(*_args, **kwargs):
+        assert kwargs["debug_prompt_context"] is True
+        yield {"type": "debug_prompt_context", "body": {"handler": "company_general_v2", "prompt": "P"}}
+        yield {"type": "answer", "body": "live answer"}
+        yield {"type": "model_used", "body": "test-model"}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store"),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                json={"question": "What is Apple revenue?", "debugPromptContext": True},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    events = _parse_sse(body)
+    assert events[1] == {"type": "debug_prompt_context", "body": {"handler": "company_general_v2", "prompt": "P"}}
+
+
+def test_v2_analyze_disable_cache_bypasses_lookup_and_store():
+    async def fake_analyze(*_args, **kwargs):
+        yield {"type": "answer", "body": "fresh answer"}
+        yield {"type": "model_used", "body": "test-model"}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit") as lookup,
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store") as schedule_store,
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                json={"question": "What is Apple revenue?", "disableCache": True},
+            ) as response:
+                assert response.status_code == 200
+                response.read()
+
+    lookup.assert_not_called()
+    schedule_store.assert_called_once()
+    assert schedule_store.call_args.kwargs["use_semantic_cache"] is False
+
+
 def test_v2_live_stream_splits_visual_answer_blocks():
     async def fake_analyze(*_args, **_kwargs):
         yield {"type": "answer", "body": "Intro\n\n```html\n<div>chart</div>\n```\nDone"}

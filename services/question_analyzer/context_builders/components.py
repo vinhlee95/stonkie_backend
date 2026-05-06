@@ -22,18 +22,33 @@ class PromptComponents:
         current_year = today.year
         prior_year = current_year - 1
         current_quarter_num = (today.month - 1) // 3 + 1
-        current_quarter = f"{current_year}-Q{current_quarter_num}"
         if current_quarter_num == 1:
             last_completed_quarter = f"{prior_year}-Q4"
         else:
             last_completed_quarter = f"{current_year}-Q{current_quarter_num - 1}"
         return (
-            f"Today's date is {formatted}. Current year is {current_year}. "
-            f"Current (in-progress) quarter is {current_quarter}; most recently completed reporting quarter is approximately {last_completed_quarter}. "
-            f'When the user uses temporal words like "recently", "lately", "latest", "most recent", "current", "this quarter", "last quarter" WITHOUT specifying a year or quarter, they mean the most recently completed quarter ({last_completed_quarter} or newer if available), NOT the prior full fiscal year. Prefer quarterly data at the latest available period. '
-            f'When the user says "this year" or "year to date", they mean {current_year}, not {prior_year}. '
-            f"Unless the user explicitly asks for historical periods, only use data from {current_year} or {prior_year}. "
-            "If newer numeric data cannot be verified, provide a qualitative best-effort answer and state the limitation."
+            f"Today is {formatted}; the most recently completed reporting quarter is {last_completed_quarter}. "
+            f'Treat "latest"/"recent"/"this quarter" as {last_completed_quarter} (or newer) and "this year"/"YTD" as {current_year}.'
+        )
+
+    @staticmethod
+    def grounding_rules() -> str:
+        """Unified grounding rules. Inject once near the top of any v2 prompt that supplies data blocks."""
+        return (
+            "**Grounding rules (read first):**\n"
+            "- The data blocks below — Sources, Company Fundamental Data, Annual/Quarterly Financial Statements — are the authoritative dataset for this answer. Prefer them over your training knowledge whenever they conflict; the provided data wins.\n"
+            '- Do not introduce facts (numbers, dates, names, events) not present in the data blocks. If the question (or part of it) cannot be answered from the data, say so explicitly (e.g. "this metric is not available in the data I have access to") and do not backfill from memory.\n'
+            "- Treat the data as current even if it post-dates your training cutoff; do not refuse on cutoff grounds.\n"
+            '- Do not write source attributions inline in the answer in ANY form. Forbidden: [SOURCES_JSON] blocks, bracketed markers like [1] or [2], parentheticals like "(Source: …)" / "(per Reuters)", and lead-ins like "according to …" or "as reported by …". The UI renders sources in a separate footer; your prose must contain only the analysis itself.'
+        )
+
+    @staticmethod
+    def no_data_decline() -> str:
+        """Used when no sources AND no DB data are available — instruct the model to decline rather than freelance from training."""
+        return (
+            "**No current data available.** No web sources or financial data were retrieved for this question. "
+            "Do not answer from training knowledge. Reply briefly that you do not have current data to answer reliably, "
+            "and suggest the user retry or rephrase."
         )
 
     @staticmethod

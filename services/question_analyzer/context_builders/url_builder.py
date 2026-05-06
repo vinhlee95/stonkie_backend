@@ -22,11 +22,12 @@ class UrlContextBuilder(ContextBuilder):
         url_context = f"Source Document URL: {source_url}"
 
         section_structure = PromptComponents.section_structure_template()
-        example_structure = PromptComponents.example_structure()
 
         return f"""
             {base_context}
-            
+
+            {PromptComponents.grounding_rules()}
+
             {url_context}
 
             **Instructions for your analysis:**
@@ -37,13 +38,6 @@ class UrlContextBuilder(ContextBuilder):
             Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
 
             {section_structure}
-
-            {example_structure}
-
-            **Sources:**
-            At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
-
-            {PromptComponents.source_instructions()}
 
             Answer in a professional, informative tone. Prioritize clarity and directness.
         """
@@ -62,7 +56,9 @@ class UrlContextBuilder(ContextBuilder):
 
         return f"""
             {base_context}
-            
+
+            {PromptComponents.grounding_rules()}
+
             {url_context}
 
             **Instructions for your analysis:**
@@ -105,6 +101,4 @@ class UrlContextBuilder(ContextBuilder):
             - CONNECT THE DOTS: Link financial performance to business strategy, competitive position, and market dynamics
             - NO DUPLICATION: Each sentence should add new information
             - Only reference information from the document at the provided URL
-
-            {PromptComponents.source_instructions()}
         """

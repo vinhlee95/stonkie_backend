@@ -17,8 +17,20 @@ class AnalyzeSource(BaseModel):
     raw_content: str = ""
 
 
+class AnalyzePassage(BaseModel):
+    source_id: str
+    url: str
+    title: str
+    publisher: str
+    published_at: datetime | None = None
+    is_trusted: bool
+    passage_index: int
+    content: str
+
+
 class AnalyzeRetrievalResult(BaseModel):
     sources: list[AnalyzeSource]
+    selected_passages: list[AnalyzePassage] = []
     query: str
     market: Market
     request_id: str

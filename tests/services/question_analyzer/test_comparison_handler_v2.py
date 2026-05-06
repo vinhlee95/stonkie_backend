@@ -530,10 +530,8 @@ async def test_dedupes_trusted_publishers_across_tickers(mock_multi_agent_cls, m
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
 async def test_comparison_prompt_drops_sources_json_instructions_for_v2(mock_multi_agent_cls, mock_retrieve):
-    from services.question_analyzer.comparison_handler_v2 import (
-        _BRAVE_CITATION_DIRECTIVE,
-        CompanyComparisonHandlerV2,
-    )
+    from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
+    from services.question_analyzer.context_builders.components import PromptComponents
 
     mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
         sources=[_src(f"{kw['ticker']}_1", "Reuters")],
@@ -567,6 +565,6 @@ async def test_comparison_prompt_drops_sources_json_instructions_for_v2(mock_mul
         pass
 
     prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
-    assert _BRAVE_CITATION_DIRECTIVE in prompt_text
+    assert PromptComponents.grounding_rules() in prompt_text
     assert '[SOURCES_JSON]{"sources"' not in prompt_text
     assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text

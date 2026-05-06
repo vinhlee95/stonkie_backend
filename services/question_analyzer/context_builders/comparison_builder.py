@@ -5,12 +5,7 @@ from typing import Any
 
 from connectors.company import CompanyFundamentalDto
 from core.financial_statement_type import FinancialStatementType
-
-_V2_COMPARISON_SOURCE_POLICY = (
-    "Do not emit [SOURCES_JSON] blocks. Do not include inline citation markers unless explicit numbered web sources "
-    "are later provided in the prompt. If the comparison relies only on database or training-data context, answer "
-    "directly without source tags."
-)
+from services.question_analyzer.context_builders.components import PromptComponents
 
 
 @dataclass
@@ -68,6 +63,8 @@ class ComparisonCompanyBuilder:
 
             **LANGUAGE RULE: Detect the language of the User Question below. Your ENTIRE response (including table headers, section headings, and all text) MUST be written in that same language. If the question is in English, respond in English. If Vietnamese, respond in Vietnamese. This overrides all other instructions.**
 
+            {PromptComponents.grounding_rules()}
+
             ## Companies to Compare
 
             {company_summaries}
@@ -90,8 +87,6 @@ class ComparisonCompanyBuilder:
 
             {training_data_warning}
 
-            {_V2_COMPARISON_SOURCE_POLICY}
-
             Answer in a professional, informative tone. Prioritize clarity and scannability.
             REMINDER: Your response language MUST match the User Question language.
         """
@@ -104,6 +99,8 @@ class ComparisonCompanyBuilder:
             # Stock Comparison Analysis
 
             **LANGUAGE RULE: Detect the language of the User Question below. Your ENTIRE response (including table headers, section headings, and all text) MUST be written in that same language. If the question is in English, respond in English. If Vietnamese, respond in Vietnamese. This overrides all other instructions.**
+
+            {PromptComponents.grounding_rules()}
 
             ## Companies to Compare
 
@@ -123,16 +120,8 @@ class ComparisonCompanyBuilder:
 
             {training_data_warning}
 
-            {self._build_source_instructions(input)}
-
             REMINDER: Your response language MUST match the User Question language.
         """
-
-    def _build_source_instructions(self, input: ComparisonCompanyBuilderInput) -> str:
-        has_google_search = any(c.data_source == "google_search" for c in input.companies_data)
-        if has_google_search:
-            return _V2_COMPARISON_SOURCE_POLICY
-        return "Do NOT include [SOURCES_JSON] blocks. The data is from our database and has no URLs to cite."
 
     def _build_training_data_warning(self, input: ComparisonCompanyBuilderInput) -> str:
         training_data_tickers = [c.ticker for c in input.companies_data if c.data_source == "training_data"]
@@ -145,16 +134,14 @@ class ComparisonCompanyBuilder:
         if training_data_tickers:
             tickers_str = ", ".join(training_data_tickers)
             parts.append(
-                f"The following tickers have NO financial data in our database: {tickers_str}. "
-                f"For these tickers, you are using your training data. You MUST explicitly state "
-                f"that the information for {tickers_str} comes from training data and may not be current or accurate."
+                f"The following tickers have NO financial data in our database and no web sources were retrieved: {tickers_str}. "
+                f"Per the grounding rules, do not answer for {tickers_str} from training memory — state explicitly that current data is not available for these tickers."
             )
         if google_search_tickers:
             tickers_str = ", ".join(google_search_tickers)
             parts.append(
                 f"The following tickers are NOT in our database: {tickers_str}. "
-                f"Use Google Search results to find current financial data for these tickers. "
-                f"Rely on the provided web results for current data and do not emit [SOURCES_JSON] blocks."
+                f"Rely on the provided web results below for current data."
             )
 
         return "**IMPORTANT — Data Source Warning:**\n" + "\n".join(parts)

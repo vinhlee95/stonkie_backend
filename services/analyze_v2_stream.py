@@ -51,6 +51,8 @@ class AnalyzeV2StreamService:
         anon_user_id: str,
         is_disconnected: DisconnectChecker,
         cache_replay_request: Any,
+        disable_cache: bool = False,
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         normalized_ticker = normalize_route_ticker(ticker)
 
@@ -115,6 +117,8 @@ class AnalyzeV2StreamService:
             use_url_context=use_url_context,
             question=question,
         )
+        if disable_cache:
+            use_semantic_cache = False
 
         cached_entry = None
         if use_semantic_cache:
@@ -141,6 +145,7 @@ class AnalyzeV2StreamService:
                 conversation_messages=conversation_messages,
                 conversation_id=conv_id,
                 anon_user_id=anon_user_id,
+                debug_prompt_context=debug_prompt_context,
             )
 
             async for event in analyzer_generator:

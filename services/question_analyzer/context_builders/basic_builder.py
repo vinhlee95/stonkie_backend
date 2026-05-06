@@ -13,12 +13,13 @@ class BasicContextBuilder(ContextBuilder):
 
         return f"""
             {base_context}
-            
+
+            {PromptComponents.grounding_rules()}
+
             Company Fundamental Data:
             {input.company_fundamental}
-            
+
             This question requires basic financial metrics. Use the fundamental data provided to answer the question.
             Focus on key metrics like market cap, P/E ratio, basic profitability, and market performance.
             Keep the response concise (under 150 words) but insightful.
-            Use Google Search for additional context if needed.
         """

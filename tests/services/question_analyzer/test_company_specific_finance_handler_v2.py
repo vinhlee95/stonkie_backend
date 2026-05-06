@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ai_models.model_name import ModelName
-from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource
+from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
 from services.question_analyzer.types import FinancialDataRequirement
 from services.search_decision_engine import SearchDecision
 
@@ -516,7 +516,20 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
                 publisher="Reuters",
                 published_at=None,
                 is_trusted=True,
+                raw_content="FULL_RAW_CONTENT_SHOULD_NOT_APPEAR",
             ),
+        ],
+        selected_passages=[
+            AnalyzePassage(
+                source_id="s_1",
+                url="https://www.reuters.com/a",
+                title="REUTERS_TITLE_MARKER",
+                publisher="Reuters",
+                published_at=None,
+                is_trusted=True,
+                passage_index=3,
+                content="PASSAGE_MARKER gross margin reached 45%.",
+            )
         ],
         query="q",
         market="GLOBAL",
@@ -554,16 +567,17 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
     prompt_text = call_kwargs.get("prompt", "")
     assert "REUTERS_TITLE_MARKER" in prompt_text
     assert "Sources:" in prompt_text
+    assert "PASSAGE_MARKER gross margin reached 45%." in prompt_text
+    assert "Passage [3]:" in prompt_text
+    assert "FULL_RAW_CONTENT_SHOULD_NOT_APPEAR" not in prompt_text
 
 
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
 async def test_search_on_uses_brave_directive_and_drops_sources_json_instructions(mock_multi_agent_cls, mock_retrieve):
-    from services.question_analyzer.handlers_v2 import (
-        _BRAVE_CITATION_DIRECTIVE,
-        CompanySpecificFinanceHandlerV2,
-    )
+    from services.question_analyzer.context_builders.components import PromptComponents
+    from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
     company_connector, classifier, optimizer = _make_handler_deps()
     mock_retrieve.return_value = AnalyzeRetrievalResult(
@@ -612,7 +626,7 @@ async def test_search_on_uses_brave_directive_and_drops_sources_json_instruction
         pass
 
     prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
-    assert _BRAVE_CITATION_DIRECTIVE in prompt_text
+    assert PromptComponents.grounding_rules() in prompt_text
     assert '[SOURCES_JSON]{"sources"' not in prompt_text
     assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text
 
@@ -620,10 +634,8 @@ async def test_search_on_uses_brave_directive_and_drops_sources_json_instruction
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
 async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agent_cls):
-    from services.question_analyzer.handlers_v2 import (
-        _V2_NO_SOURCE_TAGS_DIRECTIVE,
-        CompanySpecificFinanceHandlerV2,
-    )
+    from services.question_analyzer.context_builders.components import PromptComponents
+    from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
     company_connector, classifier, optimizer = _make_handler_deps()
 
@@ -658,4 +670,4 @@ async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agen
     prompt_text = mock_agent.generate_content.call_args.kwargs.get("prompt", "")
     assert '[SOURCES_JSON]{"sources"' not in prompt_text
     assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text
-    assert _V2_NO_SOURCE_TAGS_DIRECTIVE in prompt_text
+    assert PromptComponents.grounding_rules() in prompt_text
