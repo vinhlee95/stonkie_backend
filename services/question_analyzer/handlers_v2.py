@@ -13,6 +13,7 @@ from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
+from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
@@ -166,11 +167,12 @@ Do not add numbering.
 
         grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
 
+        temporal_context = build_temporal_context_block(question)
         prompt = f"""
 You are an expert about a business.
 Answer this question about {company_name} (ticker: {ticker}):
 {question}
-
+{temporal_context}
 {grounding_directive}
 
 IMPORTANT: Always respond in same language as the current question.
@@ -322,10 +324,11 @@ Do not add numbering.
 
         grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
 
+        temporal_context = build_temporal_context_block(question)
         prompt = f"""
 Please explain this financial concept or answer this question:
 {question}
-
+{temporal_context}
 {grounding_directive}
 
 IMPORTANT: Always respond in the same language as the current question.
@@ -576,7 +579,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
         visual_prompt = PromptComponents.visual_output_instructions()
-        combined_prompt = f"{financial_context}{conversation_context}\n\n" f"{visual_prompt}" f"{sources_block}"
+        temporal_context = build_temporal_context_block(question)
+        combined_prompt = (
+            f"{financial_context}{conversation_context}{temporal_context}\n\n" f"{visual_prompt}" f"{sources_block}"
+        )
 
         if debug_prompt_context:
             yield _build_prompt_debug_event(
