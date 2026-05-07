@@ -13,7 +13,7 @@ from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
-from services.analyze_retrieval.freshness import resolve_temporal_anchor
+from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
@@ -197,7 +197,7 @@ Do not add numbering.
             _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
         )
 
-        temporal_context = _build_temporal_context(question)
+        temporal_context = build_temporal_context_block(question)
         prompt = f"""
 You are an expert about a business.
 Answer this question about {company_name} (ticker: {ticker}):
@@ -249,13 +249,6 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
     else:
         body = f"Reading {len(retrieved_sources)} sources: {publisher_list}"
     return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
-
-
-def _build_temporal_context(question: str) -> str:
-    anchor = resolve_temporal_anchor(question)
-    if not anchor:
-        return ""
-    return f"\nDate references in the question: {anchor}. Use these absolute dates when matching against source publish dates.\n"
 
 
 def _url_ingest_error_event() -> dict[str, str]:
@@ -399,7 +392,7 @@ Do not add numbering.
             _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
         )
 
-        temporal_context = _build_temporal_context(question)
+        temporal_context = build_temporal_context_block(question)
         prompt = f"""
 Please explain this financial concept or answer this question:
 {question}
@@ -702,7 +695,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
         visual_prompt = PromptComponents.visual_output_instructions()
-        temporal_context = _build_temporal_context(question)
+        temporal_context = build_temporal_context_block(question)
         url_grounding_directive = f"\n\n{_URL_GROUNDED_RULES}" if is_url_grounded else ""
         combined_prompt = (
             f"{financial_context}{conversation_context}{temporal_context}\n\n"
