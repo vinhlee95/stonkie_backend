@@ -74,9 +74,6 @@ class AnnualContextBuilder(ContextBuilder):
 
             [Another key finding with metrics. 1-2 sentences explaining the "why" behind the figures.]
 
-            **Sources:**
-            At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
-
             Answer in a professional, informative tone. Be concise but include 1-2 sentences per section explaining the "why" behind the figures. Prioritize clarity and scannability while providing meaningful context.
         """
 
@@ -142,9 +139,6 @@ class AnnualContextBuilder(ContextBuilder):
             [Another comprehensive insight with deep analysis - 100-200 words]
 
             [Continue with additional sections as needed to thoroughly cover all important aspects...]
-
-            **Sources:**
-            At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
 
             Answer in a professional, informative tone. Provide thorough, insightful analysis that demonstrates deep understanding of the document and its implications.
         """
