@@ -258,7 +258,7 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
 
                 # Navigate to the page
                 logger.info(f"Navigating to: {url}")
-                page.goto(url, timeout=10000)
+                page.goto(url, timeout=20000)
 
                 # Wait for page to load
                 page.wait_for_load_state("networkidle", timeout=10000)
