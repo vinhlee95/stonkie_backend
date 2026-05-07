@@ -6,12 +6,94 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ai_models.model_name import ModelName
-from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource
+from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
+from services.analyze_retrieval.url_ingest import UrlIngestResult
 from services.search_decision_engine import SearchDecision
 
 
 def _event_types(events: list[dict]) -> list[str]:
     return [event["type"] for event in events]
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.handlers_v2.ingest_url")
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+@patch("services.question_analyzer.handlers_v2.CompanyConnector")
+async def test_use_url_context_ingests_user_url_and_skips_brave(
+    mock_company_connector_cls, mock_multi_agent_cls, mock_ingest_url, mock_retrieve_for_analyze
+):
+    from services.question_analyzer.handlers_v2 import CompanyGeneralHandlerV2
+
+    source = AnalyzeSource(
+        id="s_url",
+        url="https://example.com/report",
+        title="User report",
+        publisher="Example",
+        published_at=None,
+        is_trusted=True,
+    )
+    passage = AnalyzePassage(
+        source_id="s_url",
+        url=source.url,
+        title=source.title,
+        publisher=source.publisher,
+        published_at=None,
+        is_trusted=True,
+        passage_index=1,
+        content="The report says services drove growth.",
+    )
+    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
+
+    mock_company_connector = MagicMock()
+    mock_company_connector.get_by_ticker.return_value = SimpleNamespace(name="Apple Inc.", country="United States")
+    mock_company_connector_cls.return_value = mock_company_connector
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["Answer [1]"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyGeneralHandlerV2(company_connector=mock_company_connector)
+
+    async def _fake_related_questions(*_args, **_kwargs):
+        if False:
+            yield {"type": "related_question", "body": "unused"}
+
+    handler._generate_related_questions = _fake_related_questions  # type: ignore[attr-defined]
+    decision = SearchDecision(
+        use_google_search=True,
+        reason_code="latest_info",
+        confidence=0.9,
+        decision_model="test",
+        decision_fallback="none",
+    )
+
+    events: list[dict] = []
+    async for event in handler.handle(
+        ticker="AAPL",
+        question="Analyze https://example.com/report",
+        search_decision=decision,
+        use_url_context=True,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="req-url",
+        debug_prompt_context=True,
+    ):
+        events.append(event)
+
+    mock_ingest_url.assert_called_once_with(
+        url="https://example.com/report",
+        question="Analyze https://example.com/report",
+        request_id="req-url",
+        source_kind="user_url",
+    )
+    mock_retrieve_for_analyze.assert_not_called()
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    assert "The report says services drove growth." in prompt
+    assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
+    assert "database financial statements" in prompt
+    assert [event for event in events if event["type"] == "sources"][0]["body"][0]["source_id"] == "s_url"
 
 
 @pytest.mark.asyncio
@@ -60,6 +142,8 @@ async def test_no_search_emits_v1_like_sequence(mock_company_connector_cls, mock
     assert _event_types(events).count("answer") == 2
     assert any(event["type"] == "model_used" for event in events)
     assert _event_types(events)[-2:] == ["related_question", "related_question"]
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    assert "Use ONLY the Source passages below to answer this URL-grounded question." not in prompt
 
 
 @pytest.mark.asyncio

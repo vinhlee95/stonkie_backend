@@ -7,6 +7,7 @@ import pytest
 
 from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
+from services.analyze_retrieval.url_ingest import UrlIngestError, UrlIngestResult
 from services.question_analyzer.types import FinancialDataRequirement
 from services.search_decision_engine import SearchDecision
 
@@ -188,6 +189,8 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
     assert [s["source_id"] for s in sources_events[0]["body"]] == ["s_1", "s_2"]
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    assert "Use ONLY the Source passages below to answer this URL-grounded question." not in prompt
 
 
 @pytest.mark.asyncio
@@ -313,9 +316,28 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
 
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
-async def test_attachment_url_emitted_for_single_quarter(mock_multi_agent_cls):
+@patch("services.question_analyzer.handlers_v2.ingest_url")
+async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
+    source = AnalyzeSource(
+        id="s_q",
+        url="https://sec.gov/aapl-q3.pdf",
+        title="AAPL Q3 10-Q",
+        publisher="SEC",
+        is_trusted=True,
+        raw_content="Revenue grew 6%.",
+    )
+    passage = AnalyzePassage(
+        source_id="s_q",
+        url=source.url,
+        title=source.title,
+        publisher=source.publisher,
+        is_trusted=True,
+        passage_index=1,
+        content="Revenue grew 6%.",
+    )
+    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
     company_connector, classifier, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
         quarterly=[
@@ -327,7 +349,7 @@ async def test_attachment_url_emitted_for_single_quarter(mock_multi_agent_cls):
     )
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
-    mock_agent.generate_content.return_value = iter(["A"])
+    mock_agent.generate_content.return_value = iter(["A [1]"])
     mock_multi_agent_cls.return_value = mock_agent
 
     handler = CompanySpecificFinanceHandlerV2(
@@ -350,19 +372,55 @@ async def test_attachment_url_emitted_for_single_quarter(mock_multi_agent_cls):
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
+        request_id="req-q",
+        debug_prompt_context=True,
     ):
         events.append(event)
 
     attachments = [e for e in events if e["type"] == "attachment_url"]
     assert len(attachments) == 1
     assert attachments[0]["body"] == "https://sec.gov/aapl-q3.pdf"
+    mock_ingest_url.assert_called_once_with(
+        url="https://sec.gov/aapl-q3.pdf",
+        question="latest 10Q?",
+        request_id="req-q",
+        source_kind="filing",
+    )
+    mock_agent.generate_content.assert_called_once()
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    assert "Revenue grew 6%." in prompt
+    assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
+    assert "database financial statements" in prompt
+    assert any(e["type"] == "debug_prompt_context" for e in events)
+    sources_events = [e for e in events if e["type"] == "sources"]
+    assert len(sources_events) == 1
+    assert sources_events[0]["body"][0]["url"] == "https://sec.gov/aapl-q3.pdf"
 
 
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
-async def test_attachment_url_emitted_for_single_year(mock_multi_agent_cls):
+@patch("services.question_analyzer.handlers_v2.ingest_url")
+async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
+    source = AnalyzeSource(
+        id="s_k",
+        url="https://sec.gov/aapl-2024.pdf",
+        title="AAPL 2024 10-K",
+        publisher="SEC",
+        is_trusted=True,
+        raw_content="Risk factors include demand volatility.",
+    )
+    passage = AnalyzePassage(
+        source_id="s_k",
+        url=source.url,
+        title=source.title,
+        publisher=source.publisher,
+        is_trusted=True,
+        passage_index=1,
+        content="Risk factors include demand volatility.",
+    )
+    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
     company_connector, classifier, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.ANNUAL_SUMMARY,
         annual=[
@@ -374,7 +432,7 @@ async def test_attachment_url_emitted_for_single_year(mock_multi_agent_cls):
     )
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
-    mock_agent.generate_content.return_value = iter(["A"])
+    mock_agent.generate_content.return_value = iter(["A [1]"])
     mock_multi_agent_cls.return_value = mock_agent
 
     handler = CompanySpecificFinanceHandlerV2(
@@ -397,12 +455,67 @@ async def test_attachment_url_emitted_for_single_year(mock_multi_agent_cls):
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
+        request_id="req-k",
     ):
         events.append(event)
 
     attachments = [e for e in events if e["type"] == "attachment_url"]
     assert len(attachments) == 1
     assert attachments[0]["body"] == "https://sec.gov/aapl-2024.pdf"
+    mock_ingest_url.assert_called_once_with(
+        url="https://sec.gov/aapl-2024.pdf",
+        question="latest 10K?",
+        request_id="req-k",
+        source_kind="filing",
+    )
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    assert "Risk factors include demand volatility." in prompt
+    assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
+    assert "database financial statements" in prompt
+    assert [e for e in events if e["type"] == "sources"][0]["body"][0]["source_id"] == "s_k"
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+@patch("services.question_analyzer.handlers_v2.ingest_url")
+async def test_report_ingest_failure_emits_error_and_skips_llm(mock_ingest_url, mock_multi_agent_cls):
+    from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
+
+    mock_ingest_url.side_effect = UrlIngestError("no chunks")
+    company_connector, classifier, optimizer = _make_handler_deps(
+        data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
+        quarterly=[
+            {
+                "filing_10q_url": "https://sec.gov/aapl-q3.pdf",
+                "period_end_quarter": "2024-Q3",
+            }
+        ],
+    )
+    handler = CompanySpecificFinanceHandlerV2(
+        company_connector=company_connector,
+        classifier=classifier,
+        data_optimizer=optimizer,
+    )
+
+    events: list[dict] = []
+    async for event in handler.handle(
+        ticker="AAPL",
+        question="latest 10Q?",
+        search_decision=_decision(False),
+        use_url_context=False,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="req-fail",
+    ):
+        events.append(event)
+
+    assert any(e["type"] == "attachment_url" for e in events)
+    assert events[-1] == {
+        "type": "error",
+        "code": "url_ingest_failed",
+        "body": "Could not read the document URL.",
+    }
+    mock_multi_agent_cls.assert_not_called()
 
 
 @pytest.mark.asyncio

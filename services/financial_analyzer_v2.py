@@ -150,7 +150,10 @@ class FinancialAnalyzerV2:
         extracted_url = extract_first_url(question)
         force_google_search_reason: str | None = None
         if extracted_url:
-            if is_sec_filing_url(extracted_url):
+            if use_url_context:
+                yield {"type": "attachment_url", "body": extracted_url}
+                yield thinking_status("Reading the attached document...", phase=AnalysisPhase.SEARCH, step=2)
+            elif is_sec_filing_url(extracted_url):
                 logger.info(
                     "SEC filing URL detected: %s. Forcing search decision (sec_url).",
                     extracted_url,

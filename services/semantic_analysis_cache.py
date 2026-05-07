@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 
 _CACHE_REPLAY_PACE_DEFAULT_SEC = 0.01
 _CACHE_REPLAY_PACE_VISUAL_DELTA_SEC = 0.004
+_URL_GROUNDED_REPORT_TERMS = (
+    "quarterly report",
+    "quarterly filing",
+    "quarterly earnings report",
+    "annual report",
+    "annual filing",
+    "10-k",
+    "10k",
+    "10-q",
+    "10q",
+)
 
 
 def _legacy_related_prompt(original_question: str) -> str:
@@ -83,7 +94,15 @@ class SemanticAnalysisCache:
         use_url_context: bool,
         question: str,
     ) -> bool:
-        return bool(cache_ticker) and not deep_analysis and not use_url_context and extract_first_url(question) is None
+        normalized = " ".join((question or "").lower().split())
+        is_report_url_grounded = any(term in normalized for term in _URL_GROUNDED_REPORT_TERMS)
+        return (
+            bool(cache_ticker)
+            and not deep_analysis
+            and not use_url_context
+            and extract_first_url(question) is None
+            and not is_report_url_grounded
+        )
 
     @staticmethod
     async def lookup_hit(cache_ticker: str, question: str) -> Optional[SemanticCacheEntry]:

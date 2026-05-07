@@ -13,9 +13,11 @@ from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
+from services.analyze_retrieval.freshness import resolve_temporal_anchor
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
+from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.context_builders.components import PromptComponents
@@ -23,12 +25,20 @@ from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.types import FinancialDataRequirement
 from services.search_decision_engine import SearchDecision
 from utils.conversation_format import format_conversation_context
+from utils.url_helper import extract_first_url
 
 logger = logging.getLogger(__name__)
 
 
 _GROUNDING_RULES = PromptComponents.grounding_rules()
 _NO_DATA_DECLINE = PromptComponents.no_data_decline()
+_URL_GROUNDED_RULES = (
+    "**URL-grounded document rules (override all other data rules for this answer):**\n"
+    "- Use ONLY the Source passages below to answer this URL-grounded question.\n"
+    "- Do not use training knowledge, the report URL itself, or database financial statements unless the same fact is explicitly present in the Source passages.\n"
+    "- If the Source passages do not contain enough information to answer the question, say that the extracted document chunks do not contain enough detail.\n"
+    "- Do not search for additional sources or infer missing filing details from memory."
+)
 
 
 def _collect_answer_chunks(chunks) -> list[str]:
@@ -131,7 +141,26 @@ Do not add numbering.
         retrieved_sources = []
         sources_context = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = url_result.sources
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+        elif search_decision.use_google_search:
             market = resolve_market(getattr(company, "country", None), question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
             retrieval_result = retrieve_for_analyze(
@@ -164,13 +193,16 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = (
+            _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        )
 
+        temporal_context = _build_temporal_context(question)
         prompt = f"""
 You are an expert about a business.
 Answer this question about {company_name} (ticker: {ticker}):
 {question}
-
+{temporal_context}
 {grounding_directive}
 
 IMPORTANT: Always respond in same language as the current question.
@@ -217,6 +249,30 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
     else:
         body = f"Reading {len(retrieved_sources)} sources: {publisher_list}"
     return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
+
+
+def _build_temporal_context(question: str) -> str:
+    anchor = resolve_temporal_anchor(question)
+    if not anchor:
+        return ""
+    return f"\nDate references in the question: {anchor}. Use these absolute dates when matching against source publish dates.\n"
+
+
+def _url_ingest_error_event() -> dict[str, str]:
+    return {
+        "type": "error",
+        "code": "url_ingest_failed",
+        "body": "Could not read the document URL.",
+    }
+
+
+def _ingest_user_url(url: str, question: str, request_id: str):
+    return ingest_url(
+        url=url,
+        question=question,
+        request_id=request_id,
+        source_kind="user_url",
+    )
 
 
 def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassage] | None = None) -> str:
@@ -301,7 +357,26 @@ Do not add numbering.
         retrieved_sources = []
         sources_context = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = url_result.sources
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+        elif search_decision.use_google_search:
             market = resolve_market(None, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
             retrieval_result = retrieve_for_analyze(
@@ -320,12 +395,15 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = (
+            _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        )
 
+        temporal_context = _build_temporal_context(question)
         prompt = f"""
 Please explain this financial concept or answer this question:
 {question}
-
+{temporal_context}
 {grounding_directive}
 
 IMPORTANT: Always respond in the same language as the current question.
@@ -556,7 +634,55 @@ Provide a helpful, general answer that builds on what we discussed before."""
         retrieved_sources = []
         sources_block = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+
+        report_url: str | None = None
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
+            report_url = quarterly_statements[0].get("filing_10q_url")
+        elif data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY and len(annual_statements) == 1:
+            report_url = annual_statements[0].get("filing_10k_url")
+
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=4,
+                total_steps=6,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = url_result.sources
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_block = _build_sources_block(retrieved_sources, selected_passages)
+        elif report_url:
+            yield thinking_status(
+                "Reading the filing document...",
+                phase=AnalysisPhase.SEARCH,
+                step=4,
+                total_steps=6,
+            )
+            try:
+                url_result = ingest_url(
+                    url=report_url,
+                    question=question,
+                    request_id=request_id,
+                    source_kind="filing",
+                )
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for report", extra={"request_id": request_id, "url": report_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = url_result.sources
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_block = _build_sources_block(retrieved_sources, selected_passages)
+        elif search_decision.use_google_search:
             country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
             market = resolve_market(country, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -576,7 +702,14 @@ Provide a helpful, general answer that builds on what we discussed before."""
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
         visual_prompt = PromptComponents.visual_output_instructions()
-        combined_prompt = f"{financial_context}{conversation_context}\n\n" f"{visual_prompt}" f"{sources_block}"
+        temporal_context = _build_temporal_context(question)
+        url_grounding_directive = f"\n\n{_URL_GROUNDED_RULES}" if is_url_grounded else ""
+        combined_prompt = (
+            f"{financial_context}{conversation_context}{temporal_context}\n\n"
+            f"{url_grounding_directive}"
+            f"{visual_prompt}"
+            f"{sources_block}"
+        )
 
         if debug_prompt_context:
             yield _build_prompt_debug_event(

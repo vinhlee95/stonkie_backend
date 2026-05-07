@@ -43,7 +43,9 @@ class _CapturingHandler:
         preferred_model,
         conversation_messages,
         request_id: str,
+        debug_prompt_context: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        _ = debug_prompt_context
         self.calls.append(
             {
                 "ticker": ticker,
@@ -74,6 +76,9 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
         classifier=_FakeClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_general_handler=handler,
+        general_finance_handler=MagicMock(),
+        company_specific_finance_handler=MagicMock(),
+        comparison_handler=MagicMock(),
         company_financial_connector=_stub_financial_connector(),
     )
 
@@ -118,6 +123,9 @@ async def test_analyzer_v2_emits_v1_style_search_thinking_status_after_decide(us
         classifier=_FakeClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_general_handler=handler,
+        general_finance_handler=MagicMock(),
+        company_specific_finance_handler=MagicMock(),
+        comparison_handler=MagicMock(),
         company_financial_connector=_stub_financial_connector(),
     )
 
@@ -338,6 +346,43 @@ async def test_invalid_non_sec_pdf_url_returns_error_without_decide(_mock_valida
     sd.decide.assert_not_called()
     assert any(e["type"] == "answer" and "not a real pdf" in e["body"] for e in events)
     assert not any(e["type"] == "search_decision_meta" for e in events)
+
+
+@pytest.mark.asyncio
+@patch("services.financial_analyzer_v2.validate_pdf_url", return_value=(False, "not a real pdf"))
+async def test_use_url_context_allows_non_pdf_url_to_reach_handler(_mock_validate):
+    from services.financial_analyzer_v2 import FinancialAnalyzerV2
+
+    decision = SearchDecision(
+        use_google_search=True,
+        reason_code="latest_info",
+        confidence=0.9,
+        decision_model="test",
+        decision_fallback="none",
+    )
+    handler = _CapturingHandler()
+    analyzer = FinancialAnalyzerV2(
+        classifier=_FakeClassifier(),
+        search_decision_engine=_FakeSearchDecisionEngine(decision),
+        company_general_handler=handler,
+        general_finance_handler=MagicMock(),
+        company_specific_finance_handler=MagicMock(),
+        comparison_handler=MagicMock(),
+        company_financial_connector=_stub_financial_connector(),
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in analyzer.analyze_question(
+        ticker="AAPL",
+        question="Analyze https://example.com/report",
+        use_url_context=True,
+    ):
+        events.append(event)
+
+    _mock_validate.assert_not_called()
+    assert events[0] == {"type": "attachment_url", "body": "https://example.com/report"}
+    assert handler.calls[0]["use_url_context"] is True
+    assert any(e["type"] == "answer" and e["body"] == "hello" for e in events)
 
 
 @pytest.mark.asyncio
