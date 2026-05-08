@@ -38,7 +38,21 @@ _URL_GROUNDED_RULES = (
     "- Do not use training knowledge, the report URL itself, or database financial statements unless the same fact is explicitly present in the Source passages.\n"
     "- If the Source passages do not contain enough information to answer the question, say that the extracted document chunks do not contain enough detail.\n"
     "- Do not search for additional sources or infer missing filing details from memory.\n"
-    "- End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3` naming the excerpts that support the answer."
+    "- Do not write inline citations or source notes anywhere in the analysis body. Forbidden examples: `[1]`, `Excerpt 2`, `(Operating Income on page 29)`, `(Source: ...)`, and `according to ...`.\n"
+    "- Ignore any earlier instruction that asks for source notes after paragraphs or sections.\n"
+    "- The extracted document context is internal grounding material only. Do not name or cite extracted paragraphs in the final answer.\n"
+    "- End with exactly one final `Sources:` section and no other source/citation section.\n"
+    "- The final `Sources:` section must not include URLs, source numbers, bracketed markers, extracted paragraph labels, or generic source labels.\n"
+    "- In the final `Sources:` section, list only section names and page numbers used in the analysis, one per line: `- <section name>, page <number or range>`.\n"
+    "- If the extracted excerpts do not contain BOTH a section name and page number, write exactly `Sources: Not available in extracted excerpts.`"
+)
+_URL_FINAL_RESPONSE_FORMAT = (
+    "\n\n**Final response format for URL-grounded answers (must follow exactly):**\n"
+    "1. Write the analysis body with no inline citations, source notes, page notes, URLs, bracketed markers, or extracted paragraph labels.\n"
+    "2. End with exactly one `Sources:` section.\n"
+    "3. In `Sources:`, list only section names and page numbers, one per line: `- <section name>, page <number or range>`.\n"
+    "4. If section names and page numbers are not both clearly present in the extracted document context, write exactly: `Sources: Not available in extracted excerpts.`\n"
+    "5. Do not copy extracted paragraph text into `Sources:`."
 )
 
 
@@ -192,7 +206,7 @@ Do not add numbering.
                     total_steps=4,
                 )
 
-            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
         grounding_directive = (
             _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
@@ -211,6 +225,7 @@ Keep response concise under 200 words.
 Use short paragraphs and bullet points for readability.
 {conversation_context}
 {sources_context}
+{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
         """.strip()
 
         if debug_prompt_context:
@@ -285,21 +300,24 @@ def _build_sources_block(
         published = source.published_at.isoformat() if source.published_at else "null"
         passage_lines = []
         for passage in passages_by_source_id.get(source.id, []):
-            label = "Excerpt" if use_excerpt_labels else "Passage"
-            passage_lines.append(f"{label} [{passage.passage_index}]: {passage.content}")
+            if use_excerpt_labels:
+                passage_lines.append(f"Extracted paragraph: {passage.content}")
+            else:
+                passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
         if not passage_lines:
             fallback_content = (source.raw_content or "").strip()
             if fallback_content:
                 passage_lines.append(f"Content: {fallback_content}")
         block_lines = [
-            f"Source [{idx}]",
+            f"Document {idx}" if use_excerpt_labels else f"Source [{idx}]",
             f"Title: {source.title}",
             f"URL: {source.url}",
             f"Published: {published}",
             *passage_lines,
         ]
         blocks.append("\n".join(block_lines))
-    return "\n\nSources:\n" + "\n\n".join(blocks)
+    block_header = "Extracted document context" if use_excerpt_labels else "Sources"
+    return f"\n\n{block_header}:\n" + "\n\n".join(blocks)
 
 
 class GeneralFinanceHandlerV2:
@@ -410,6 +428,7 @@ IMPORTANT: Always respond in the same language as the current question.
 Keep the answer under 150 words. Break into short paragraphs.
 {conversation_context}
 {sources_context}
+{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
         """.strip()
 
         if debug_prompt_context:
@@ -709,6 +728,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             f"{url_grounding_directive}"
             f"{visual_prompt}"
             f"{sources_block}"
+            f"{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ''}"
         )
 
         if debug_prompt_context:

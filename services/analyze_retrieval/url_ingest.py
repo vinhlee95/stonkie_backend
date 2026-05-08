@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from connectors.tavily_extract_client import TavilyExtractClient, TavilyExtractError, UrlIngestResult
 
 logger = logging.getLogger(__name__)
+_EXCERPT_LOG_PREVIEW_CHARS = 500
 
 
 class UrlIngestError(Exception):
@@ -61,6 +62,18 @@ def _log_ingest(
             }
             if result
             else None
+        ),
+        "excerpt_previews": (
+            [
+                {
+                    "excerpt_index": passage.passage_index,
+                    "char_count": len(passage.content),
+                    "preview": passage.content[:_EXCERPT_LOG_PREVIEW_CHARS],
+                }
+                for passage in result.selected_passages
+            ]
+            if result
+            else []
         ),
         "response_time": metadata.get("response_time"),
         "tavily_request_id": metadata.get("tavily_request_id"),

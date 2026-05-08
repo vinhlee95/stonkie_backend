@@ -50,7 +50,7 @@ class AnnualContextBuilder(ContextBuilder):
             - Add a new line after each section heading.
             - Each section should: (1) state key figures and metrics, (2) include 1-2 sentences explaining WHY they changed or WHAT drives them
             - Keep the "why" explanation concise - 1-2 sentences that explain the underlying reason, business driver, or implication
-            - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
+            - Do not add source notes or page references after individual paragraphs or sections
             - Include specific numbers and metrics where relevant
             - Highlight significant changes, trends, or anomalies
             - Bold important figures and percentages
@@ -75,7 +75,7 @@ class AnnualContextBuilder(ContextBuilder):
             [Another key finding with metrics. 1-2 sentences explaining the "why" behind the figures.]
 
             **Sources:**
-            At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
+            If source details are requested, include only one final Sources section. Do not cite sources inline.
 
             Answer in a professional, informative tone. Be concise but include 1-2 sentences per section explaining the "why" behind the figures. Prioritize clarity and scannability while providing meaningful context.
         """
@@ -117,7 +117,7 @@ class AnnualContextBuilder(ContextBuilder):
             - Highlight significant changes, trends, or anomalies and explain WHY they matter
             - Bold important figures and percentages
             - Connect findings to business strategy, competitive position, and market dynamics
-            - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
+            - Do not add source notes or page references after individual paragraphs or sections
             - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
             - Prioritize analytical reasoning: explain WHY trends occur, WHAT drives changes, and WHAT it means for the business
 
@@ -144,7 +144,7 @@ class AnnualContextBuilder(ContextBuilder):
             [Continue with additional sections as needed to thoroughly cover all important aspects...]
 
             **Sources:**
-            At the end, cite your sources: "Sources: Document pages X-Y" or "Sources: [Section name from document]"
+            If source details are requested, include only one final Sources section. Do not cite sources inline.
 
             Answer in a professional, informative tone. Provide thorough, insightful analysis that demonstrates deep understanding of the document and its implications.
         """

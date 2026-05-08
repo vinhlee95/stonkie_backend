@@ -391,8 +391,21 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
     assert "Revenue grew 6%." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
-    assert "Excerpt [1]: Revenue grew 6%." in prompt
-    assert "End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3`" in prompt
+    assert "Do not write inline citations or source notes anywhere in the analysis body." in prompt
+    assert "Do not name or cite extracted paragraphs in the final answer." in prompt
+    assert "must not include URLs, source numbers, bracketed markers, extracted paragraph labels" in prompt
+    assert "If the extracted excerpts do not contain BOTH a section name and page number" in prompt
+    assert "End with exactly one final `Sources:` section" in prompt
+    assert "- <section name>, page <number or range>" in prompt
+    assert "Extracted document context:" in prompt
+    assert "Extracted paragraph: Revenue grew 6%." in prompt
+    assert "Excerpt [" not in prompt
+    assert "Final response format for URL-grounded answers" in prompt
+    assert "Do not copy extracted paragraph text into `Sources:`." in prompt
+    assert prompt.endswith("Do not copy extracted paragraph text into `Sources:`.")
+    assert "Relevant excerpts:" not in prompt
+    assert "(Section name from document on page X)" not in prompt
+    assert "At the end of each section, provide the source information" not in prompt
     assert any(e["type"] == "debug_prompt_context" for e in events)
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
@@ -474,8 +487,21 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
     assert "Risk factors include demand volatility." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
-    assert "Excerpt [1]: Risk factors include demand volatility." in prompt
-    assert "End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3`" in prompt
+    assert "Do not write inline citations or source notes anywhere in the analysis body." in prompt
+    assert "Do not name or cite extracted paragraphs in the final answer." in prompt
+    assert "must not include URLs, source numbers, bracketed markers, extracted paragraph labels" in prompt
+    assert "If the extracted excerpts do not contain BOTH a section name and page number" in prompt
+    assert "End with exactly one final `Sources:` section" in prompt
+    assert "- <section name>, page <number or range>" in prompt
+    assert "Extracted document context:" in prompt
+    assert "Extracted paragraph: Risk factors include demand volatility." in prompt
+    assert "Excerpt [" not in prompt
+    assert "Final response format for URL-grounded answers" in prompt
+    assert "Do not copy extracted paragraph text into `Sources:`." in prompt
+    assert prompt.endswith("Do not copy extracted paragraph text into `Sources:`.")
+    assert "Relevant excerpts:" not in prompt
+    assert "(Section name from document on page X)" not in prompt
+    assert "At the end of each section, provide the source information" not in prompt
     assert [e for e in events if e["type"] == "sources"][0]["body"][0]["source_id"] == "s_k"
 
 

@@ -73,6 +73,10 @@ def test_ingest_url_uses_query_focused_tavily_extract_and_logs_metadata(caplog) 
     assert log_payload["failed_url"] is None
     assert log_payload["source_id"] == ingest_result.source.id
     assert log_payload["chunk_count"] == 2
+    assert log_payload["excerpt_previews"] == [
+        {"excerpt_index": 1, "char_count": 16, "preview": "Revenue grew 6%."},
+        {"excerpt_index": 2, "char_count": 32, "preview": "Margin expanded on services mix."},
+    ]
     assert log_record.provider == "tavily"
     assert log_record.request_id == "req-1"
     assert log_record.requested_url == "https://sec.gov/aapl-q3.pdf"
@@ -81,7 +85,7 @@ def test_ingest_url_uses_query_focused_tavily_extract_and_logs_metadata(caplog) 
     assert log_record.chunk_count == 2
     assert log_record.tavily_request_id == "tvly-1"
     assert not hasattr(log_record, "raw_content")
-    assert "Revenue grew" not in str(log_record.__dict__)
+    assert not hasattr(log_record, "raw_document")
 
 
 def test_ingest_url_raises_when_tavily_returns_no_usable_chunks() -> None:
