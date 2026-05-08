@@ -37,7 +37,8 @@ _URL_GROUNDED_RULES = (
     "- Use ONLY the Source passages below to answer this URL-grounded question.\n"
     "- Do not use training knowledge, the report URL itself, or database financial statements unless the same fact is explicitly present in the Source passages.\n"
     "- If the Source passages do not contain enough information to answer the question, say that the extracted document chunks do not contain enough detail.\n"
-    "- Do not search for additional sources or infer missing filing details from memory."
+    "- Do not search for additional sources or infer missing filing details from memory.\n"
+    "- End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3` naming the excerpts that support the answer."
 )
 
 
@@ -156,10 +157,10 @@ Do not add numbering.
                 logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
                 yield _url_ingest_error_event()
                 return
-            retrieved_sources = url_result.sources
+            retrieved_sources = [url_result.source]
             selected_passages = url_result.selected_passages
             is_url_grounded = True
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif search_decision.use_google_search:
             market = resolve_market(getattr(company, "country", None), question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -191,7 +192,7 @@ Do not add numbering.
                     total_steps=4,
                 )
 
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
 
         grounding_directive = (
             _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
@@ -268,7 +269,12 @@ def _ingest_user_url(url: str, question: str, request_id: str):
     )
 
 
-def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassage] | None = None) -> str:
+def _build_sources_block(
+    retrieved_sources,
+    selected_passages: list[AnalyzePassage] | None = None,
+    *,
+    use_excerpt_labels: bool = False,
+) -> str:
     if not retrieved_sources:
         return ""
     passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
@@ -279,7 +285,8 @@ def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassa
         published = source.published_at.isoformat() if source.published_at else "null"
         passage_lines = []
         for passage in passages_by_source_id.get(source.id, []):
-            passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
+            label = "Excerpt" if use_excerpt_labels else "Passage"
+            passage_lines.append(f"{label} [{passage.passage_index}]: {passage.content}")
         if not passage_lines:
             fallback_content = (source.raw_content or "").strip()
             if fallback_content:
@@ -365,10 +372,10 @@ Do not add numbering.
                 logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
                 yield _url_ingest_error_event()
                 return
-            retrieved_sources = url_result.sources
+            retrieved_sources = [url_result.source]
             selected_passages = url_result.selected_passages
             is_url_grounded = True
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif search_decision.use_google_search:
             market = resolve_market(None, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -649,10 +656,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
                 yield _url_ingest_error_event()
                 return
-            retrieved_sources = url_result.sources
+            retrieved_sources = [url_result.source]
             selected_passages = url_result.selected_passages
             is_url_grounded = True
-            sources_block = _build_sources_block(retrieved_sources, selected_passages)
+            sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif report_url:
             yield thinking_status(
                 "Reading the filing document...",
@@ -671,10 +678,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 logger.exception("v2 URL ingest failed for report", extra={"request_id": request_id, "url": report_url})
                 yield _url_ingest_error_event()
                 return
-            retrieved_sources = url_result.sources
+            retrieved_sources = [url_result.source]
             selected_passages = url_result.selected_passages
             is_url_grounded = True
-            sources_block = _build_sources_block(retrieved_sources, selected_passages)
+            sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif search_decision.use_google_search:
             country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
             market = resolve_market(country, question)

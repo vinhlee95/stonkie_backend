@@ -337,7 +337,7 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
         passage_index=1,
         content="Revenue grew 6%.",
     )
-    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
+    mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[passage])
     company_connector, classifier, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
         quarterly=[
@@ -391,6 +391,8 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
     assert "Revenue grew 6%." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
+    assert "Excerpt [1]: Revenue grew 6%." in prompt
+    assert "End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3`" in prompt
     assert any(e["type"] == "debug_prompt_context" for e in events)
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
@@ -420,7 +422,7 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
         passage_index=1,
         content="Risk factors include demand volatility.",
     )
-    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
+    mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[passage])
     company_connector, classifier, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.ANNUAL_SUMMARY,
         annual=[
@@ -472,6 +474,8 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
     assert "Risk factors include demand volatility." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
+    assert "Excerpt [1]: Risk factors include demand volatility." in prompt
+    assert "End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3`" in prompt
     assert [e for e in events if e["type"] == "sources"][0]["body"][0]["source_id"] == "s_k"
 
 

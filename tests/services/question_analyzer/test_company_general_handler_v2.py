@@ -43,7 +43,7 @@ async def test_use_url_context_ingests_user_url_and_skips_brave(
         passage_index=1,
         content="The report says services drove growth.",
     )
-    mock_ingest_url.return_value = UrlIngestResult(sources=[source], selected_passages=[passage])
+    mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[passage])
 
     mock_company_connector = MagicMock()
     mock_company_connector.get_by_ticker.return_value = SimpleNamespace(name="Apple Inc.", country="United States")
@@ -93,6 +93,8 @@ async def test_use_url_context_ingests_user_url_and_skips_brave(
     assert "The report says services drove growth." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
+    assert "Excerpt [1]: The report says services drove growth." in prompt
+    assert "End with a short line like `Relevant excerpts: Excerpt 1, Excerpt 3`" in prompt
     assert [event for event in events if event["type"] == "sources"][0]["body"][0]["source_id"] == "s_url"
 
 
