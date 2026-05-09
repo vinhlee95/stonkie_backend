@@ -17,6 +17,7 @@ from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
+from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.context_builders.components import PromptComponents
@@ -24,19 +25,42 @@ from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.types import FinancialDataRequirement
 from services.search_decision_engine import SearchDecision
 from utils.conversation_format import format_conversation_context
+from utils.url_helper import extract_first_url
 
 logger = logging.getLogger(__name__)
 
 
 _GROUNDING_RULES = PromptComponents.grounding_rules()
 _NO_DATA_DECLINE = PromptComponents.no_data_decline()
+_URL_GROUNDED_RULES = (
+    "**URL-grounded document rules (override all other data rules for this answer):**\n"
+    "- Use ONLY the Source passages below to answer this URL-grounded question.\n"
+    "- Do not use training knowledge, the report URL itself, or database financial statements unless the same fact is explicitly present in the Source passages.\n"
+    "- If the Source passages do not contain enough information to answer the question, say that the extracted document chunks do not contain enough detail.\n"
+    "- Do not search for additional sources or infer missing filing details from memory.\n"
+    "- Do not write citations, source notes, source lists, page notes, URLs, or bibliography sections anywhere in the answer. Forbidden examples: `[1]`, `Excerpt 2`, `(Operating Income on page 29)`, `(Source: ...)`, `according to ...`, and `Sources:`.\n"
+    "- Ignore any earlier instruction that asks for source notes after paragraphs or sections.\n"
+    "- The extracted document context is internal grounding material only. Do not name or cite extracted paragraphs in the final answer.\n"
+    "- End after the analysis itself. Do not append a `Sources:` section or any other citation/source section."
+)
+_URL_FINAL_RESPONSE_FORMAT = (
+    "\n\n**Final response format for URL-grounded answers (must follow exactly):**\n"
+    "1. Write only the answer body.\n"
+    "2. Do not include inline citations, source notes, page notes, URLs, bracketed markers, extracted paragraph labels, source lists, or bibliography sections.\n"
+    "3. Do not include a `Sources:` section.\n"
+    "4. Stop immediately after the final analysis sentence or bullet."
+)
 _STABLE_CONCEPT_ALLOW = (
     "This is a well-known, stable fact (e.g. founding date, founders, headquarters). "
     "You may answer from your training knowledge. Be concise and confident."
 )
 
 
-def _select_grounding(retrieved_sources: list, search_decision: SearchDecision) -> str:
+def _select_grounding(
+    retrieved_sources: list, search_decision: SearchDecision, *, is_url_grounded: bool = False
+) -> str:
+    if is_url_grounded:
+        return _URL_GROUNDED_RULES
     if retrieved_sources:
         return _GROUNDING_RULES
     if search_decision.reason_code == "stable_concept":
@@ -144,7 +168,26 @@ Do not add numbering.
         retrieved_sources = []
         sources_context = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = [url_result.source]
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
+        elif search_decision.use_google_search:
             market = resolve_market(getattr(company, "country", None), question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
             retrieval_result = retrieve_for_analyze(
@@ -177,7 +220,11 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _select_grounding(retrieved_sources, search_decision)
+        grounding_directive = _select_grounding(
+            retrieved_sources,
+            search_decision,
+            is_url_grounded=is_url_grounded,
+        )
 
         temporal_context = build_temporal_context_block(question)
         prompt = f"""
@@ -192,6 +239,7 @@ Keep response concise under 200 words.
 Use short paragraphs and bullet points for readability.
 {conversation_context}
 {sources_context}
+{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
         """.strip()
 
         if debug_prompt_context:
@@ -206,7 +254,7 @@ Use short paragraphs and bullet points for readability.
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
@@ -233,7 +281,29 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
     return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
 
 
-def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassage] | None = None) -> str:
+def _url_ingest_error_event() -> dict[str, str]:
+    return {
+        "type": "error",
+        "code": "url_ingest_failed",
+        "body": "Could not read the document URL.",
+    }
+
+
+def _ingest_user_url(url: str, question: str, request_id: str):
+    return ingest_url(
+        url=url,
+        question=question,
+        request_id=request_id,
+        source_kind="user_url",
+    )
+
+
+def _build_sources_block(
+    retrieved_sources,
+    selected_passages: list[AnalyzePassage] | None = None,
+    *,
+    use_excerpt_labels: bool = False,
+) -> str:
     if not retrieved_sources:
         return ""
     passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
@@ -244,20 +314,24 @@ def _build_sources_block(retrieved_sources, selected_passages: list[AnalyzePassa
         published = source.published_at.isoformat() if source.published_at else "null"
         passage_lines = []
         for passage in passages_by_source_id.get(source.id, []):
-            passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
+            if use_excerpt_labels:
+                passage_lines.append(f"Extracted paragraph: {passage.content}")
+            else:
+                passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
         if not passage_lines:
             fallback_content = (source.raw_content or "").strip()
             if fallback_content:
                 passage_lines.append(f"Content: {fallback_content}")
         block_lines = [
-            f"Source [{idx}]",
+            f"Document {idx}" if use_excerpt_labels else f"Source [{idx}]",
             f"Title: {source.title}",
             f"URL: {source.url}",
             f"Published: {published}",
             *passage_lines,
         ]
         blocks.append("\n".join(block_lines))
-    return "\n\nSources:\n" + "\n\n".join(blocks)
+    block_header = "Extracted document context" if use_excerpt_labels else "Sources"
+    return f"\n\n{block_header}:\n" + "\n\n".join(blocks)
 
 
 class GeneralFinanceHandlerV2:
@@ -315,7 +389,26 @@ Do not add numbering.
         retrieved_sources = []
         sources_context = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = [url_result.source]
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
+        elif search_decision.use_google_search:
             market = resolve_market(None, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
             retrieval_result = retrieve_for_analyze(
@@ -334,7 +427,11 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _select_grounding(retrieved_sources, search_decision)
+        grounding_directive = _select_grounding(
+            retrieved_sources,
+            search_decision,
+            is_url_grounded=is_url_grounded,
+        )
 
         temporal_context = build_temporal_context_block(question)
         prompt = f"""
@@ -347,6 +444,7 @@ IMPORTANT: Always respond in the same language as the current question.
 Keep the answer under 150 words. Break into short paragraphs.
 {conversation_context}
 {sources_context}
+{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
         """.strip()
 
         if debug_prompt_context:
@@ -361,7 +459,7 @@ Keep the answer under 150 words. Break into short paragraphs.
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
@@ -571,7 +669,55 @@ Provide a helpful, general answer that builds on what we discussed before."""
         retrieved_sources = []
         sources_block = ""
         selected_passages: list[AnalyzePassage] = []
-        if search_decision.use_google_search:
+        is_url_grounded = False
+        user_url = extract_first_url(question) if use_url_context else None
+
+        report_url: str | None = None
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
+            report_url = quarterly_statements[0].get("filing_10q_url")
+        elif data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY and len(annual_statements) == 1:
+            report_url = annual_statements[0].get("filing_10k_url")
+
+        if user_url:
+            yield thinking_status(
+                "Reading the attached document...",
+                phase=AnalysisPhase.SEARCH,
+                step=4,
+                total_steps=6,
+            )
+            try:
+                url_result = _ingest_user_url(user_url, question, request_id)
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for user URL", extra={"request_id": request_id, "url": user_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = [url_result.source]
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
+        elif report_url:
+            yield thinking_status(
+                "Reading the filing document...",
+                phase=AnalysisPhase.SEARCH,
+                step=4,
+                total_steps=6,
+            )
+            try:
+                url_result = ingest_url(
+                    url=report_url,
+                    question=question,
+                    request_id=request_id,
+                    source_kind="filing",
+                )
+            except UrlIngestError:
+                logger.exception("v2 URL ingest failed for report", extra={"request_id": request_id, "url": report_url})
+                yield _url_ingest_error_event()
+                return
+            retrieved_sources = [url_result.source]
+            selected_passages = url_result.selected_passages
+            is_url_grounded = True
+            sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
+        elif search_decision.use_google_search:
             country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
             market = resolve_market(country, question)
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
@@ -592,8 +738,13 @@ Provide a helpful, general answer that builds on what we discussed before."""
 
         visual_prompt = PromptComponents.visual_output_instructions()
         temporal_context = build_temporal_context_block(question)
+        url_grounding_directive = f"\n\n{_URL_GROUNDED_RULES}" if is_url_grounded else ""
         combined_prompt = (
-            f"{financial_context}{conversation_context}{temporal_context}\n\n" f"{visual_prompt}" f"{sources_block}"
+            f"{financial_context}{conversation_context}{temporal_context}\n\n"
+            f"{url_grounding_directive}"
+            f"{visual_prompt}"
+            f"{sources_block}"
+            f"{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ''}"
         )
 
         if debug_prompt_context:
@@ -608,7 +759,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}

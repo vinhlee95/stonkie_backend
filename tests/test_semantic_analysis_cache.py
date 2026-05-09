@@ -6,6 +6,21 @@ from ai_models.openrouter_client import get_openrouter_model_name
 from services.semantic_analysis_cache import SemanticAnalysisCache
 
 
+def test_report_url_grounded_questions_are_not_semantic_cache_eligible():
+    assert not SemanticAnalysisCache.use_semantic_cache_enabled(
+        "v2:AAPL",
+        deep_analysis=False,
+        use_url_context=False,
+        question="Summarize the latest quarterly report",
+    )
+    assert not SemanticAnalysisCache.use_semantic_cache_enabled(
+        "v2:AAPL",
+        deep_analysis=False,
+        use_url_context=False,
+        question="What are the key risks in the latest 10-K filing?",
+    )
+
+
 def test_stream_hit_replay_splits_visual_blocks():
     """Cached answer_text is replayed through VisualAnswerStreamSplitter (no analyzer deps)."""
 

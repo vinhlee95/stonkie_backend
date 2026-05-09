@@ -50,7 +50,7 @@ class QuarterlyContextBuilder(ContextBuilder):
             - Add a new line after each section heading.
             - Each section should: (1) state key figures and metrics, (2) include 1-2 sentences explaining WHY they changed or WHAT drives them
             - Keep the "why" explanation concise - 1-2 sentences that explain the underlying reason, business driver, or implication
-            - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
+            - Do not add source notes or page references after individual paragraphs or sections
             - Include specific numbers and metrics where relevant
             - Highlight significant changes, trends, or anomalies
             - Bold important figures and percentages
@@ -114,7 +114,7 @@ class QuarterlyContextBuilder(ContextBuilder):
             - Highlight significant changes, trends, or anomalies and explain WHY they matter
             - Bold important figures and percentages
             - Connect findings to business strategy, competitive position, and market dynamics
-            - At the end of each section, provide the source information in this format: "(Section name from document on page X)"
+            - Do not add source notes or page references after individual paragraphs or sections
             - Use the largest appropriate unit for numbers (e.g., "$1.5 billion" not "$1,500 million")
             - Prioritize analytical reasoning: explain WHY trends occur, WHAT drives changes, and WHAT it means for the business
 
