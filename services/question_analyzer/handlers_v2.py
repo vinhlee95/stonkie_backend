@@ -38,21 +38,17 @@ _URL_GROUNDED_RULES = (
     "- Do not use training knowledge, the report URL itself, or database financial statements unless the same fact is explicitly present in the Source passages.\n"
     "- If the Source passages do not contain enough information to answer the question, say that the extracted document chunks do not contain enough detail.\n"
     "- Do not search for additional sources or infer missing filing details from memory.\n"
-    "- Do not write inline citations or source notes anywhere in the analysis body. Forbidden examples: `[1]`, `Excerpt 2`, `(Operating Income on page 29)`, `(Source: ...)`, and `according to ...`.\n"
+    "- Do not write citations, source notes, source lists, page notes, URLs, or bibliography sections anywhere in the answer. Forbidden examples: `[1]`, `Excerpt 2`, `(Operating Income on page 29)`, `(Source: ...)`, `according to ...`, and `Sources:`.\n"
     "- Ignore any earlier instruction that asks for source notes after paragraphs or sections.\n"
     "- The extracted document context is internal grounding material only. Do not name or cite extracted paragraphs in the final answer.\n"
-    "- End with exactly one final `Sources:` section and no other source/citation section.\n"
-    "- The final `Sources:` section must not include URLs, source numbers, bracketed markers, extracted paragraph labels, or generic source labels.\n"
-    "- In the final `Sources:` section, list only section names and page numbers used in the analysis, one per line: `- <section name>, page <number or range>`.\n"
-    "- If the extracted excerpts do not contain BOTH a section name and page number, write exactly `Sources: Not available in extracted excerpts.`"
+    "- End after the analysis itself. Do not append a `Sources:` section or any other citation/source section."
 )
 _URL_FINAL_RESPONSE_FORMAT = (
     "\n\n**Final response format for URL-grounded answers (must follow exactly):**\n"
-    "1. Write the analysis body with no inline citations, source notes, page notes, URLs, bracketed markers, or extracted paragraph labels.\n"
-    "2. End with exactly one `Sources:` section.\n"
-    "3. In `Sources:`, list only section names and page numbers, one per line: `- <section name>, page <number or range>`.\n"
-    "4. If section names and page numbers are not both clearly present in the extracted document context, write exactly: `Sources: Not available in extracted excerpts.`\n"
-    "5. Do not copy extracted paragraph text into `Sources:`."
+    "1. Write only the answer body.\n"
+    "2. Do not include inline citations, source notes, page notes, URLs, bracketed markers, extracted paragraph labels, source lists, or bibliography sections.\n"
+    "3. Do not include a `Sources:` section.\n"
+    "4. Stop immediately after the final analysis sentence or bullet."
 )
 
 
@@ -240,7 +236,7 @@ Use short paragraphs and bullet points for readability.
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
@@ -443,7 +439,7 @@ Keep the answer under 150 words. Break into short paragraphs.
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}
@@ -743,7 +739,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         for chunk in _collect_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources:
+        if retrieved_sources and not is_url_grounded:
             yield build_sources_event(retrieved_sources)
 
         yield {"type": "model_used", "body": agent.model_name}

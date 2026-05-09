@@ -93,20 +93,17 @@ async def test_use_url_context_ingests_user_url_and_skips_brave(
     assert "The report says services drove growth." in prompt
     assert "Use ONLY the Source passages below to answer this URL-grounded question." in prompt
     assert "database financial statements" in prompt
-    assert "Do not write inline citations or source notes anywhere in the analysis body." in prompt
+    assert "Do not write citations, source notes, source lists" in prompt
     assert "Do not name or cite extracted paragraphs in the final answer." in prompt
-    assert "must not include URLs, source numbers, bracketed markers, extracted paragraph labels" in prompt
-    assert "If the extracted excerpts do not contain BOTH a section name and page number" in prompt
-    assert "End with exactly one final `Sources:` section" in prompt
-    assert "- <section name>, page <number or range>" in prompt
+    assert "Do not append a `Sources:` section" in prompt
     assert "Extracted document context:" in prompt
     assert "Extracted paragraph: The report says services drove growth." in prompt
     assert "Excerpt [" not in prompt
     assert "Final response format for URL-grounded answers" in prompt
-    assert "Do not copy extracted paragraph text into `Sources:`." in prompt
-    assert prompt.endswith("Do not copy extracted paragraph text into `Sources:`.")
+    assert "Do not include a `Sources:` section." in prompt
+    assert prompt.endswith("Stop immediately after the final analysis sentence or bullet.")
     assert "Relevant excerpts:" not in prompt
-    assert [event for event in events if event["type"] == "sources"][0]["body"][0]["source_id"] == "s_url"
+    assert [event for event in events if event["type"] == "sources"] == []
 
 
 @pytest.mark.asyncio
