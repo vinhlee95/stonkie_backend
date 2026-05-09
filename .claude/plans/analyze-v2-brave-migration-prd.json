@@ -785,7 +785,8 @@
         "Wrapping retrieve_for_analyze in asyncio.to_thread inside _retrieve_one_ticker — combined with asyncio.Semaphore(5) — gives both true concurrency on the sync HTTP client and a clean cap that can be unit-tested by overriding _retrieve_one_ticker on the handler instance.",
         "Comparison partial-failure surfaces best as TWO channels: a user-visible thinking_status event ('Web retrieval failed for X') and an LLM-visible prompt marker ('Note: web retrieval failed for X'); the LLM weaves it into the answer naturally while the FE shows the status badge.",
         "Test helper bug: `fundamental or default` overrides explicitly-passed empty dict; use a sentinel (_UNSET) when the test needs to pass an empty mapping.",
-        "v1 provenance ('data_sources') and v2 citation ('sources') events are different semantic classes; keeping them as separate events lets the FE renderer treat citation badges and provenance pills independently."
+        "v1 provenance ('data_sources') and v2 citation ('sources') events are different semantic classes; keeping them as separate events lets the FE renderer treat citation badges and provenance pills independently.",
+        "Post-completion fix (5edf36e): _select_grounding() added to permit training-data answers for stable_concept questions (founders, HQ, IPO date). Previously no-data-decline directive blocked these even though search was intentionally skipped. Partially pre-empts phase-8.5 training-weights-only scope — grounding directive routing done; phase-8.5 still needs the structured provenance SSE event."
       ],
       "next_phase_considerations": [
         "Phase 7.5 (ETF, low priority): mirrors stock handler shape; add tests/services/test_etf_analyzer_v2.py (or etf_question_analyzer package tests) when ETFAnalyzerV2 wiring lands — runs after phase-7 stock v2 endpoint.",
@@ -866,7 +867,12 @@
       "id": "phase-7-25-v2-url-context-parse-grounding",
       "sort_order": 10,
       "impact_level": "HIGH",
-      "state": "not-started",
+      "state": "complete",
+      "validation_summary": "Phase 7.25 complete (commit a85286e). Tavily Extract chosen as URL ingest provider over Brave parse API. New L3 connector connectors/tavily_extract_client.py wraps Tavily Extract HTTP API with query-focused chunking (chunks_per_source=5, format=markdown). L2 service services/analyze_retrieval/url_ingest.py converts chunks into v2 AnalyzeSource/AnalyzePassage objects with structured logging. Three ingest paths wired into handlers_v2.py: (1) use_url_context=true user-pasted URLs in both CompanyGeneralHandlerV2 and CompanySpecificFinanceHandlerV2 via _ingest_user_url (extract_depth=basic, timeout=10); (2) DB-stored filing_10q_url/filing_10k_url in CompanySpecificFinanceHandlerV2 via ingest_url (extract_depth=advanced, timeout=30). Both emit attachment_url event, use_excerpt_labels=True in sources block, _URL_GROUNDED_RULES + _URL_FINAL_RESPONSE_FORMAT directives, and skip build_sources_event (no Brave [N] contract for URL-grounded turns). UrlIngestError yields {type:error, code:url_ingest_failed}. SemanticAnalysisCache updated to skip caching for URL-grounded requests (use_url_context=true, embedded URLs, or report-term heuristic). Context builders (annual_builder, quarterly_builder) stripped legacy per-section source reference instructions. _select_grounding extended with is_url_grounded param. FinancialAnalyzerV2 updated to emit attachment_url + thinking_status for use_url_context before dispatching to handler. TDD plan in .claude/plans/analyze-v2-tavily-url-ingest-tdd.md.",
+      "tdd_evidence": {
+        "red_run": "Tests written for Tavily client, url_ingest service, handler v2 URL paths, and cache guard — all red before implementation.",
+        "green_run": "67 lines test_tavily_extract_client.py, 108 lines test_url_ingest.py, handler v2 tests extended with URL-grounded cases (96+ lines company_general, 143+ lines company_specific_finance), 45 lines financial_analyzer_v2 URL dispatch, 15 lines semantic_analysis_cache URL guard."
+      },
       "title": "v2 URL context — parse/fetch grounding (replaces :online URL read)",
       "objective": "v1 `use_url_context` relies on OpenRouter `:online` so the provider reads URLs opaquely. v2 is Brave-grounded: the LLM only sees prompt text we supply, so user-supplied URLs must be ingested explicitly (parse API or equivalent fetch→extract→truncate pipeline), composed with existing Brave passages, and reflected in the citation contract.",
       "scope_includes": [
@@ -879,6 +885,14 @@
         "TDD: fixtures only — no live HTTP to arbitrary URLs in CI; mock parser/fetch boundary",
         "Keep prd_meta.core_non_negotiables.grounding in sync with shipped ingest behavior (already states no :online; extend with ingest module path in learnings when code lands)"
       ],
+      "learnings": [
+        "Tavily Extract chosen over Brave parse API — Tavily's query-focused chunking (chunks_per_source) eliminates need for a separate reranker on extracted content; Brave parse returns full HTML requiring local extraction.",
+        "Filing URLs (10-Q/10-K) use extract_depth=advanced + timeout=30 because SEC EDGAR pages are large/complex; user-pasted URLs use basic + timeout=10 for speed.",
+        "URL-grounded turns skip build_sources_event entirely (no Brave [N] contract) — the grounding is the single ingested document, not a ranked web result set. Sources block uses excerpt labels instead.",
+        "SemanticAnalysisCache needed a report-term heuristic (_URL_GROUNDED_REPORT_TERMS) beyond just use_url_context flag and URL detection, because filing-grounded requests from DB URLs don't set use_url_context=true.",
+        "Context builders (annual_builder, quarterly_builder) had legacy per-section source reference instructions ('provide the source information in this format: (Section name from document on page X)') that conflicted with v2 URL grounding — stripped.",
+        "_select_grounding extended with is_url_grounded to route URL-grounded turns to _URL_GROUNDED_RULES instead of the Brave grounding or no-data-decline directives."
+      ],
       "scope_excludes": [
         "v1 behavior change (`:online` remains v1-only)",
         "FE renderer changes",
@@ -889,6 +903,22 @@
         "tests/services/analyze_retrieval/test_url_ingest.py",
         "Edits to services/question_analyzer/handlers_v2.py and post-phase-7.5 ETF handlers if unified contract",
         ".claude/plans/analyze-v2-url-context-spec.md (short ADR saved alongside PRD updates)"
+      ],
+      "files_changed": [
+        "connectors/tavily_extract_client.py (NEW)",
+        "services/analyze_retrieval/url_ingest.py (NEW)",
+        "services/question_analyzer/handlers_v2.py",
+        "services/financial_analyzer_v2.py",
+        "services/question_analyzer/context_builders/annual_builder.py",
+        "services/question_analyzer/context_builders/quarterly_builder.py",
+        "services/semantic_analysis_cache.py",
+        "tests/connectors/test_tavily_extract_client.py (NEW)",
+        "tests/services/analyze_retrieval/test_url_ingest.py (NEW)",
+        "tests/services/question_analyzer/test_company_general_handler_v2.py",
+        "tests/services/question_analyzer/test_company_specific_finance_handler_v2.py",
+        "tests/services/test_financial_analyzer_v2.py",
+        "tests/test_semantic_analysis_cache.py",
+        ".claude/plans/analyze-v2-tavily-url-ingest-tdd.md (NEW)"
       ],
       "dependencies": {
         "technical_must_complete_before": [
@@ -1059,7 +1089,7 @@
       "scope_includes": [
         "DB-only path: replace inline [SOURCES_JSON]{...}[/SOURCES_JSON] answer-text dump with v1-parity structured provenance. Lock SSE shape at kickoff: reuse structured {type:'sources'} with synthetic financial/training rows rather than introducing a dedicated {type:'provenance'} event, so FE can stay on one citation/provenance collection path.",
         "Strip PromptComponents.source_instructions() (or equivalent) from DB-only handler prompts so the model stops generating [SOURCES_JSON] at all.",
-        "Training-weights-only sink: detect when search_decision.use_search=false AND no DB financial grounding; emit single explicit training-data provenance row matching the SSE shape chosen above.",
+        "Training-weights-only sink: grounding directive routing already handled by _select_grounding() in handlers_v2.py (commit 5edf36e — stable_concept reason_code permits training-data answers). Remaining: emit single explicit training-data provenance row in the structured {type:'sources'} SSE event so FE renders correct provenance UI for these turns.",
         "[N] out-of-range contract: preserve uncited / out-of-range markers in streamed text, document that FE leaves unresolved markers as raw text, and add a regression test for that rule.",
         "Prompt audit (one pass): grep handlers_v2.py + comparison_handler_v2.py for residual source_instructions / SOURCES_JSON template usage; remove on Brave-on and DB-only paths; add a per-handler prompt-string assertion test.",
         "Mixed Brave+DB observation: run an earnings-vs-estimates style probe before locking; document current behavior in validation_summary; only expand scope here if the probe surfaces a contract violation.",
