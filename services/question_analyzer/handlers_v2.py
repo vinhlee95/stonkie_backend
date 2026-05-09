@@ -30,6 +30,18 @@ logger = logging.getLogger(__name__)
 
 _GROUNDING_RULES = PromptComponents.grounding_rules()
 _NO_DATA_DECLINE = PromptComponents.no_data_decline()
+_STABLE_CONCEPT_ALLOW = (
+    "This is a well-known, stable fact (e.g. founding date, founders, headquarters). "
+    "You may answer from your training knowledge. Be concise and confident."
+)
+
+
+def _select_grounding(retrieved_sources: list, search_decision: SearchDecision) -> str:
+    if retrieved_sources:
+        return _GROUNDING_RULES
+    if search_decision.reason_code == "stable_concept":
+        return _STABLE_CONCEPT_ALLOW
+    return _NO_DATA_DECLINE
 
 
 def _collect_answer_chunks(chunks) -> list[str]:
@@ -165,7 +177,7 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = _select_grounding(retrieved_sources, search_decision)
 
         temporal_context = build_temporal_context_block(question)
         prompt = f"""
@@ -322,7 +334,7 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = _select_grounding(retrieved_sources, search_decision)
 
         temporal_context = build_temporal_context_block(question)
         prompt = f"""
