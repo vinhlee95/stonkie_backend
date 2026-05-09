@@ -50,6 +50,22 @@ _URL_FINAL_RESPONSE_FORMAT = (
     "3. Do not include a `Sources:` section.\n"
     "4. Stop immediately after the final analysis sentence or bullet."
 )
+_STABLE_CONCEPT_ALLOW = (
+    "This is a well-known, stable fact (e.g. founding date, founders, headquarters). "
+    "You may answer from your training knowledge. Be concise and confident."
+)
+
+
+def _select_grounding(
+    retrieved_sources: list, search_decision: SearchDecision, *, is_url_grounded: bool = False
+) -> str:
+    if is_url_grounded:
+        return _URL_GROUNDED_RULES
+    if retrieved_sources:
+        return _GROUNDING_RULES
+    if search_decision.reason_code == "stable_concept":
+        return _STABLE_CONCEPT_ALLOW
+    return _NO_DATA_DECLINE
 
 
 def _collect_answer_chunks(chunks) -> list[str]:
@@ -204,8 +220,10 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = (
-            _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = _select_grounding(
+            retrieved_sources,
+            search_decision,
+            is_url_grounded=is_url_grounded,
         )
 
         temporal_context = build_temporal_context_block(question)
@@ -409,8 +427,10 @@ Do not add numbering.
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
-        grounding_directive = (
-            _URL_GROUNDED_RULES if is_url_grounded else _GROUNDING_RULES if retrieved_sources else _NO_DATA_DECLINE
+        grounding_directive = _select_grounding(
+            retrieved_sources,
+            search_decision,
+            is_url_grounded=is_url_grounded,
         )
 
         temporal_context = build_temporal_context_block(question)
