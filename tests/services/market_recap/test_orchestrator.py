@@ -74,6 +74,10 @@ def _session_factory(db_session):
     return _factory
 
 
+def _noop_questions(**_):
+    return ["Q1?", "Q2?", "Q3?"]
+
+
 def test_run_market_recap_success_persists_row(db_session):
     result = run_market_recap(
         market="US",
@@ -84,6 +88,7 @@ def test_run_market_recap_success_persists_row(db_session):
         retrieve_fn=lambda **_: _retrieval_result(),
         generate_fn=lambda **kwargs: GeneratorResult(payload=_payload(), model="test-model", raw_model_output="raw"),
         validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+        generate_questions_fn=_noop_questions,
     )
 
     assert result.status == "inserted"
@@ -95,6 +100,7 @@ def test_run_market_recap_success_persists_row(db_session):
     assert row.raw_sources["query_snapshots"][0]["provider_snapshot"]["provider"] == "brave"
     assert "raw_content" not in row.raw_sources["candidates"][0]
     assert row.raw_sources["candidates"][0]["title"] == "Reuters A"
+    assert row.questions == ["Q1?", "Q2?", "Q3?"]
 
 
 def test_run_market_recap_forwards_cadence_to_generate_fn(db_session):
@@ -113,6 +119,7 @@ def test_run_market_recap_forwards_cadence_to_generate_fn(db_session):
         retrieve_fn=lambda **_: _retrieval_result(),
         generate_fn=_generate,
         validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+        generate_questions_fn=_noop_questions,
     )
 
     assert captured.get("cadence") == "daily"
@@ -196,6 +203,26 @@ def test_run_market_recap_vn_daily_path_succeeds_with_mocked_brave(db_session):
             payload=_payload(summary="VN-Index macro money flow"), model="test-model", raw_model_output="raw"
         ),
         validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+        generate_questions_fn=_noop_questions,
     )
     assert result.status == "inserted"
     assert result.inserted is True
+
+
+def test_run_market_recap_questions_failure_still_persists(db_session):
+    result = run_market_recap(
+        market="US",
+        cadence="weekly",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        session_factory=_session_factory(db_session),
+        retrieve_fn=lambda **_: _retrieval_result(),
+        generate_fn=lambda **kwargs: GeneratorResult(payload=_payload(), model="test-model", raw_model_output="raw"),
+        validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+        generate_questions_fn=lambda **_: [],
+    )
+
+    assert result.status == "inserted"
+    assert result.inserted is True
+    row = db_session.query(MarketRecap).one()
+    assert row.questions is None

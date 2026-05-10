@@ -33,12 +33,14 @@ def get_market_recaps(
     latest_created_at = max((row.created_at for row in rows), default=None)
     items = [
         {
+            "id": row.id,
             "period_start": row.period_start.isoformat(),
             "period_end": row.period_end.isoformat(),
             "created_at": _isoformat(row.created_at),
             "summary": row.summary,
             "bullets": row.bullets,
             "sources": row.sources,
+            "questions": row.questions,
         }
         for row in rows
     ]

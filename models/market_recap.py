@@ -16,6 +16,7 @@ class MarketRecap(Base):
     bullets = Column(JSON, nullable=False)
     sources = Column(JSON, nullable=False)
     raw_sources = Column(JSON, nullable=True)
+    questions = Column(JSON, nullable=True)
     model = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

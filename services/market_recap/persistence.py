@@ -22,6 +22,7 @@ def _payload_values(
     payload: RecapPayload,
     model: str,
     raw_sources: dict,
+    questions: list[str] | None = None,
 ) -> dict:
     return {
         "market": market,
@@ -32,6 +33,7 @@ def _payload_values(
         "bullets": [bullet.model_dump(mode="json") for bullet in payload.bullets],
         "sources": [source.model_dump(mode="json") for source in payload.sources],
         "raw_sources": raw_sources,
+        "questions": questions,
         "model": model,
     }
 
@@ -44,6 +46,7 @@ def persist_recap(
     payload: RecapPayload,
     model: str,
     raw_sources: dict,
+    questions: list[str] | None = None,
     replace: bool = False,
 ) -> PersistenceResult:
     values = _payload_values(
@@ -52,6 +55,7 @@ def persist_recap(
         payload=payload,
         model=model,
         raw_sources=raw_sources,
+        questions=questions,
     )
 
     replaced = False

@@ -7,6 +7,7 @@ from typing import Callable, Literal
 from connectors.database import SessionLocal
 from services.market_recap.logging import log_event, new_run_id
 from services.market_recap.persistence import PersistenceResult, persist_recap
+from services.market_recap.question_generator import generate_questions
 from services.market_recap.recap_generator import GeneratorError, GeneratorResult, generate_recap
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.validator import ValidationResult, validate_recap
@@ -56,6 +57,7 @@ def run_market_recap(
     generate_fn: Callable = generate_recap,
     validate_fn: Callable = validate_recap,
     persist_fn: Callable = persist_recap,
+    generate_questions_fn: Callable = generate_questions,
 ) -> RunResult:
     run_id = new_run_id()
     provider = "brave"
@@ -158,6 +160,11 @@ def run_market_recap(
                 )
             continue
 
+        questions = generate_questions_fn(
+            summary=generated.payload.summary,
+            bullets=[{"text": b.text} for b in generated.payload.bullets],
+            market=market,
+        )
         raw_sources = {
             "candidates": [_safe_raw_candidate(candidate) for candidate in retrieval.candidates],
             "stats": retrieval.stats.model_dump(mode="json"),
@@ -171,6 +178,7 @@ def run_market_recap(
                 payload=generated.payload,
                 model=generated.model,
                 raw_sources=raw_sources,
+                questions=questions or None,
                 replace=replace,
             )
         if persisted.inserted:
