@@ -8,13 +8,10 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 from ai_models.model_mapper import map_frontend_model_to_enum
-from connectors.database import get_db
-from models.market_recap import MarketRecap
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.recap_analyze import RecapAnalyzeStreamService
 
@@ -24,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/api/recaps/{recap_id}/analyze")
-async def analyze_recap(recap_id: int, request: Request, db: Session = Depends(get_db)) -> StreamingResponse:
+async def analyze_recap(recap_id: int, request: Request) -> StreamingResponse:
     try:
         body = await request.json()
         question = body.get("question")
@@ -35,7 +32,7 @@ async def analyze_recap(recap_id: int, request: Request, db: Session = Depends(g
         if not question:
             raise HTTPException(status_code=400, detail="Question is required in request body")
 
-        recap = db.query(MarketRecap).filter(MarketRecap.id == recap_id).one_or_none()
+        recap = recap_analyze_stream_service.get_recap(recap_id)
         if recap is None:
             raise HTTPException(status_code=404, detail="Recap not found")
 

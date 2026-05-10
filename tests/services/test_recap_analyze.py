@@ -111,6 +111,7 @@ async def test_recap_analyze_service_answers_recap_related_question_from_recap_s
     answer_prompt = FakeAgent.prompts[-1]
     assert "US stocks rose as tech earnings" in answer_prompt
     assert "Megacap tech led the market higher" in answer_prompt
+    assert "You are a financial analyst" in answer_prompt
     assert "Keep the answer under 150 words" in answer_prompt
     assert "Use short paragraphs or up to 4 bullets" in answer_prompt
 
@@ -170,6 +171,7 @@ async def test_recap_analyze_service_searches_with_recap_aware_query_for_market_
     thinking_bodies = [event["body"] for event in events if event["type"] == "thinking_status"]
     assert "Reading 1 sources: reuters.com" in thinking_bodies
     assert "External search context" in FakeAgent.prompts[-1]
+    assert "explicitly connect the answer back to the recap" in FakeAgent.prompts[-1]
 
 
 @pytest.mark.asyncio

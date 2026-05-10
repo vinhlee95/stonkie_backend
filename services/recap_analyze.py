@@ -19,7 +19,7 @@ from connectors.conversation_store import (
     generate_conversation_id,
     get_conversation_history_for_prompt,
 )
-from models.market_recap import MarketRecap
+from connectors.market_recap import MarketRecapConnector, MarketRecapDto
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
@@ -57,7 +57,7 @@ def _json_block(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _market_for_recap(recap: MarketRecap) -> Market:
+def _market_for_recap(recap: MarketRecapDto) -> Market:
     market = (recap.market or "").upper()
     if market == "VN":
         return "VN"
@@ -76,7 +76,7 @@ def _source_datetime_to_iso(value: Any) -> str | None:
     return None
 
 
-def _recap_sources(recap: MarketRecap) -> list[AnalyzeSource]:
+def _recap_sources(recap: MarketRecapDto) -> list[AnalyzeSource]:
     sources: list[AnalyzeSource] = []
     for raw in recap.sources or []:
         if not isinstance(raw, dict):
@@ -97,7 +97,7 @@ def _recap_sources(recap: MarketRecap) -> list[AnalyzeSource]:
     return sources
 
 
-def _build_recap_context(recap: MarketRecap) -> str:
+def _build_recap_context(recap: MarketRecapDto) -> str:
     lines = [
         "Recap context:",
         f"- Market: {recap.market}",
@@ -144,7 +144,7 @@ def _format_conversation(messages: list[dict[str, str]] | None) -> str:
     return "Recent conversation:\n" + "\n".join(lines)
 
 
-def _build_search_query(question: str, recap: MarketRecap) -> str:
+def _build_search_query(question: str, recap: MarketRecapDto) -> str:
     stopwords = {
         "after",
         "amid",
@@ -200,7 +200,7 @@ def _asks_after_recap(question: str) -> bool:
 
 def _filter_post_recap_sources(
     *,
-    recap: MarketRecap,
+    recap: MarketRecapDto,
     question: str,
     sources: list[AnalyzeSource],
     selected_passages: list[AnalyzePassage],
@@ -233,10 +233,10 @@ def _sources_thinking_status(sources: list[AnalyzeSource]) -> dict[str, Any] | N
 
 
 def _build_answer_prompt(
-    *,
     question: str,
     recap_context: str,
     conversation_context: str,
+    *,
     external_context: str = "",
 ) -> str:
     search_rules = ""
@@ -249,11 +249,11 @@ Additional rules for external search:
 - Use the search context for facts not present in the recap.
 - Prefer recent, specific evidence over generic market knowledge.
 - If the search context does not answer the question, say that clearly.
-- Mention how the external information changes, supports, or contrasts with the recap when relevant.
+- You must connect the external information back to the recap by explaining whether it changes, supports, or contrasts with the recap.
 """.format(external_context=external_context)
 
     return f"""
-You are a market recap chat assistant.
+You are a financial analyst helping a user discuss a specific market recap.
 
 Answer the user's current question using the provided recap context first. This chat is about one specific market recap, so preserve that framing in your answer.
 
@@ -267,7 +267,7 @@ Current question:
 Rules:
 - Answer in the same language as the current question.
 - If the question is recap-related, answer only from the recap context above.
-- If Brave search context is provided, use it for fresh or adjacent market context, but connect the answer back to the recap when the link is meaningful.
+- If Brave search context is provided, use it for fresh or adjacent market context and explicitly connect the answer back to the recap.
 - Do not invent facts, figures, or URLs.
 - Do not include inline source URLs or a "Sources:" section in the answer text.
 - Keep the answer under 150 words unless the user explicitly asks for a deeper breakdown.
@@ -313,6 +313,12 @@ def _build_sources_block(
 
 
 class RecapAnalyzeStreamService:
+    def __init__(self, recap_connector: MarketRecapConnector | None = None) -> None:
+        self._recap_connector = recap_connector or MarketRecapConnector()
+
+    def get_recap(self, recap_id: int) -> MarketRecapDto | None:
+        return self._recap_connector.get_by_id(recap_id)
+
     def _classify_relevance(
         self,
         *,
@@ -367,7 +373,7 @@ Output ONLY JSON:
     async def stream(
         self,
         *,
-        recap: MarketRecap,
+        recap: MarketRecapDto,
         question: str,
         preferred_model: ModelName,
         conversation_id: str | None,
@@ -430,9 +436,9 @@ Output ONLY JSON:
             yield thinking_status("Answering from the recap...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=3)
 
         prompt = _build_answer_prompt(
-            question=question,
-            recap_context=recap_context,
-            conversation_context=conversation_context,
+            question,
+            recap_context,
+            conversation_context,
             external_context=external_context,
         )
         if debug_prompt_context:

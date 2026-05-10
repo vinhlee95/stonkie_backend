@@ -1,13 +1,11 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import date
+from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
-from connectors.database import get_db
 from main import app
-from models.market_recap import MarketRecap
 from services.analyze_retrieval.schemas import BraveRetrievalError
 
 
@@ -19,22 +17,9 @@ def _parse_sse(raw: bytes) -> list[dict]:
     return events
 
 
-@pytest.fixture()
-def client(db_session):
-    def _override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = _override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
-def _seed_recap(db_session) -> MarketRecap:
-    recap = MarketRecap(
+def _recap():
+    return SimpleNamespace(
+        id=91,
         market="US",
         cadence="weekly",
         period_start=date(2026, 4, 20),
@@ -72,15 +57,10 @@ def _seed_recap(db_session) -> MarketRecap:
         questions=["What drove the rally?"],
         model="test-model",
     )
-    db_session.add(recap)
-    db_session.flush()
-    recap.created_at = datetime(2026, 4, 25, 8, 0, tzinfo=UTC)
-    db_session.commit()
-    return recap
 
 
-def test_recap_analyze_streams_recap_grounded_answer_and_sources(db_session, client):
-    recap = _seed_recap(db_session)
+def test_recap_analyze_streams_recap_grounded_answer_and_sources():
+    recap = _recap()
 
     async def fake_stream(**_kwargs):
         yield {"type": "conversation", "body": {"conversationId": "conv-recap"}}
@@ -100,7 +80,11 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources(db_session, cli
         }
         yield {"type": "model_used", "body": "test-model"}
 
-    with patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream):
+    with (
+        patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=recap),
+        patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream),
+        TestClient(app) as client,
+    ):
         with client.stream(
             "POST",
             f"/api/recaps/{recap.id}/analyze",
@@ -118,18 +102,23 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources(db_session, cli
     assert "related_question" not in [event["type"] for event in events]
 
 
-def test_recap_analyze_validates_question_and_recap_id(db_session, client):
-    recap = _seed_recap(db_session)
+def test_recap_analyze_validates_question_and_recap_id():
+    recap = _recap()
 
-    missing_question = client.post(f"/api/recaps/{recap.id}/analyze", json={})
-    assert missing_question.status_code == 400
+    with TestClient(app) as client:
+        missing_question = client.post(f"/api/recaps/{recap.id}/analyze", json={})
+        assert missing_question.status_code == 400
 
-    missing_recap = client.post("/api/recaps/999999/analyze", json={"question": "What happened?"})
-    assert missing_recap.status_code == 404
+    with (
+        patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=None),
+        TestClient(app) as client,
+    ):
+        missing_recap = client.post("/api/recaps/999999/analyze", json={"question": "What happened?"})
+        assert missing_recap.status_code == 404
 
 
-def test_recap_analyze_uses_per_recap_conversation_scope(db_session, client):
-    recap = _seed_recap(db_session)
+def test_recap_analyze_uses_per_recap_conversation_scope():
+    recap = _recap()
     captured = {}
 
     async def fake_stream(**kwargs):
@@ -137,7 +126,11 @@ def test_recap_analyze_uses_per_recap_conversation_scope(db_session, client):
         yield {"type": "conversation", "body": {"conversationId": "conv-existing"}}
         yield {"type": "answer", "body": "answer"}
 
-    with patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream):
+    with (
+        patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=recap),
+        patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream),
+        TestClient(app) as client,
+    ):
         with client.stream(
             "POST",
             f"/api/recaps/{recap.id}/analyze",
@@ -153,14 +146,18 @@ def test_recap_analyze_uses_per_recap_conversation_scope(db_session, client):
     assert captured["anon_user_id"] == "anon-existing"
 
 
-def test_recap_analyze_translates_brave_failure_to_sse_error(db_session, client):
-    recap = _seed_recap(db_session)
+def test_recap_analyze_translates_brave_failure_to_sse_error():
+    recap = _recap()
 
     async def fake_stream(**_kwargs):
         yield {"type": "conversation", "body": {"conversationId": "conv-brave"}}
         raise BraveRetrievalError("no results")
 
-    with patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream):
+    with (
+        patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=recap),
+        patch("api.recap_analyze.recap_analyze_stream_service.stream", side_effect=fake_stream),
+        TestClient(app) as client,
+    ):
         with client.stream(
             "POST",
             f"/api/recaps/{recap.id}/analyze",
