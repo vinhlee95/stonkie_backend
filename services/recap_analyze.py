@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
@@ -9,6 +10,9 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Literal
+
+from langfuse import observe
+from langfuse._client.get_client import get_client as get_langfuse_client
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -312,6 +316,10 @@ def _build_sources_block(
     return "\n\n".join(blocks)
 
 
+def _extract_answer_text(chunks: list) -> str:
+    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
+
+
 class RecapAnalyzeStreamService:
     def __init__(self, recap_connector: MarketRecapConnector | None = None) -> None:
         self._recap_connector = recap_connector or MarketRecapConnector()
@@ -319,6 +327,7 @@ class RecapAnalyzeStreamService:
     def get_recap(self, recap_id: int) -> MarketRecapDto | None:
         return self._recap_connector.get_by_id(recap_id)
 
+    @observe(name="recap_classify_relevance")
     def _classify_relevance(
         self,
         *,
@@ -370,6 +379,12 @@ Output ONLY JSON:
             logger.exception("Recap relevance classification failed; falling back to recap context")
         return RecapRelevanceDecision(route="recap_related", reason="fallback")
 
+    @observe(
+        name="recap_analyze.stream",
+        as_type="generation",
+        capture_input=False,
+        transform_to_string=_extract_answer_text,
+    )
     async def stream(
         self,
         *,
@@ -381,6 +396,11 @@ Output ONLY JSON:
         is_disconnected,
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        langfuse = get_langfuse_client()
+        if langfuse:
+            langfuse.update_current_generation(input=question)
+        ttft_recorded = False
+
         conv_id = conversation_id or generate_conversation_id()
         storage_scope = recap_conversation_scope(recap.id)
         conversation_messages = get_conversation_history_for_prompt(anon_user_id, storage_scope, conv_id)
@@ -464,6 +484,9 @@ Output ONLY JSON:
             for split_event in visual_splitter.process_text(chunk):
                 if split_event.get("type") == "answer" and isinstance(split_event.get("body"), str):
                     assistant_output_buffer.append(split_event["body"])
+                    if not ttft_recorded and langfuse:
+                        langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
+                        ttft_recorded = True
                 yield split_event
 
         for split_event in visual_splitter.finalize():
