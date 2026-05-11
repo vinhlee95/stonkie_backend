@@ -1,8 +1,14 @@
 import re
 from typing import Iterable, Union
 
+from langfuse import observe
+
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
+
+
+def _join_text_chunks(chunks: list) -> str:
+    return "".join(c for c in chunks if isinstance(c, str))
 
 
 class MultiAgent:
@@ -25,6 +31,7 @@ class MultiAgent:
         """Get the current model name"""
         return self.client.model_name
 
+    @observe(name="generate_content", as_type="generation", transform_to_string=_join_text_chunks)
     def generate_content(
         self,
         prompt: str,

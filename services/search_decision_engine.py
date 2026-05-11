@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from langfuse import observe
+
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import get_openrouter_model_name
@@ -63,6 +65,7 @@ class SearchDecisionEngine:
         self.timeout_seconds = timeout_seconds
         self._classifier = classifier
 
+    @observe(name="search_decision_engine.decide")
     async def decide(
         self,
         question: str,

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+from langfuse import observe
+from langfuse._client.get_client import get_client as get_langfuse_client
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -24,6 +28,10 @@ from services.search_decision_engine import SearchDecisionEngine
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_answer_text(chunks: list) -> str:
+    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
 
 
 class FinancialAnalyzerV2:
@@ -133,6 +141,12 @@ class FinancialAnalyzerV2:
             logger.error("Error handling PDF URL question: %s", e)
             yield {"type": "answer", "body": "❌ Error analyzing document. Please try again later."}
 
+    @observe(
+        name="financial_analyzer_v2.analyze_question",
+        as_type="generation",
+        capture_input=False,
+        transform_to_string=_extract_answer_text,
+    )
     async def analyze_question(
         self,
         ticker: str,
@@ -146,6 +160,10 @@ class FinancialAnalyzerV2:
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         _ = (conversation_id, anon_user_id)
+        langfuse = get_langfuse_client()
+        if langfuse:
+            langfuse.update_current_generation(input=question)
+        ttft_recorded = False
 
         extracted_url = extract_first_url(question)
         force_google_search_reason: str | None = None
@@ -274,4 +292,7 @@ class FinancialAnalyzerV2:
             return
 
         async for chunk in iterator:
+            if not ttft_recorded and langfuse and chunk.get("type") == "answer" and isinstance(chunk.get("body"), str):
+                langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
+                ttft_recorded = True
             yield chunk

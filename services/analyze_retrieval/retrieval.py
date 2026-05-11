@@ -4,6 +4,8 @@ import re
 from datetime import UTC, datetime
 from typing import Protocol
 
+from langfuse import observe
+
 from services.analyze_retrieval.freshness import (
     FreshnessPolicy,
     freshness_for_question,
@@ -70,6 +72,7 @@ def build_company_aware_query(question: str, *, ticker: str | None = None, compa
     )
 
 
+@observe(name="retrieve_for_analyze")
 def retrieve_for_analyze(
     *,
     question: str,
