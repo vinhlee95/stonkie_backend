@@ -27,6 +27,7 @@ ALLOWLIST_BY_MARKET = {
         "cafef.vn",
         "vietstock.vn",
         "vneconomy.vn",
+        "thitruongtaichinhtiente.vn",
         "vnexpress.net",
         "tinnhanhchungkhoan.vn",
         "vietnamfinance.vn",

@@ -78,6 +78,7 @@ VN_TIER_1: frozenset[str] = frozenset(
         "sbv.gov.vn",
         "cafef.vn",
         "vneconomy.vn",
+        "thitruongtaichinhtiente.vn",
         "vietstock.vn",
         "vir.com.vn",
         "baodautu.vn",
