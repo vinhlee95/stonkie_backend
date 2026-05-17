@@ -28,7 +28,7 @@ async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingR
         body = await request.json()
         question = body.get("question")
         use_url_context = body.get("useUrlContext", False)
-        deep_analysis = body.get("deepAnalysis", False)
+        deep_analysis = False  # disabled — see .claude/plans/deep-analysis-agent-sdk-prd.json "abort" section
         preferred_model_str = body.get("preferredModel", "fastest")
         conversation_id = body.get("conversationId")
         disable_cache = body.get("disableCache", False)
