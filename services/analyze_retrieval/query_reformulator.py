@@ -33,9 +33,8 @@ Rules:
 - Convert conversational language to search-engine keywords
 - Include the company name (not ticker) in each query
 - Add temporal context: current year/quarter when relevant
-- Add authoritative data source names when appropriate:
-  - Market share / shipments → IDC, Canalys, Counterpoint Research
-  - Industry statistics → Statista
+- Do NOT include specific research firm or data provider names (e.g. IDC, Canalys, Statista) — their pages are often paywalled. Instead use generic terms that surface articles citing those firms' data
+  - Market share / shipments → "market share data", "shipment figures"
   - Financial filings → SEC, 10-K, 10-Q
   - Analyst estimates → consensus, forecast
 - Disambiguate vague terms:
@@ -49,7 +48,7 @@ Output ONLY JSON (no markdown) with exact keys:
 - reasoning: one sentence explaining your reformulation choices
 
 Examples:
-- Question: "breakdown the company Mac share by region" (Apple) -> {{"queries": ["Apple Mac market share by region 2026 IDC Canalys", "Apple Mac revenue breakdown geographic segment 2026"], "reasoning": "Disambiguated 'share' to market share and revenue, added research sources"}}
+- Question: "breakdown the company Mac share by region" (Apple) -> {{"queries": ["Apple Mac market share by region 2026 shipment data", "Apple Mac revenue breakdown geographic segment 2026"], "reasoning": "Disambiguated 'share' to market share and revenue, added temporal context"}}
 - Question: "what's the latest on their AI strategy" (Microsoft) -> {{"queries": ["Microsoft AI strategy 2026 Copilot Azure OpenAI"], "reasoning": "Added specific AI product names and current year"}}
 - Question: "how is revenue doing" (Tesla) -> {{"queries": ["Tesla revenue trend Q1 Q2 2026 quarterly results"], "reasoning": "Added temporal context and specificity"}}
 """
