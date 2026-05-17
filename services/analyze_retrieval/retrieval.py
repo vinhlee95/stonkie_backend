@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
@@ -22,6 +24,8 @@ from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSo
 from services.analyze_retrieval.source_policy import Market, is_trusted, registrable_domain
 from services.market_recap.schemas import Candidate
 from services.market_recap.url_utils import source_id_for
+
+logger = logging.getLogger(__name__)
 
 
 class BraveSearchClient(Protocol):
@@ -75,6 +79,50 @@ def build_company_aware_query(question: str, *, ticker: str | None = None, compa
     )
 
 
+def _execute_searches(
+    *,
+    queries: list[str],
+    brave_client: BraveSearchClient,
+    country: str,
+    search_lang: str,
+    goggle: str,
+    count: int,
+    freshness: str | None,
+) -> list[Candidate]:
+    if len(queries) == 1:
+        return brave_client.search(
+            query=queries[0],
+            country=country,
+            search_lang=search_lang,
+            goggle=goggle,
+            count=count,
+            freshness=freshness,
+        )
+
+    all_candidates: list[Candidate] = []
+    with ThreadPoolExecutor(max_workers=len(queries)) as executor:
+        futures = {
+            executor.submit(
+                brave_client.search,
+                query=q,
+                country=country,
+                search_lang=search_lang,
+                goggle=goggle,
+                count=count,
+                freshness=freshness,
+            ): q
+            for q in queries
+        }
+        for future in as_completed(futures):
+            query = futures[future]
+            try:
+                all_candidates.extend(future.result())
+            except Exception:
+                logger.warning("Brave search failed for query: %s", query, exc_info=True)
+
+    return all_candidates
+
+
 @observe(name="retrieve_for_analyze")
 def retrieve_for_analyze(
     *,
@@ -101,13 +149,18 @@ def retrieve_for_analyze(
 
     freshness_policy = freshness_for_question(question)
     candidate_count = _candidate_count_for(freshness_policy)
-    candidates = brave_client.search(
-        query=brave_query,
+    goggle = build_chat_goggle(market)
+    freshness_value = freshness_policy.value if freshness_policy is not None else None
+
+    search_queries = reformulated_queries if reformulated_queries and len(reformulated_queries) > 1 else [brave_query]
+    candidates = _execute_searches(
+        queries=search_queries,
+        brave_client=brave_client,
         country=country,
         search_lang=search_lang,
-        goggle=build_chat_goggle(market),
+        goggle=goggle,
         count=candidate_count,
-        freshness=freshness_policy.value if freshness_policy is not None else None,
+        freshness=freshness_value,
     )
 
     best_candidate_by_canonical_url: dict[str, Candidate] = {}

@@ -429,3 +429,216 @@ def test_retrieve_for_analyze_falls_back_when_reformulator_fails() -> None:
 
     assert "Apple Inc." in result.query
     assert "AAPL" in result.query
+
+
+# ---------------------------------------------------------------------------
+# Multi-query parallel search tests
+# ---------------------------------------------------------------------------
+
+
+class _MultiQueryStubBraveClient:
+    """Stub that records all queries and returns per-query candidates."""
+
+    def __init__(
+        self, candidates_by_query: dict[str, list[Candidate]] | None = None, default: list[Candidate] | None = None
+    ) -> None:
+        self._candidates_by_query = candidates_by_query or {}
+        self._default = default or []
+        self.queries: list[str] = []
+
+    def search(
+        self, *, query: str, country: str, search_lang: str, goggle: str, count: int = 20, freshness: str | None = None
+    ) -> list[Candidate]:
+        self.queries.append(query)
+        return self._candidates_by_query.get(query, self._default)
+
+
+def test_multi_query_two_queries_trigger_two_brave_searches() -> None:
+    stub = _MultiQueryStubBraveClient(default=[_candidate("https://reuters.com/a", "body", 0.9)])
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["Apple Mac market share 2026 IDC", "Apple Mac shipments by region"], "reasoning": "two angles"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    retrieve_for_analyze(
+        question="Mac share by region",
+        market="GLOBAL",
+        request_id="req-mq-1",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+    )
+
+    assert len(stub.queries) == 2
+    assert stub.queries[0] == "Apple Mac market share 2026 IDC"
+    assert stub.queries[1] == "Apple Mac shipments by region"
+
+
+def test_multi_query_single_query_triggers_one_search() -> None:
+    stub = _MultiQueryStubBraveClient(default=[_candidate("https://reuters.com/a", "body", 0.9)])
+
+    def one_query(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["Apple Mac market share 2026"], "reasoning": "simple"}'
+
+    reformulator = QueryReformulator(classifier=one_query)
+    retrieve_for_analyze(
+        question="Mac share",
+        market="GLOBAL",
+        request_id="req-mq-2",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+    )
+
+    assert len(stub.queries) == 1
+
+
+def test_multi_query_dedup_same_url_across_result_sets() -> None:
+    shared_candidate = _candidate("https://reuters.com/shared", "shared body", 0.9)
+    stub = _MultiQueryStubBraveClient(
+        candidates_by_query={
+            "q1": [shared_candidate, _candidate("https://cnbc.com/a", "cnbc body", 0.8)],
+            "q2": [shared_candidate, _candidate("https://wsj.com/b", "wsj body", 0.7)],
+        }
+    )
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    result = retrieve_for_analyze(
+        question="test",
+        market="GLOBAL",
+        request_id="req-mq-3",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+        top_k=5,
+    )
+
+    urls = [source.url for source in result.sources]
+    assert urls.count("https://reuters.com/shared") == 1
+    assert "https://cnbc.com/a" in urls
+    assert "https://wsj.com/b" in urls
+
+
+def test_multi_query_unique_urls_from_both_sets_present() -> None:
+    stub = _MultiQueryStubBraveClient(
+        candidates_by_query={
+            "q1": [_candidate("https://reuters.com/a", "reuters", 0.9)],
+            "q2": [_candidate("https://cnbc.com/b", "cnbc", 0.8)],
+        }
+    )
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    result = retrieve_for_analyze(
+        question="test",
+        market="GLOBAL",
+        request_id="req-mq-4",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+        top_k=5,
+    )
+
+    urls = [source.url for source in result.sources]
+    assert "https://reuters.com/a" in urls
+    assert "https://cnbc.com/b" in urls
+
+
+def test_multi_query_respects_top_k() -> None:
+    stub = _MultiQueryStubBraveClient(
+        candidates_by_query={
+            "q1": [
+                _candidate("https://reuters.com/a", "body a", 0.9),
+                _candidate("https://cnbc.com/b", "body b", 0.8),
+            ],
+            "q2": [
+                _candidate("https://wsj.com/c", "body c", 0.7),
+                _candidate("https://bloomberg.com/d", "body d", 0.6),
+            ],
+        }
+    )
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    result = retrieve_for_analyze(
+        question="test",
+        market="GLOBAL",
+        request_id="req-mq-5",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+        top_k=2,
+    )
+
+    assert len(result.sources) == 2
+
+
+def test_multi_query_partial_failure_uses_successful_results() -> None:
+    stub = _MultiQueryStubBraveClient(
+        candidates_by_query={
+            "good_query": [_candidate("https://reuters.com/a", "good body", 0.9)],
+        }
+    )
+
+    original_search = stub.search
+
+    def search_with_failure(**kwargs):
+        if kwargs["query"] == "bad_query":
+            raise RuntimeError("Brave API error")
+        return original_search(**kwargs)
+
+    stub.search = search_with_failure
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["good_query", "bad_query"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    result = retrieve_for_analyze(
+        question="test",
+        market="GLOBAL",
+        request_id="req-mq-6",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+    )
+
+    assert len(result.sources) >= 1
+    assert result.sources[0].url == "https://reuters.com/a"
+
+
+def test_multi_query_all_fail_raises() -> None:
+    stub = _MultiQueryStubBraveClient()
+
+    def always_fail(**kwargs):
+        stub.queries.append(kwargs["query"])
+        raise RuntimeError("Brave down")
+
+    stub.search = always_fail
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    with pytest.raises(BraveRetrievalError):
+        retrieve_for_analyze(
+            question="test",
+            market="GLOBAL",
+            request_id="req-mq-7",
+            brave_client=stub,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            query_reformulator=reformulator,
+        )
