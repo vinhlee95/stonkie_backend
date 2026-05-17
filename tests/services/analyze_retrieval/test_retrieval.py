@@ -642,3 +642,63 @@ def test_multi_query_all_fail_raises() -> None:
             company_name="Apple Inc.",
             query_reformulator=reformulator,
         )
+
+
+def test_multi_query_widens_source_pool() -> None:
+    """With 2 queries, pool is top_k*3*num_queries so q2 results reach the passage ranker."""
+    q1_candidates = [_candidate(f"https://site{i}.com/a", f"generic content {i}", 0.9 - i * 0.01) for i in range(8)]
+    q2_candidates = [
+        _candidate("https://idc.com/report", "Mac shipments market share region breakdown data", 0.5),
+        _candidate("https://canalys.com/report", "Mac shipments market share quarterly analysis", 0.4),
+    ]
+    stub = _MultiQueryStubBraveClient(candidates_by_query={"q1": q1_candidates, "q2": q2_candidates})
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    result = retrieve_for_analyze(
+        question="Mac shipments market share by region",
+        market="GLOBAL",
+        request_id="req-mq-pool",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+        top_k=3,
+    )
+
+    all_urls = [s.url for s in result.sources]
+    q2_urls_in_result = [u for u in all_urls if "idc.com" in u or "canalys.com" in u]
+    assert len(q2_urls_in_result) > 0, "query 2 results should appear in final sources with wider pool"
+
+
+def test_multi_query_logs_source_share(caplog: pytest.CaptureFixture[str]) -> None:
+    import logging
+
+    stub = _MultiQueryStubBraveClient(
+        candidates_by_query={
+            "q1": [_candidate("https://reuters.com/a", "reuters", 0.9)],
+            "q2": [_candidate("https://cnbc.com/b", "cnbc", 0.8)],
+        }
+    )
+
+    def two_queries(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["q1", "q2"], "reasoning": "split"}'
+
+    reformulator = QueryReformulator(classifier=two_queries)
+    with caplog.at_level(logging.INFO, logger="services.analyze_retrieval.retrieval"):
+        retrieve_for_analyze(
+            question="test",
+            market="GLOBAL",
+            request_id="req-mq-share",
+            brave_client=stub,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            query_reformulator=reformulator,
+        )
+
+    share_logs = [r for r in caplog.records if "Multi-query source share" in r.message]
+    assert len(share_logs) == 1
+    assert "q1" in share_logs[0].message
+    assert "q2" in share_logs[0].message

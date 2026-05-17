@@ -88,9 +88,11 @@ def _execute_searches(
     goggle: str,
     count: int,
     freshness: str | None,
-) -> list[Candidate]:
+) -> tuple[list[Candidate], dict[str, set[str]]]:
+    url_to_queries: dict[str, set[str]] = {}
+
     if len(queries) == 1:
-        return brave_client.search(
+        results = brave_client.search(
             query=queries[0],
             country=country,
             search_lang=search_lang,
@@ -98,6 +100,9 @@ def _execute_searches(
             count=count,
             freshness=freshness,
         )
+        for c in results:
+            url_to_queries.setdefault(c.url, set()).add(queries[0])
+        return results, url_to_queries
 
     all_candidates: list[Candidate] = []
     with ThreadPoolExecutor(max_workers=len(queries)) as executor:
@@ -116,11 +121,14 @@ def _execute_searches(
         for future in as_completed(futures):
             query = futures[future]
             try:
-                all_candidates.extend(future.result())
+                results = future.result()
+                for c in results:
+                    url_to_queries.setdefault(c.url, set()).add(query)
+                all_candidates.extend(results)
             except Exception:
                 logger.warning("Brave search failed for query: %s", query, exc_info=True)
 
-    return all_candidates
+    return all_candidates, url_to_queries
 
 
 @observe(name="retrieve_for_analyze")
@@ -136,7 +144,6 @@ def retrieve_for_analyze(
     top_k: int = 5,
     query_reformulator: QueryReformulator | None = None,
 ) -> AnalyzeRetrievalResult:
-    source_pool_limit = max(top_k * 3, top_k)
     country, search_lang = _country_and_lang_for(market)
 
     reformulated_queries: list[str] | None = None
@@ -153,7 +160,8 @@ def retrieve_for_analyze(
     freshness_value = freshness_policy.value if freshness_policy is not None else None
 
     search_queries = reformulated_queries if reformulated_queries and len(reformulated_queries) > 1 else [brave_query]
-    candidates = _execute_searches(
+    source_pool_limit = max(top_k * 3 * len(search_queries), top_k)
+    candidates, url_to_queries = _execute_searches(
         queries=search_queries,
         brave_client=brave_client,
         country=country,
@@ -237,6 +245,17 @@ def retrieve_for_analyze(
         ]
 
     selected_source_ages = [_age_bucket(source.published_at) for source in sources]
+
+    if len(search_queries) > 1:
+        query_source_count: dict[str, int] = {q: 0 for q in search_queries}
+        for source in sources:
+            for q in url_to_queries.get(source.url, set()):
+                query_source_count[q] = query_source_count.get(q, 0) + 1
+        logger.info(
+            "Multi-query source share: %s (total=%d)",
+            {q: count for q, count in query_source_count.items()},
+            len(sources),
+        )
 
     log_retrieval(
         request_id=request_id,
