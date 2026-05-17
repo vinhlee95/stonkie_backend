@@ -200,6 +200,12 @@ Do not add numbering.
                 company_name=company_name,
                 query_reformulator=QueryReformulator(),
             )
+            yield thinking_status(
+                f'Searching for "{retrieval_result.query}"...',
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
+            )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
 
@@ -420,6 +426,12 @@ Do not add numbering.
                 brave_client=brave_client,
                 ticker=None,
                 query_reformulator=QueryReformulator(),
+            )
+            yield thinking_status(
+                f'Searching for "{retrieval_result.query}"...',
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
@@ -732,6 +744,12 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 ticker=ticker_norm.upper(),
                 company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
                 query_reformulator=QueryReformulator(),
+            )
+            yield thinking_status(
+                f'Searching for "{retrieval_result.query}"...',
+                phase=AnalysisPhase.SEARCH,
+                step=2,
+                total_steps=4,
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages

@@ -22,14 +22,14 @@ _MAX_QUERIES = 3
 _REFORMULATION_PROMPT = """\
 {current_date}
 
-You are a search query optimizer for a financial research assistant. Your job is to convert a user's conversational question into 1-2 search-engine-optimized queries that will return the most relevant results from Brave Search.
+You are a search query optimizer for a financial research assistant. Your job is to convert a user's conversational question into max {max_queries} search-engine-optimized queries that will return the most relevant results from Brave Search.
 
 Company: {company_name}
 Ticker: {ticker}
 User question: {question}
 
 Rules:
-- Output 1 query for simple/direct questions, 2 queries for complex/multi-faceted questions
+- Output 1 query for simple/direct questions, up to {max_queries} for complex/multi-faceted questions
 - Convert conversational language to search-engine keywords
 - Include the company name (not ticker) in each query
 - Add temporal context: current year/quarter when relevant
@@ -45,7 +45,7 @@ Rules:
 - Each query should be concise (under 15 words)
 
 Output ONLY JSON (no markdown) with exact keys:
-- queries: list of 1-2 search-optimized query strings
+- queries: list of 1-{max_queries} search-optimized query strings
 - reasoning: one sentence explaining your reformulation choices
 
 Examples:
@@ -106,6 +106,7 @@ class QueryReformulator:
             company_name=company_name,
             ticker=ticker,
             question=question,
+            max_queries=_MAX_QUERIES,
         )
         agent = MultiAgent(model_name=self.model_name)
         chunks = agent.generate_content(prompt=prompt, use_google_search=False)
