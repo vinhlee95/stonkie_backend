@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from services.analyze_retrieval import retrieval
+from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.market_recap.schemas import Candidate
@@ -368,3 +369,63 @@ def test_retrieve_for_analyze_keeps_useful_passage_from_below_old_top_five_sourc
     assert result.selected_passages[0].url == "https://www.barrons.com/f"
     assert result.selected_passages[0].content == ("Free cash flow rose to $12 billion in 2025 after capex normalized.")
     assert "https://www.barrons.com/f" in [source.url for source in result.sources]
+
+
+def test_retrieve_for_analyze_uses_reformulated_query_when_reformulator_provided() -> None:
+    stub = _StubBraveClient(candidates=[_candidate("https://reuters.com/a", "body a", 0.9)])
+
+    def fake_classifier(question: str, ticker: str, company_name: str) -> str:
+        return '{"queries": ["Apple Mac market share by region 2026 IDC"], "reasoning": "optimized"}'
+
+    reformulator = QueryReformulator(classifier=fake_classifier)
+    result = retrieve_for_analyze(
+        question="breakdown the company Mac share by region",
+        market="GLOBAL",
+        request_id="req-reform-1",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+    )
+
+    assert stub.last_query == "Apple Mac market share by region 2026 IDC"
+    assert result.query == "Apple Mac market share by region 2026 IDC"
+    assert result.reformulated_queries == ["Apple Mac market share by region 2026 IDC"]
+
+
+def test_retrieve_for_analyze_backward_compatible_without_reformulator() -> None:
+    stub = _StubBraveClient(candidates=[_candidate("https://reuters.com/a", "body a", 0.9)])
+
+    result = retrieve_for_analyze(
+        question="What is revenue?",
+        market="GLOBAL",
+        request_id="req-reform-2",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+    )
+
+    assert "Apple Inc." in result.query
+    assert "AAPL" in result.query
+    assert result.reformulated_queries is None
+
+
+def test_retrieve_for_analyze_falls_back_when_reformulator_fails() -> None:
+    stub = _StubBraveClient(candidates=[_candidate("https://reuters.com/a", "body a", 0.9)])
+
+    def broken_classifier(question: str, ticker: str, company_name: str) -> str:
+        raise RuntimeError("LLM down")
+
+    reformulator = QueryReformulator(classifier=broken_classifier)
+    result = retrieve_for_analyze(
+        question="Mac share by region",
+        market="GLOBAL",
+        request_id="req-reform-3",
+        brave_client=stub,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        query_reformulator=reformulator,
+    )
+
+    assert "Apple Inc." in result.query
+    assert "AAPL" in result.query

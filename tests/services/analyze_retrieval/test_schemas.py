@@ -45,3 +45,24 @@ def test_analyze_retrieval_result_constructs_with_global_market() -> None:
         request_id="req-1",
     )
     assert result.market == "GLOBAL"
+
+
+def test_analyze_retrieval_result_reformulated_queries_defaults_to_none() -> None:
+    result = AnalyzeRetrievalResult(
+        sources=[],
+        query="q",
+        market="GLOBAL",
+        request_id="req-1",
+    )
+    assert result.reformulated_queries is None
+
+
+def test_analyze_retrieval_result_accepts_reformulated_queries() -> None:
+    result = AnalyzeRetrievalResult(
+        sources=[],
+        query="q",
+        market="GLOBAL",
+        request_id="req-1",
+        reformulated_queries=["Apple Mac market share 2026 IDC", "Mac shipments by region"],
+    )
+    assert result.reformulated_queries == ["Apple Mac market share 2026 IDC", "Mac shipments by region"]

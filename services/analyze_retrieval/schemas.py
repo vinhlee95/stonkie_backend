@@ -34,6 +34,7 @@ class AnalyzeRetrievalResult(BaseModel):
     query: str
     market: Market
     request_id: str
+    reformulated_queries: list[str] | None = None
 
 
 class BraveRetrievalError(Exception):

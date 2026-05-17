@@ -64,6 +64,10 @@ GLOBAL_TIER_2: frozenset[str] = frozenset(
         "investopedia.com",
         "etf.com",
         "tradingeconomics.com",
+        "idc.com",
+        "canalys.com",
+        "counterpointresearch.com",
+        "statista.com",
     }
 )
 

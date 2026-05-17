@@ -29,6 +29,20 @@ def test_build_chat_goggle_deterministic_output() -> None:
     assert build_chat_goggle("GLOBAL") == build_chat_goggle("GLOBAL")
 
 
+def test_build_chat_goggle_global_boosts_market_research_domains() -> None:
+    output = build_chat_goggle("GLOBAL")
+    assert "$boost=2,site=idc.com" in output
+    assert "$boost=2,site=canalys.com" in output
+    assert "$boost=2,site=counterpointresearch.com" in output
+    assert "$boost=2,site=statista.com" in output
+
+
+def test_build_chat_goggle_vn_excludes_market_research_domains() -> None:
+    output = build_chat_goggle("VN")
+    assert "idc.com" not in output
+    assert "statista.com" not in output
+
+
 def test_build_chat_goggle_omits_path_prefix_discards() -> None:
     output = build_chat_goggle("GLOBAL")
     assert "$discard=reddit.com" in output
