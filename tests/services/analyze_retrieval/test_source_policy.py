@@ -32,6 +32,10 @@ from services.analyze_retrieval import source_policy as sp
         ("https://www.etf.com/x", 2),
         ("https://finance.yahoo.com/x", 2),
         ("https://random-blog.com/x", None),
+        ("https://idc.com/x", 2),
+        ("https://www.canalys.com/x", 2),
+        ("https://counterpointresearch.com/x", 2),
+        ("https://www.statista.com/x", 2),
     ],
 )
 def test_tier_for_global(url: str, expected: int | None) -> None:
@@ -178,13 +182,13 @@ def test_resolved_tier_counts_per_market(capsys: pytest.CaptureFixture[str]) -> 
     print(f"FI TIER_2 ({len(fi_t2)}): {sorted(fi_t2)}")
 
     assert len(global_t1) == 16
-    assert len(global_t2) == 20
-    assert len(vn_t1) == 10
+    assert len(global_t2) == 24
+    assert len(vn_t1) == 11
     assert len(vn_t2) == 12
     assert len(sp.FI_EXTENSION_TIER_1) == 2
     assert len(sp.FI_EXTENSION_TIER_2) == 3
     assert len(fi_t1) == 16 + 2
-    assert len(fi_t2) == 20 + 3
+    assert len(fi_t2) == 24 + 3
 
 
 # ---------------------------------------------------------------------------

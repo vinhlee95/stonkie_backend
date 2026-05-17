@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from services.analyze_retrieval.query_reformulator import QueryReformulator
 
 from langfuse import observe
 
@@ -83,10 +86,19 @@ def retrieve_for_analyze(
     company_name: str | None = None,
     brave_latency_ms: int = 0,
     top_k: int = 5,
+    query_reformulator: QueryReformulator | None = None,
 ) -> AnalyzeRetrievalResult:
     source_pool_limit = max(top_k * 3, top_k)
     country, search_lang = _country_and_lang_for(market)
-    brave_query = build_company_aware_query(question, ticker=ticker, company_name=company_name)
+
+    reformulated_queries: list[str] | None = None
+    if query_reformulator is not None:
+        reform_result = query_reformulator.reformulate(question, ticker=ticker, company_name=company_name or "")
+        reformulated_queries = reform_result.queries
+        brave_query = reform_result.queries[0]
+    else:
+        brave_query = build_company_aware_query(question, ticker=ticker, company_name=company_name)
+
     freshness_policy = freshness_for_question(question)
     candidate_count = _candidate_count_for(freshness_policy)
     candidates = brave_client.search(
@@ -198,6 +210,7 @@ def retrieve_for_analyze(
         market=market,
         request_id=request_id,
         selected_passages=selected_passages,
+        reformulated_queries=reformulated_queries,
     )
 
 

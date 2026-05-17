@@ -15,6 +15,7 @@ from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
+from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
 from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
@@ -197,6 +198,7 @@ Do not add numbering.
                 brave_client=brave_client,
                 ticker=ticker.upper(),
                 company_name=company_name,
+                query_reformulator=QueryReformulator(),
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
@@ -417,6 +419,7 @@ Do not add numbering.
                 request_id=request_id,
                 brave_client=brave_client,
                 ticker=None,
+                query_reformulator=QueryReformulator(),
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
@@ -728,6 +731,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 brave_client=brave_client,
                 ticker=ticker_norm.upper(),
                 company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
+                query_reformulator=QueryReformulator(),
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
