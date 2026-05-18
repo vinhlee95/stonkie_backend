@@ -15,6 +15,7 @@ from connectors.company_financial import CompanyFinancialConnector
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
+from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
 from services.question_analyzer.context_builders.comparison_builder import (
@@ -123,6 +124,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                     brave_client=brave_client,
                     ticker=ticker,
                     company_name=company_name,
+                    query_reformulator=QueryReformulator(),
                 )
                 return ticker, result.sources, result.selected_passages, None
             except BraveRetrievalError as e:

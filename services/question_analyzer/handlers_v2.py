@@ -321,13 +321,13 @@ def _build_sources_block(
             if use_excerpt_labels:
                 passage_lines.append(f"Extracted paragraph: {passage.content}")
             else:
-                passage_lines.append(f"Passage [{passage.passage_index}]: {passage.content}")
+                passage_lines.append(f"Passage {passage.passage_index}: {passage.content}")
         if not passage_lines:
             fallback_content = (source.raw_content or "").strip()
             if fallback_content:
                 passage_lines.append(f"Content: {fallback_content}")
         block_lines = [
-            f"Document {idx}" if use_excerpt_labels else f"Source [{idx}]",
+            f"Document {idx}" if use_excerpt_labels else f"Source {idx}",
             f"Title: {source.title}",
             f"URL: {source.url}",
             f"Published: {published}",

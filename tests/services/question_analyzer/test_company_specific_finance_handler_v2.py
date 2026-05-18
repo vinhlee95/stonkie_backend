@@ -703,7 +703,7 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
     assert "REUTERS_TITLE_MARKER" in prompt_text
     assert "Sources:" in prompt_text
     assert "PASSAGE_MARKER gross margin reached 45%." in prompt_text
-    assert "Passage [3]:" in prompt_text
+    assert "Passage 3:" in prompt_text
     assert "FULL_RAW_CONTENT_SHOULD_NOT_APPEAR" not in prompt_text
 
 

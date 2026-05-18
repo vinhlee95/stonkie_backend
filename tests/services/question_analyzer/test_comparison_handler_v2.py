@@ -172,7 +172,7 @@ async def test_per_ticker_brave_fanout_with_semaphore_cap_5(mock_multi_agent_cls
             await asyncio.sleep(0.02)
             async with lock:
                 in_flight -= 1
-            return ticker, [_src(f"{ticker}_1", "Reuters")], None
+            return ticker, [_src(f"{ticker}_1", "Reuters")], [], None
 
     handler._retrieve_one_ticker = tracked  # type: ignore[assignment]
 
@@ -524,6 +524,50 @@ async def test_dedupes_trusted_publishers_across_tickers(mock_multi_agent_cls, m
 
     reading = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]][0]
     assert reading["body"].count("Reuters") == 1
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.comparison_handler_v2.QueryReformulator")
+@patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
+async def test_retrieve_passes_query_reformulator(mock_multi_agent_cls, mock_retrieve, mock_reformulator_cls):
+    from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
+
+    mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
+        sources=[_src(f"{kw['ticker']}_1", "Reuters")],
+        query="q",
+        market="GLOBAL",
+        request_id=kw["ticker"],
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyComparisonHandlerV2()
+    _patch_fetch(handler, ["AAPL", "MSFT"])
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    async for _event in handler.handle(
+        tickers=["AAPL", "MSFT"],
+        question="compare margins",
+        search_decision=_decision(True),
+        short_analysis=True,
+        preferred_model=ModelName.Auto,
+        conversation_messages=None,
+        request_id="rq",
+    ):
+        pass
+
+    assert mock_reformulator_cls.call_count == 2
+    for call in mock_retrieve.call_args_list:
+        assert call.kwargs.get("query_reformulator") is not None
 
 
 @pytest.mark.asyncio
