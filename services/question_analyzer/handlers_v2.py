@@ -209,22 +209,12 @@ Do not add numbering.
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
 
-            trusted_publishers: list[str] = []
-            for source in retrieved_sources:
-                if not source.is_trusted:
-                    continue
-                if source.publisher in trusted_publishers:
-                    continue
-                trusted_publishers.append(source.publisher)
-
-            if trusted_publishers:
-                publisher_list = ", ".join(trusted_publishers)
-                yield thinking_status(
-                    f"Reading {len(retrieved_sources)} sources: {publisher_list}",
-                    phase=AnalysisPhase.SEARCH,
-                    step=2,
-                    total_steps=4,
-                )
+            status_event = _trusted_publisher_status(
+                retrieved_sources,
+                passage_count=len(selected_passages) if selected_passages else 0,
+            )
+            if status_event is not None:
+                yield status_event
 
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
@@ -271,7 +261,12 @@ Use short paragraphs and bullet points for readability.
             yield related_q
 
 
-def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[str]] = None):
+def _trusted_publisher_status(
+    retrieved_sources,
+    *,
+    ticker_list: Optional[List[str]] = None,
+    passage_count: int = 0,
+):
     trusted_publishers: list[str] = []
     for source in retrieved_sources:
         if not source.is_trusted:
@@ -282,10 +277,11 @@ def _trusted_publisher_status(retrieved_sources, *, ticker_list: Optional[List[s
     if not trusted_publishers:
         return None
     publisher_list = ", ".join(trusted_publishers)
+    passage_suffix = f", {passage_count} passages" if passage_count > 0 else ""
     if ticker_list:
-        body = f"Reading {len(retrieved_sources)} sources across " f"{', '.join(ticker_list)}: {publisher_list}"
+        body = f"Reading {len(retrieved_sources)} sources{passage_suffix} across {', '.join(ticker_list)}: {publisher_list}"
     else:
-        body = f"Reading {len(retrieved_sources)} sources: {publisher_list}"
+        body = f"Reading {len(retrieved_sources)} sources{passage_suffix}: {publisher_list}"
     return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
 
 
@@ -436,7 +432,10 @@ Do not add numbering.
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
 
-            status_event = _trusted_publisher_status(retrieved_sources)
+            status_event = _trusted_publisher_status(
+                retrieved_sources,
+                passage_count=len(selected_passages) if selected_passages else 0,
+            )
             if status_event is not None:
                 yield status_event
 
@@ -753,7 +752,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(retrieved_sources)
+            status_event = _trusted_publisher_status(
+                retrieved_sources,
+                passage_count=len(selected_passages) if selected_passages else 0,
+            )
             if status_event is not None:
                 yield status_event
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
