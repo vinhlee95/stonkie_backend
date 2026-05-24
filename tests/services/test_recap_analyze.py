@@ -117,7 +117,49 @@ async def test_recap_analyze_service_answers_recap_related_question_from_recap_s
 
 
 @pytest.mark.asyncio
-async def test_recap_analyze_service_searches_with_recap_aware_query_for_market_questions():
+async def test_market_search_uses_reformulator_and_passes_raw_question():
+    FakeAgent.prompts = []
+    FakeAgent.gate_route = "market_search"
+    FakeAgent.answer = "The Buffett Indicator is at 200%."
+    captured = {}
+
+    def fake_retrieve_for_analyze(**kwargs):
+        captured.update(kwargs)
+        source = AnalyzeSource(
+            id="brave-1",
+            url="https://www.reuters.com/markets/buffett",
+            title="Buffett Indicator update",
+            publisher="reuters.com",
+            published_at=datetime.fromisoformat("2026-04-24T12:00:00+00:00"),
+            is_trusted=True,
+            raw_content="The Buffett Indicator is at 200%.",
+        )
+        return AnalyzeRetrievalResult(
+            sources=[source],
+            selected_passages=[],
+            query=kwargs["question"],
+            market=kwargs["market"],
+            request_id=kwargs["request_id"],
+        )
+
+    with (
+        patch("services.recap_analyze.MultiAgent", FakeAgent),
+        patch("services.recap_analyze.retrieve_for_analyze", side_effect=fake_retrieve_for_analyze),
+    ):
+        events = await _collect(
+            RecapAnalyzeStreamService(),
+            question="what's current buffet index of US stock market?",
+        )
+
+    assert captured["query_reformulator"] is not None
+    assert captured["question"] == "what's current buffet index of US stock market?"
+    sources = next(event["body"] for event in events if event["type"] == "sources")
+    assert [source["source_id"] for source in sources] == ["brave-1"]
+    assert "External search context" in FakeAgent.prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_market_search_filters_stale_sources_for_after_questions():
     FakeAgent.prompts = []
     FakeAgent.gate_route = "recap_related"
     FakeAgent.answer = "Fresh context still points back to the recap."
@@ -160,18 +202,13 @@ async def test_recap_analyze_service_searches_with_recap_aware_query_for_market_
             question="What changed after this recap?",
         )
 
-    assert captured["market"] == "GLOBAL"
-    assert "What changed after this recap?" in captured["question"]
-    assert "after April 24 2026 latest" in captured["question"]
-    assert "US weekly after April 24 2026 latest recap period 2026-04-20 2026-04-24" in captured["question"]
-    assert "stocks rose tech earnings offset fading" in captured["question"]
-    assert len(captured["question"]) <= 240
+    assert captured["question"] == "What changed after this recap?"
+    assert captured["query_reformulator"] is not None
     sources = next(event["body"] for event in events if event["type"] == "sources")
     assert [source["source_id"] for source in sources] == ["brave-1"]
     thinking_bodies = [event["body"] for event in events if event["type"] == "thinking_status"]
     assert "Reading 1 sources: reuters.com" in thinking_bodies
     assert "External search context" in FakeAgent.prompts[-1]
-    assert "explicitly connect the answer back to the recap" in FakeAgent.prompts[-1]
 
 
 @pytest.mark.asyncio

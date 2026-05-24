@@ -30,6 +30,7 @@ from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 from services.analyze_retrieval.source_policy import Market, is_trusted
 from services.market_recap.url_utils import source_id_for
+from services.recap_query_reformulator import RecapQueryReformulator
 from utils.visual_stream import VisualAnswerStreamSplitter
 
 logger = logging.getLogger(__name__)
@@ -146,56 +147,6 @@ def _format_conversation(messages: list[dict[str, str]] | None) -> str:
     if not lines:
         return ""
     return "Recent conversation:\n" + "\n".join(lines)
-
-
-def _build_search_query(question: str, recap: MarketRecapDto) -> str:
-    stopwords = {
-        "after",
-        "amid",
-        "before",
-        "from",
-        "market",
-        "markets",
-        "near",
-        "recap",
-        "respectively",
-        "since",
-        "their",
-        "this",
-        "week",
-        "weekly",
-        "with",
-    }
-    topic_words: list[str] = []
-    topic_texts = [str(recap.summary or "")]
-    for bullet in recap.bullets or []:
-        if isinstance(bullet, dict) and bullet.get("text"):
-            topic_texts.append(str(bullet["text"]))
-    for word in re.findall(r"[A-Za-z][A-Za-z0-9-]{3,}", " ".join(topic_texts)):
-        normalized = word.lower()
-        if normalized in stopwords or normalized in topic_words:
-            continue
-        topic_words.append(normalized)
-        if len(topic_words) >= 10:
-            break
-    topic_text = " ".join(topic_words)
-    after_context = ""
-    if _asks_after_recap(question):
-        after_context = f"after {recap.period_end.strftime('%B %-d %Y')} latest"
-    return _clean_whitespace(
-        " ".join(
-            [
-                question,
-                recap.market or "",
-                recap.cadence or "",
-                after_context,
-                "recap period",
-                recap.period_start.isoformat(),
-                recap.period_end.isoformat(),
-                topic_text,
-            ]
-        )
-    )[:240]
 
 
 def _asks_after_recap(question: str) -> bool:
@@ -434,13 +385,19 @@ Output ONLY JSON:
                 "Searching for updated market context...", phase=AnalysisPhase.SEARCH, step=2, total_steps=3
             )
             brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
+            recap_reformulator = RecapQueryReformulator(
+                market=recap.market or "US",
+                period_start=recap.period_start,
+                period_end=recap.period_end,
+            )
             retrieval_result = retrieve_for_analyze(
-                question=_build_search_query(question, recap),
+                question=question,
                 market=_market_for_recap(recap),
                 request_id=str(uuid.uuid4()),
                 brave_client=brave_client,
                 ticker=None,
                 company_name=None,
+                query_reformulator=recap_reformulator,
             )
             retrieved_sources, selected_passages = _filter_post_recap_sources(
                 recap=recap,
