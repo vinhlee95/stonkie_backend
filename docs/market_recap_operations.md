@@ -73,7 +73,7 @@ See the Cadence runbook section below.
 The pipeline runs as Cloud Run jobs in `europe-north1`:
 
 - `weekly-market-recap` triggered by `weekly-market-recap-scheduler` every Saturday at 08:00 Helsinki.
-- `daily-market-recap` triggered by `daily-market-recap-scheduler` at 07:00 Helsinki Tue-Sat (`0 7 * * 2-6`).
+- `daily-market-recap` triggered by `daily-market-recap-scheduler` at 05:00 Helsinki Tue-Sat (`0 5 * * 2-6`).
 
 ### Manual trigger
 
@@ -167,7 +167,7 @@ This keeps daily automation resilient to single-market sparse-news/validation da
 
 ### Schedule rationale
 
-Daily scheduler runs at 07:00 Helsinki Tue-Sat so the previous US session is fully settled while still covering VN/FI with deterministic market-local day resolution.
+Daily scheduler runs at 05:00 Helsinki Tue-Sat so the previous US session is fully settled while still covering VN/FI with deterministic market-local day resolution.
 
 To roll back a single bad recap, delete the row and rerun:
 

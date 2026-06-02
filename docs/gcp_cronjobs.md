@@ -109,7 +109,7 @@ Generates daily market recaps for US, VN, and FI markets and persists them to th
 | Image | `europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/market-recap-daily:latest` |
 | Dockerfile | `Dockerfile.market-recap.daily` |
 | Scheduler | `daily-market-recap-scheduler` (europe-west1) |
-| Schedule | `0 7 * * 2-6` — Tue-Sat 07:00 Helsinki (after US close) |
+| Schedule | `0 5 * * 2-6` — Tue-Sat 05:00 Helsinki (after US close) |
 | CPU / Memory | 1 CPU / 2 Gi |
 | Timeout | 1800s |
 | Max retries | 1 |
@@ -150,14 +150,14 @@ gcloud run jobs create daily-market-recap \
 ```bash
 gcloud scheduler jobs create http daily-market-recap-scheduler \
   --location=europe-west1 \
-  --schedule="0 7 * * 2-6" \
+  --schedule="0 5 * * 2-6" \
   --time-zone="Europe/Helsinki" \
   --uri="https://europe-north1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/stock-agent-447619/jobs/daily-market-recap:run" \
   --http-method=POST \
   --oauth-service-account-email=1031374119937-compute@developer.gserviceaccount.com \
   --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform \
   --attempt-deadline=180s \
-  --description="Daily market recap (US+VN+FI) Tue-Sat at 7am Helsinki"
+  --description="Daily market recap (US+VN+FI) Tue-Sat at 5am Helsinki"
 ```
 
 ### Manual trigger
