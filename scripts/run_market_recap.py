@@ -28,6 +28,8 @@ MARKET_TZ = {
     "VN": ZoneInfo("Asia/Ho_Chi_Minh"),
     "FI": ZoneInfo("Europe/Helsinki"),
 }
+
+MARKET_CLOSE_HOUR = {"US": 16, "VN": 15, "FI": 18}
 logger = logging.getLogger(__name__)
 
 
@@ -50,8 +52,11 @@ def compute_latest_completed_trading_day(market: str, *, now: datetime | None = 
     current = now or datetime.now(tz)
     if current.tzinfo is None:
         current = current.replace(tzinfo=tz)
-    current_day = current.date()
-    candidate = current_day - timedelta(days=1)
+    local = current.astimezone(tz)
+    close_hour = MARKET_CLOSE_HOUR.get(market.upper(), 16)
+    if local.weekday() < 5 and local.hour >= close_hour:
+        return local.date()
+    candidate = local.date() - timedelta(days=1)
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate

@@ -105,13 +105,31 @@ def test_compute_latest_completed_trading_day_us_skips_weekend():
     ny = ZoneInfo("America/New_York")
     saturday = datetime(2026, 4, 25, 7, 0, tzinfo=ny)
     sunday = datetime(2026, 4, 26, 7, 0, tzinfo=ny)
-    monday = datetime(2026, 4, 27, 7, 0, tzinfo=ny)
-    tuesday = datetime(2026, 4, 28, 7, 0, tzinfo=ny)
+    monday_morning = datetime(2026, 4, 27, 7, 0, tzinfo=ny)
+    tuesday_morning = datetime(2026, 4, 28, 7, 0, tzinfo=ny)
 
     assert compute_latest_completed_trading_day("US", now=saturday) == date(2026, 4, 24)
     assert compute_latest_completed_trading_day("US", now=sunday) == date(2026, 4, 24)
-    assert compute_latest_completed_trading_day("US", now=monday) == date(2026, 4, 24)
-    assert compute_latest_completed_trading_day("US", now=tuesday) == date(2026, 4, 27)
+    assert compute_latest_completed_trading_day("US", now=monday_morning) == date(2026, 4, 24)
+    assert compute_latest_completed_trading_day("US", now=tuesday_morning) == date(2026, 4, 27)
+
+
+def test_compute_latest_completed_trading_day_us_after_close():
+    ny = ZoneInfo("America/New_York")
+    monday_after_close = datetime(2026, 4, 27, 17, 0, tzinfo=ny)
+    friday_after_close = datetime(2026, 4, 24, 16, 30, tzinfo=ny)
+    monday_before_close = datetime(2026, 4, 27, 15, 0, tzinfo=ny)
+
+    assert compute_latest_completed_trading_day("US", now=monday_after_close) == date(2026, 4, 27)
+    assert compute_latest_completed_trading_day("US", now=friday_after_close) == date(2026, 4, 24)
+    assert compute_latest_completed_trading_day("US", now=monday_before_close) == date(2026, 4, 24)
+
+
+def test_compute_latest_completed_trading_day_us_cross_tz():
+    """5AM Helsinki on Tuesday = 10PM ET Monday -> Monday is after US close."""
+    hel = ZoneInfo("Europe/Helsinki")
+    tuesday_5am_helsinki = datetime(2026, 4, 28, 5, 0, tzinfo=hel)
+    assert compute_latest_completed_trading_day("US", now=tuesday_5am_helsinki) == date(2026, 4, 27)
 
 
 def test_compute_latest_completed_trading_day_vn_uses_hcm_tz():
