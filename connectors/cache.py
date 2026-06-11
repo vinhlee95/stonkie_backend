@@ -166,3 +166,27 @@ def can_dispatch_task(ticker: str, report_type: str, period_type: str = "annuall
 
     # Unknown status, allow dispatch
     return TaskDispatchDecision(can_dispatch=True, reason=f"Unknown status '{status}', allowing dispatch")
+
+
+def get_json(key: str) -> Optional[dict]:
+    """Get a JSON value from Redis. Returns None on miss, parse error, or Redis failure."""
+    try:
+        raw = redis_client.get(key)
+    except redis.RedisError:
+        logger.warning("Redis get failed for key %s", key, exc_info=True)
+        return None
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        logger.warning("Invalid JSON in Redis for key %s", key)
+        return None
+
+
+def set_json(key: str, value: dict, ttl_seconds: int) -> None:
+    """Set a JSON value in Redis with TTL. Failures are logged, never raised."""
+    try:
+        redis_client.setex(key, ttl_seconds, json.dumps(value))
+    except redis.RedisError:
+        logger.warning("Redis setex failed for key %s", key, exc_info=True)

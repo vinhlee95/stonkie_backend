@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.analyze_v2 import router as analyze_v2_router
 from api.markets import router as markets_router
+from api.quotes import router as quotes_router
 from api.recap_analyze import router as recap_analyze_router
 from connectors.conversation_store import (
     append_assistant_message,
@@ -72,6 +73,7 @@ app = FastAPI()
 app.include_router(analyze_v2_router)
 app.include_router(markets_router)
 app.include_router(recap_analyze_router)
+app.include_router(quotes_router)
 
 
 # Add logging middleware
