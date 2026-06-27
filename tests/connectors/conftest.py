@@ -8,8 +8,10 @@ from sqlalchemy.orm import sessionmaker
 from alembic import command
 from alembic.config import Config
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-MARKET_RECAP_BASE_REVISION = "d4e5f6a7b8c9"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Parent of 0fa89db559ad (add ticker_recap table); stamp here then upgrade to
+# create only the ticker_recap table for these tests.
+TICKER_RECAP_BASE_REVISION = "a65904684216"
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/stonkie_test",
@@ -17,20 +19,17 @@ TEST_DATABASE_URL = os.getenv(
 
 
 @pytest.fixture(scope="session")
-def test_engine():
+def ticker_recap_engine():
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     alembic_cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
 
     setup_engine = create_engine(TEST_DATABASE_URL)
     with setup_engine.begin() as connection:
-        connection.execute(text("DROP TABLE IF EXISTS market_recap"))
-        # `upgrade head` also creates ticker_recap; drop it so a rebuild after the
-        # ticker_recap suite's fixture ran doesn't hit DuplicateTable.
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     setup_engine.dispose()
 
-    command.stamp(alembic_cfg, MARKET_RECAP_BASE_REVISION)
+    command.stamp(alembic_cfg, TICKER_RECAP_BASE_REVISION)
     command.upgrade(alembic_cfg, "head")
 
     engine = create_engine(TEST_DATABASE_URL)
@@ -39,12 +38,14 @@ def test_engine():
 
 
 @pytest.fixture()
-def db_session(test_engine):
-    SessionLocal = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
-    session = SessionLocal()
+def recap_connector(ticker_recap_engine, monkeypatch):
+    """A TickerRecapConnector whose internal SessionLocal is bound to the test DB."""
+    import connectors.ticker_recap as ticker_recap_module
+
+    session_local = sessionmaker(bind=ticker_recap_engine, autocommit=False, autoflush=False)
+    monkeypatch.setattr(ticker_recap_module, "SessionLocal", session_local)
     try:
-        yield session
+        yield ticker_recap_module.TickerRecapConnector()
     finally:
-        session.close()
-        with test_engine.begin() as connection:
-            connection.execute(text("TRUNCATE TABLE market_recap RESTART IDENTITY"))
+        with ticker_recap_engine.begin() as connection:
+            connection.execute(text("TRUNCATE TABLE ticker_recap RESTART IDENTITY"))
