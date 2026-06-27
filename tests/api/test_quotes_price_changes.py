@@ -30,9 +30,11 @@ class FakeYFinanceClient:
         self,
         histories: dict[str, pd.DataFrame | Exception],
         currencies: dict[str, str] | None = None,
+        quotes: dict[str, dict | None] | None = None,
     ):
         self.histories = histories
         self.currencies = currencies or {}
+        self.quotes = quotes or {}
         self.calls: list[str] = []
 
     def get_daily_history(self, ticker: str) -> tuple[pd.DataFrame, str | None]:
@@ -41,6 +43,9 @@ class FakeYFinanceClient:
         if isinstance(result, Exception):
             raise result
         return result, self.currencies.get(ticker)
+
+    def get_quote(self, ticker: str) -> dict | None:
+        return self.quotes.get(ticker)
 
 
 class FakeRedis:
@@ -89,6 +94,97 @@ def test_returns_daily_change_for_single_ticker(make_client):
     assert quote["change"] == 3.7
     assert quote["change_percent"] == 1.27
     assert quote["trading_date"] == history.index[-1].date().isoformat()
+
+
+def test_nan_latest_close_falls_back_to_live_quote(make_client):
+    # Yahoo intermittently returns the latest daily bar with a NaN Close
+    # (Open/High/Low/Volume present). Fall back to the live quote snapshot.
+    history = make_history([199.00, 195.74, float("nan")], tz=NY_TZ)
+    fake = FakeYFinanceClient(
+        {"NVDA": history},
+        quotes={"NVDA": {"last_price": 192.53, "prev_close": 195.74}},
+    )
+    client = make_client(fake)
+
+    quote = client.get("/api/quotes/price-changes?tickers=NVDA").json()["quotes"]["NVDA"]
+
+    assert quote["close"] == 192.53
+    assert quote["prev_close"] == 195.74
+    assert quote["change"] == -3.21
+    assert quote["change_percent"] == -1.64
+    assert quote["trading_date"] == history.index[-1].date().isoformat()
+
+
+def test_nan_close_without_usable_quote_is_omitted(make_client):
+    # NaN latest close and no quote (or a quote whose last_price is also NaN):
+    # omit the ticker rather than emitting a non-finite value that 500s the batch.
+    fake = FakeYFinanceClient(
+        {
+            "NOQUOTE": make_history([199.00, 195.74, float("nan")], tz=NY_TZ),
+            "BADQUOTE": make_history([199.00, 195.74, float("nan")], tz=NY_TZ),
+        },
+        quotes={
+            "NOQUOTE": None,
+            "BADQUOTE": {"last_price": float("nan"), "prev_close": 195.74},
+        },
+    )
+    client = make_client(fake)
+
+    response = client.get("/api/quotes/price-changes?tickers=NOQUOTE,BADQUOTE")
+
+    assert response.status_code == 200
+    assert response.json()["quotes"] == {}
+
+
+def test_one_nan_ticker_does_not_poison_batch(make_client):
+    # Regression: a single NaN-close ticker with no quote must not 500 the whole
+    # batch and wipe out every other ticker's price change.
+    fake = FakeYFinanceClient(
+        {
+            "AAPL": make_history([290.00, 291.58, 295.28], tz=NY_TZ),
+            "BROKEN": make_history([199.00, 195.74, float("nan")], tz=NY_TZ),
+        },
+        quotes={"BROKEN": None},
+    )
+    client = make_client(fake)
+
+    response = client.get("/api/quotes/price-changes?tickers=AAPL,BROKEN")
+
+    assert response.status_code == 200
+    quotes = response.json()["quotes"]
+    assert list(quotes) == ["AAPL"]
+    assert quotes["AAPL"]["close"] == 295.28
+
+
+def test_poisoned_nan_cache_is_ignored_and_recomputed(make_client, fake_redis):
+    # NaN values cached before the finiteness guard existed round-trip back via
+    # json.loads and would 500 the batch. Ignore them and recompute.
+    import json
+
+    fake_redis.store["price_change:NVDA"] = (
+        json.dumps(
+            {
+                "trading_date": "2026-06-26",
+                "close": float("nan"),
+                "prev_close": 195.74,
+                "change": float("nan"),
+                "change_percent": float("nan"),
+                "currency": "USD",
+            }
+        ),
+        6 * 3600,
+    )
+    history = make_history([199.00, 195.74, float("nan")], tz=NY_TZ)
+    fake = FakeYFinanceClient(
+        {"NVDA": history},
+        quotes={"NVDA": {"last_price": 192.53, "prev_close": 195.74}},
+    )
+    client = make_client(fake)
+
+    response = client.get("/api/quotes/price-changes?tickers=NVDA")
+
+    assert response.status_code == 200
+    assert response.json()["quotes"]["NVDA"]["close"] == 192.53
 
 
 def test_batch_tickers_deduped_and_uppercased(make_client):
