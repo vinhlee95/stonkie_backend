@@ -193,6 +193,100 @@ gcloud run jobs update daily-market-recap \
 
 ---
 
+## daily-ticker-recap
+
+Generates daily per-ticker news recaps for a fixed set of popular US tickers and persists them to the `ticker_recap` table. Exit code 0 = at least one ticker succeeded; exit code 1 = every ticker failed/skipped (triggers alert).
+
+| Attribute | Value |
+|-----------|-------|
+| Cloud Run job | `daily-ticker-recap` (europe-north1) |
+| Image | `europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/ticker-recap:latest` |
+| Dockerfile | `Dockerfile.ticker-recap` |
+| Scheduler | `daily-ticker-recap-scheduler` (europe-west1) |
+| Schedule | `0 5 * * 2-6` — Tue-Sat 05:00 Helsinki (after US close) |
+| CPU / Memory | 1 CPU / 2 Gi |
+| Timeout | 1800s |
+| Max retries | 1 |
+| Entry point | `python scripts/run_ticker_recap.py --cadence daily` |
+
+### Build and deploy
+
+```bash
+cd backend
+
+docker buildx build --platform linux/amd64 \
+  -t europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/ticker-recap:latest \
+  -f Dockerfile.ticker-recap --push .
+
+gcloud run jobs update daily-ticker-recap \
+  --region=europe-north1 \
+  --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/ticker-recap:latest
+```
+
+### Create job (first-time)
+
+```bash
+gcloud run jobs create daily-ticker-recap \
+  --region=europe-north1 \
+  --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/ticker-recap:latest \
+  --tasks=1 \
+  --max-retries=1 \
+  --task-timeout=1800s \
+  --cpu=1 \
+  --memory=2Gi \
+  --execution-environment=gen2 \
+  --service-account=1031374119937-compute@developer.gserviceaccount.com \
+  --set-env-vars="PYTHONUNBUFFERED=1,DATABASE_URL=<url>,OPENROUTER_API_KEY=<key>,BRAVE_API_KEY=<key>"
+```
+
+### Create scheduler (first-time)
+
+```bash
+gcloud scheduler jobs create http daily-ticker-recap-scheduler \
+  --location=europe-west1 \
+  --schedule="0 5 * * 2-6" \
+  --time-zone="Europe/Helsinki" \
+  --uri="https://europe-north1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/stock-agent-447619/jobs/daily-ticker-recap:run" \
+  --http-method=POST \
+  --oauth-service-account-email=1031374119937-compute@developer.gserviceaccount.com \
+  --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform \
+  --attempt-deadline=180s \
+  --description="Daily per-ticker news recap (popular US tickers) Tue-Sat at 5am Helsinki"
+```
+
+### Manual trigger
+
+```bash
+gcloud run jobs execute daily-ticker-recap --region=europe-north1 --wait
+```
+
+### Pause / resume scheduler
+
+```bash
+gcloud scheduler jobs pause  daily-ticker-recap-scheduler --location=europe-west1
+gcloud scheduler jobs resume daily-ticker-recap-scheduler --location=europe-west1
+```
+
+### Rollback drill
+
+```bash
+# Pause schedule
+gcloud scheduler jobs pause daily-ticker-recap-scheduler --location=europe-west1
+
+# Roll back image
+gcloud run jobs update daily-ticker-recap \
+  --region=europe-north1 \
+  --image=europe-north1-docker.pkg.dev/stock-agent-447619/market-recap-repo/ticker-recap:<previous-tag>
+```
+
+### Alerting
+
+- Alert policy: `Daily Ticker Recap Job Failed`
+- Metric filter: `run.googleapis.com/job/completed_execution_count` with `metric.labels.result="failed"` for `resource.labels.job_name="daily-ticker-recap"`.
+- Notification channel: same channel as the daily market recap job alert policy.
+
+---
+
 ## quarterly-financial-export
 
 Exports quarterly financial reports via Playwright/Chromium browser automation.
