@@ -6,6 +6,11 @@ All scheduled jobs run as Cloud Run jobs in `europe-north1`, triggered by Cloud 
 - **Artifact Registry**: `europe-north1-docker.pkg.dev/stock-agent-447619/`
 - **Scheduler timezone**: `Europe/Helsinki`
 
+> **Secrets — TODO(security):** All jobs currently carry `DATABASE_URL`,
+> `OPENROUTER_API_KEY`, and `BRAVE_API_KEY` as **plaintext env vars** (visible in
+> `gcloud run jobs describe`). Move these to Secret Manager (`--set-secrets`) and
+> rotate the current values, which have been exposed in plaintext.
+
 ---
 
 ## weekly-market-recap
@@ -211,17 +216,27 @@ Generates daily per-ticker news recaps for a fixed set of popular US tickers and
 
 The ticker set = built-in `POPULAR_TICKERS` (in `scripts/run_ticker_recap.py`) **merged with** the optional `RECAP_TICKERS` env var. Adding/overriding tickers via the env var needs **no image rebuild** — just a job update (see below).
 
-### Add tickers without a redeploy
+### Add / change tickers (no redeploy)
 
-Set/replace `RECAP_TICKERS` on the job. Format: semicolon-separated `TICKER:Company Name:MARKET` records (market optional → US). Entries merge into and override the built-in set, so list only the *new* tickers.
+The live ticker set = built-in `POPULAR_TICKERS` **merged with / overridden by** the `RECAP_TICKERS` env var. Since the env-reader shipped (image rebuilt 2026-07-11), changing tickers is a **pure env-var update — no image rebuild, no scheduler change**. `RECAP_TICKERS` currently holds the full authoritative list of 6 (NVDA, AAPL, TSLA, GOOG, NKE, DELL).
 
-```bash
-gcloud run jobs update daily-ticker-recap \
-  --region=europe-north1 \
-  --update-env-vars="^##^RECAP_TICKERS=NKE:NIKE, Inc.;DELL:Dell Technologies Inc."
-```
+**Process:**
 
-**Gotcha:** company names contain commas (`NIKE, Inc.`), but `--update-env-vars` splits on `,` by default — that would mangle the value. The `^##^` prefix switches gcloud's delimiter to `##`, so commas inside the value are preserved. The next scheduled run picks it up; no rebuild, no scheduler change. To clear it: `--remove-env-vars=RECAP_TICKERS`.
+1. Compose the value: semicolon-separated `TICKER:Company Name:MARKET` records (market optional → US). Merge semantics — env entries add to / override same-key built-ins; you can't *remove* a built-in via env (that's a code change). Keep the existing entries and append the new ones so the var stays the full list.
+2. Update the job (note the `^##^` prefix — see gotcha):
+   ```bash
+   gcloud run jobs update daily-ticker-recap \
+     --region=europe-north1 \
+     --update-env-vars="^##^RECAP_TICKERS=NVDA:NVIDIA Corporation;AAPL:Apple Inc.;TSLA:Tesla, Inc.;GOOG:Alphabet Inc.;NKE:NIKE, Inc.;DELL:Dell Technologies Inc.;<NEW>:<Name>"
+   ```
+3. Verify:
+   ```bash
+   gcloud run jobs describe daily-ticker-recap --region=europe-north1 \
+     --format="json(spec.template.spec.template.spec.containers[0].env)"
+   ```
+   The next scheduled run (Tue–Sat 05:00 Helsinki) picks it up. To smoke-test now: `gcloud run jobs execute daily-ticker-recap --region=europe-north1` (real run — API cost + DB writes).
+
+**Gotcha:** company names contain commas (`NIKE, Inc.`), but `--update-env-vars` splits on `,` by default — that mangles the value. The `^##^` prefix switches gcloud's delimiter to `##`, preserving commas. Use `--update-env-vars` (not `--set-env-vars`, which wipes the secret env vars). To clear entirely: `--remove-env-vars=RECAP_TICKERS`.
 
 ### Build and deploy
 
