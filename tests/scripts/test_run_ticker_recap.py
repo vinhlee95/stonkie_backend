@@ -80,3 +80,38 @@ def test_explicit_period_overrides_computed_day():
 def test_replace_requires_explicit_period():
     with pytest.raises(SystemExit):
         main(["--ticker", "AAPL", "--replace"])
+
+
+def test_recap_tickers_env_extends_builtin_set():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return {"status": "inserted"}
+
+    env = {"RECAP_TICKERS": "NKE:NIKE, Inc.;DELL:Dell Technologies Inc."}
+    exit_code = main(["--cadence", "daily"], runner=fake_runner, env=env)
+
+    assert exit_code == 0
+    tickers = [call["ticker"] for call in calls]
+    assert tickers == list(POPULAR_TICKERS) + ["NKE", "DELL"]
+    by_ticker = {call["ticker"]: call["company_name"] for call in calls}
+    # Company names (incl. commas) survive parsing; market defaults to US.
+    assert by_ticker["NKE"] == "NIKE, Inc."
+    assert by_ticker["DELL"] == "Dell Technologies Inc."
+    assert all(call["market"] == "US" for call in calls)
+
+
+def test_recap_tickers_env_overrides_builtin_name_and_market():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return {"status": "inserted"}
+
+    env = {"RECAP_TICKERS": "AAPL:Apple (override):FI"}
+    exit_code = main(["--tickers", "AAPL"], runner=fake_runner, env=env)
+
+    assert exit_code == 0
+    assert calls[0]["company_name"] == "Apple (override)"
+    assert calls[0]["market"] == "FI"

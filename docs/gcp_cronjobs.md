@@ -209,6 +209,20 @@ Generates daily per-ticker news recaps for a fixed set of popular US tickers and
 | Max retries | 1 |
 | Entry point | `python scripts/run_ticker_recap.py --cadence daily` |
 
+The ticker set = built-in `POPULAR_TICKERS` (in `scripts/run_ticker_recap.py`) **merged with** the optional `RECAP_TICKERS` env var. Adding/overriding tickers via the env var needs **no image rebuild** — just a job update (see below).
+
+### Add tickers without a redeploy
+
+Set/replace `RECAP_TICKERS` on the job. Format: semicolon-separated `TICKER:Company Name:MARKET` records (market optional → US). Entries merge into and override the built-in set, so list only the *new* tickers.
+
+```bash
+gcloud run jobs update daily-ticker-recap \
+  --region=europe-north1 \
+  --update-env-vars="^##^RECAP_TICKERS=NKE:NIKE, Inc.;DELL:Dell Technologies Inc."
+```
+
+**Gotcha:** company names contain commas (`NIKE, Inc.`), but `--update-env-vars` splits on `,` by default — that would mangle the value. The `^##^` prefix switches gcloud's delimiter to `##`, so commas inside the value are preserved. The next scheduled run picks it up; no rebuild, no scheduler change. To clear it: `--remove-env-vars=RECAP_TICKERS`.
+
 ### Build and deploy
 
 ```bash
