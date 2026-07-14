@@ -57,7 +57,7 @@ class SearchDecisionEngine:
 
     def __init__(
         self,
-        model_name: ModelName = ModelName.Gemini25FlashNitro,
+        model_name: ModelName = ModelName.Gemini31FlashLite,
         timeout_seconds: float = 5.0,
         classifier: Optional[Callable[[str, str, bool], str]] = None,
     ):

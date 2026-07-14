@@ -33,7 +33,7 @@ from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
 PROMPTS_PATH = Path(__file__).parent / "prompts.json"
-DEFAULT_MODEL = ModelName.Gemini30Flash  # match /analyze default
+DEFAULT_MODEL = ModelName.Gemini35Flash  # match /analyze default
 BRAVE_TOP_K = 5
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/llm/context"
 

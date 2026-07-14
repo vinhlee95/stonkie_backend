@@ -85,8 +85,8 @@ async def analyze_financial_report(
             total_steps=3,
         )
 
-        # Use MultiAgent with Gemini 3.0 and :online suffix for URL context
-        analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        # Use MultiAgent with Gemini 3.5 and :online suffix for URL context
+        analysis_agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         answers = ""
 
         for chunk in analysis_agent.generate_content(prompt=prompt, use_google_search=True):
@@ -103,7 +103,7 @@ async def analyze_financial_report(
             - Do NOT number the questions or add any prefixes
         """
 
-        related_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        related_agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         for question in related_agent.generate_content_by_lines(
             prompt=related_question_prompt,
             use_google_search=False,
@@ -184,7 +184,7 @@ async def analyze_uploaded_file(
         yield thinking_status("Analyzing the document...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=4)
 
         # Use MultiAgent with native PDF support - no manual text extraction needed
-        analysis_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        analysis_agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         full_answer = ""
 
         for text_chunk in analysis_agent.generate_content_with_pdf_context(
@@ -210,7 +210,7 @@ async def analyze_uploaded_file(
             - Do NOT number the questions or add any prefixes
         """
 
-        related_agent = MultiAgent(model_name=ModelName.Gemini30Flash)
+        related_agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         for question_text in related_agent.generate_content_by_lines(
             prompt=related_question_prompt,
             use_google_search=False,

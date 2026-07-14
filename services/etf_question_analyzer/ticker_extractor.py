@@ -37,7 +37,7 @@ class ETFTickerExtractor:
 
     def __init__(self):
         self.connector = ETFFundamentalConnector()
-        self.agent = MultiAgent(model_name=ModelName.Gemini25FlashNitro)
+        self.agent = MultiAgent(model_name=ModelName.Gemini31FlashLite)
 
     async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
         """
