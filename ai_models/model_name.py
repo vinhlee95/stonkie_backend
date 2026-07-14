@@ -12,9 +12,8 @@ class ModelName(StrEnum):
     # Gemini Models (Generic format - provider clients will map to their specific format)
     # https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro
     Gemini25Flash = "gemini-2.5-flash"
-    Gemini25FlashNitro = "gemini-2.5-flash-nitro"
-    Gemini30Flash = "gemini-3-flash-preview"
-    Gemini30Pro = "gemini-3-pro-preview"
+    Gemini31FlashLite = "gemini-3.1-flash-lite"
+    Gemini35Flash = "gemini-3.5-flash"
 
     # Anthropic Models
     Sonnet46 = "sonnet-4.6"

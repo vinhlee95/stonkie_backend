@@ -46,7 +46,7 @@ def generate_questions(
     market: str,
 ) -> list[str]:
     try:
-        agent = MultiAgent(model_name=ModelName.Gemini25Flash)
+        agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         prompt = _build_prompt(summary, bullets, market)
         return list(agent.generate_content_by_lines(prompt, max_lines=NUM_QUESTIONS))
     except Exception:

@@ -14,16 +14,16 @@ logger = logging.getLogger(__name__)
 OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Map generic Gemini names to OpenRouter format
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
-    ModelName.Gemini25FlashNitro: "google/gemini-2.5-flash:nitro",
-    ModelName.Gemini30Flash: "google/gemini-3-flash-preview",
+    ModelName.Gemini31FlashLite: "google/gemini-3.1-flash-lite",
+    ModelName.Gemini35Flash: "google/gemini-3.5-flash",
     # Anthropic Models
     ModelName.Sonnet46: "anthropic/claude-sonnet-4.6",
     # OpenRouter Auto Router for automatic model selection
     ModelName.Auto: "openrouter/auto",
     # Fastest model with :nitro variant for high-speed inference
-    # Uses Gemini 2.5 Flash with nitro variant
+    # Uses Gemini 3.1 Flash-Lite with nitro variant (throughput-sorted routing)
     # See: https://openrouter.ai/docs/guides/routing/model-variants/nitro
-    ModelName.Fastest: "google/gemini-2.5-flash:nitro",
+    ModelName.Fastest: "google/gemini-3.1-flash-lite:nitro",
 }
 
 
@@ -48,7 +48,7 @@ class OpenRouterClient:
 
         self.base_url = base_url or os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         # Convert generic model name to OpenRouter-specific format
-        DEFAULT_MODEL_NAME = ModelName.Gemini30Flash
+        DEFAULT_MODEL_NAME = ModelName.Gemini35Flash
         generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)

@@ -64,7 +64,7 @@ class ReformulationResult:
 class QueryReformulator:
     def __init__(
         self,
-        model_name: ModelName = ModelName.Gemini25FlashNitro,
+        model_name: ModelName = ModelName.Gemini31FlashLite,
         classifier: Optional[Callable[[str, str, str], str]] = None,
     ):
         self.model_name = model_name

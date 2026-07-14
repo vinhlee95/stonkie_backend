@@ -26,7 +26,7 @@ class ETFQuestionClassifier:
         Args:
             agent: AI agent for classification. Creates default if not provided.
         """
-        self.agent = agent or MultiAgent(model_name=ModelName.Gemini30Flash)
+        self.agent = agent or MultiAgent(model_name=ModelName.Gemini35Flash)
         self.ticker_extractor = ETFTickerExtractor()
 
     @observe(name="etf_classify_question")

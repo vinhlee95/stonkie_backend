@@ -68,7 +68,7 @@ class RecapQueryReformulator:
         market: str,
         period_start: date,
         period_end: date,
-        model_name: ModelName = ModelName.Gemini25FlashNitro,
+        model_name: ModelName = ModelName.Gemini31FlashLite,
         classifier: Optional[Callable[[str, str, date, date], str]] = None,
     ):
         self.model_name = model_name
