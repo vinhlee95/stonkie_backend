@@ -119,7 +119,7 @@ Generates daily market recaps for US, VN, and FI markets and persists them to th
 | CPU / Memory | 1 CPU / 2 Gi |
 | Timeout | 1800s |
 | Max retries | 1 |
-| Entry point | `run_market_recap.py --cadence daily --markets US,VN,FI` **&&** `run_recap_audio.py --cadence daily --kind market --limit 10 --since-days 3` |
+| Entry point | Image `CMD`: `run_market_recap.py --cadence daily --markets US,VN,FI` **&&** `run_recap_audio.py --cadence daily --kind market --limit 10 --since-days 3` |
 
 ### Required env vars
 
@@ -362,6 +362,31 @@ on the recap row.
   before changing `--limit` or `--since-days`.
 - Historical recaps (before 2026-07-17) were deliberately **not** backfilled and
   return `audio: null` from the API.
+
+### Gotcha: job-level `command`/`args` override the image CMD
+
+`daily-market-recap` was created with explicit `--command`/`--args`, which
+**silently override the Dockerfile's `CMD`**. When the audio stage was added to
+the Dockerfile, that job kept running the old single command — exiting 0, logging
+nothing, generating no audio. `daily-ticker-recap` had no override and picked the
+new CMD up immediately.
+
+Cleared with:
+
+```bash
+gcloud run jobs update daily-market-recap --region=europe-north1 --command="" --args=""
+```
+
+Now all recap jobs take their entry point from the image, so **the Dockerfile is
+the single source of truth**. Before assuming a `CMD` change took effect, check:
+
+```bash
+gcloud run jobs describe <job> --region=europe-north1 \
+  --format="json(spec.template.spec.template.spec.containers[0].command,spec.template.spec.template.spec.containers[0].args)"
+# expect: null
+```
+
+A job that exits 0 with no application logs is the signature of this problem.
 
 ### `&&` coupling — alerting caveat
 
