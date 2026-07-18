@@ -23,6 +23,8 @@ class TickerRecapDto:
     price_change: dict[str, Any] | None
     search_query: str | None
     created_at: datetime | None
+    audio_key: str | None = None
+    audio_duration_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ def _to_dto(row: TickerRecap) -> TickerRecapDto:
         price_change=row.price_change,
         search_query=row.search_query,
         created_at=row.created_at,
+        audio_key=row.audio_key,
+        audio_duration_s=row.audio_duration_s,
     )
 
 
@@ -110,6 +114,37 @@ class TickerRecapConnector:
                 return UpsertResult(inserted=False, replaced=False, recap_id=existing_id)
 
             return UpsertResult(inserted=True, replaced=replaced, recap_id=inserted_id)
+
+    def set_audio(self, recap_id: int, *, audio_key: str, audio_duration_s: float) -> bool:
+        with SessionLocal() as db:
+            row = db.get(TickerRecap, recap_id)
+            if row is None:
+                return False
+            row.audio_key = audio_key
+            row.audio_duration_s = audio_duration_s
+            db.commit()
+            return True
+
+    def get_without_audio(self, *, cadence: str, limit: int = 50, since: date | None = None) -> list[TickerRecapDto]:
+        """Recaps still missing audio. `since` bounds how far back to look --
+        without it the query walks the whole archive once recent rows are done."""
+        conditions = [TickerRecap.cadence == cadence, TickerRecap.audio_key.is_(None)]
+        if since is not None:
+            conditions.append(TickerRecap.period_start >= since)
+        with SessionLocal() as db:
+            rows = (
+                db.execute(
+                    select(TickerRecap).where(*conditions).order_by(TickerRecap.period_start.desc()).limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+            return [_to_dto(row) for row in rows]
+
+    def get_by_id(self, recap_id: int) -> TickerRecapDto | None:
+        with SessionLocal() as db:
+            row = db.get(TickerRecap, recap_id)
+            return _to_dto(row) if row is not None else None
 
     def get_latest(self, ticker: str, cadence: str, *, limit: int = 1) -> list[TickerRecapDto]:
         with SessionLocal() as db:

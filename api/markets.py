@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from connectors.database import get_db
 from models.market_recap import MarketRecap
+from services.recap_audio import RecapAudioReader
 
 router = APIRouter()
+_audio_reader = RecapAudioReader()
 
 
 def _isoformat(value: datetime | None) -> str | None:
@@ -41,6 +43,7 @@ def get_market_recaps(
             "bullets": row.bullets,
             "sources": row.sources,
             "questions": row.questions,
+            "audio": _audio_reader.playback(row.audio_key, row.audio_duration_s),
         }
         for row in rows
     ]

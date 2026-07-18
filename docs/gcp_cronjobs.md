@@ -7,7 +7,8 @@ All scheduled jobs run as Cloud Run jobs in `europe-north1`, triggered by Cloud 
 - **Scheduler timezone**: `Europe/Helsinki`
 
 > **Secrets — TODO(security):** All jobs currently carry `DATABASE_URL`,
-> `OPENROUTER_API_KEY`, and `BRAVE_API_KEY` as **plaintext env vars** (visible in
+> `OPENROUTER_API_KEY`, `BRAVE_API_KEY`, and (on the two daily recap jobs)
+> `OPENAI_API_KEY` as **plaintext env vars** (visible in
 > `gcloud run jobs describe`). Move these to Secret Manager (`--set-secrets`) and
 > rotate the current values, which have been exposed in plaintext.
 
@@ -118,7 +119,19 @@ Generates daily market recaps for US, VN, and FI markets and persists them to th
 | CPU / Memory | 1 CPU / 2 Gi |
 | Timeout | 1800s |
 | Max retries | 1 |
-| Entry point | `python scripts/run_market_recap.py --cadence daily --markets US,VN,FI` |
+| Entry point | `run_market_recap.py --cadence daily --markets US,VN,FI` **&&** `run_recap_audio.py --cadence daily --kind market --limit 10 --since-days 3` |
+
+### Required env vars
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Neon PostgreSQL connection string |
+| `OPENROUTER_API_KEY` | LLM generation (OpenRouter) |
+| `BRAVE_API_KEY` | Search retrieval |
+| `OPENAI_API_KEY` | **Audio stage** — speakable rewrite (`gpt-4o-mini`) + TTS (`gpt-4o-mini-tts`) |
+| `PYTHONUNBUFFERED` | `1` (Cloud Logging line-by-line) |
+
+See [Audio stage](#audio-stage-recap-narration) for how the second command behaves.
 
 ### Build and deploy
 
@@ -212,9 +225,11 @@ Generates daily per-ticker news recaps for a fixed set of popular US tickers and
 | CPU / Memory | 1 CPU / 2 Gi |
 | Timeout | 1800s |
 | Max retries | 1 |
-| Entry point | `python scripts/run_ticker_recap.py --cadence daily` |
+| Entry point | `run_ticker_recap.py --cadence daily` **&&** `run_recap_audio.py --cadence daily --kind ticker --limit 20 --since-days 3` |
 
 The ticker set = built-in `POPULAR_TICKERS` (in `scripts/run_ticker_recap.py`) **merged with** the optional `RECAP_TICKERS` env var. Adding/overriding tickers via the env var needs **no image rebuild** — just a job update (see below).
+
+Also requires `OPENAI_API_KEY` for the audio stage — see [Audio stage](#audio-stage-recap-narration). **`--limit 20` must stay above the ticker count**; raise it when tickers are added or the newest recaps will crowd out the rest.
 
 ### Add / change tickers (no redeploy)
 
@@ -313,6 +328,89 @@ gcloud run jobs update daily-ticker-recap \
 - Alert policy: `Daily Ticker Recap Job Failed`
 - Metric filter: `run.googleapis.com/job/completed_execution_count` with `metric.labels.result="failed"` for `resource.labels.job_name="daily-ticker-recap"`.
 - Notification channel: same channel as the daily market recap job alert policy.
+
+---
+
+## Audio stage (recap narration)
+
+Both daily recap jobs run `scripts/run_recap_audio.py` as a **second command chained
+with `&&`** after recap generation. It narrates each new recap to an MP3 and uploads
+it to GCS; the frontend plays it from the Morning Brief modal.
+
+Pipeline per recap: fetch → LLM "speakable rewrite" (`gpt-4o-mini`) → TTS
+(`gpt-4o-mini-tts`, voice `nova`) → upload → persist `audio_key` + `audio_duration_s`
+on the recap row.
+
+| Attribute | Value |
+|-----------|-------|
+| Script | `scripts/run_recap_audio.py` |
+| Service | `services/recap_audio.py` |
+| Bucket | `gs://stonkie-recap-audio` (europe-north1, uniform access, **private**) |
+| Object key | `market/{MARKET}/{cadence}/{period_start}-{id}.mp3`, `ticker/{TICKER}/...` |
+| Cost | ~0.3¢ per clip; ~3¢/day for 3 markets + 6 tickers |
+| Runtime | ~15–30s per clip, sequential |
+
+### Operational properties
+
+- **Idempotent.** Only selects rows where `audio_key IS NULL`, so re-running costs
+  nothing and a missed day self-heals on the next pass.
+- **`--since-days 3` bounds the lookback.** Without it the query walks backwards
+  through the whole archive once fresh rows are done — an unintended, billable
+  backfill. Do not remove this flag. `--since-days -1` disables the bound
+  (deliberate full backfill only).
+- **`--dry-run`** lists what would be generated without calling any API. Use it
+  before changing `--limit` or `--since-days`.
+- Historical recaps (before 2026-07-17) were deliberately **not** backfilled and
+  return `audio: null` from the API.
+
+### `&&` coupling — alerting caveat
+
+Because the commands are chained with `&&`:
+- A **recap** failure skips the audio stage entirely (no wasted TTS spend). Good.
+- An **audio** failure makes the job exit non-zero, firing the recap alert **even
+  though recap generation succeeded**. Treat an alert whose logs show
+  `recap_audio.job.failed` as an audio-only incident: the recaps are fine, and the
+  audio self-heals next run. If this proves noisy, decouple into a separate job.
+
+### GCS auth
+
+Nothing to configure. Both jobs run as
+`1031374119937-compute@developer.gserviceaccount.com`, which holds `roles/editor`,
+so uploads authenticate via ADC. `AudioStorageConnector` falls back to ADC when
+`GOOGLE_APPLICATION_CREDENTIALS_JSON` is unset.
+
+**The API is different.** It runs on **Railway**, outside GCP, and mints *signed*
+URLs — which requires a service-account private key that ADC cannot provide. Railway
+must have `GOOGLE_APPLICATION_CREDENTIALS_JSON` set (base64 service-account JSON,
+same convention as `scripts/export_financial_report.py`). If it is missing, signing
+fails silently and the API returns `audio: null` for every recap — the symptom is
+"play buttons never appear", not an error.
+
+Signed URLs expire after **6 hours** and are minted per request.
+
+### Known issue — figures corrupted in rewrite
+
+The `gpt-4o-mini` rewrite step **alters financial figures**: observed `50` → `70`,
+`40,89` rounded to `40,9`, dropped tickers, and dropped bullets. Accepted for v1 to
+ship playback. `validate_script_figures()` logs a `recap_audio.figure_mismatch`
+warning but **cannot catch the spelled-out case** (a script with no digits has
+nothing to compare) — treat warning counts as weak signal, not a quality gate.
+Hardening (stronger rewrite model, or number-token extraction) is deferred.
+
+### Log events
+
+| Event | Meaning |
+|-------|---------|
+| `recap_audio.job.start` | pending count for this run |
+| `recap_audio.job.ok` | per-recap success, with key + duration + warning count |
+| `recap_audio.job.failed` | per-recap failure (job will exit non-zero) |
+| `recap_audio.job.done` | run summary: attempted + failed counts |
+| `recap_audio.job.nothing_pending` | all recaps in window already have audio |
+| `recap_audio.job.dry_run` | `--dry-run` listing; nothing was generated |
+| `recap_audio.uploaded` | object written to GCS, with key + byte size |
+| `recap_audio.figure_mismatch` | rewrite dropped/changed digits (advisory) |
+| `recap_audio.signed_url_failed` | API-side signing failure (missing credentials) |
+| `recap_audio.credentials_decode_failed` | `GOOGLE_APPLICATION_CREDENTIALS_JSON` present but unparseable |
 
 ---
 

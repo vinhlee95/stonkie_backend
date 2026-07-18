@@ -15,6 +15,7 @@ openai==1.77.0
 alembic==1.15.2
 pillow==11.3.0
 google-genai==1.16.1
+google-cloud-storage==2.19.0
 celery==5.4.0
 redis==5.0.1
 langfuse==3.10.5

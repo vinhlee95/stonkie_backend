@@ -2,9 +2,11 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Query
 
+from services.recap_audio import RecapAudioReader
 from services.ticker_recap.reader import get_latest_recaps
 
 router = APIRouter()
+_audio_reader = RecapAudioReader()
 
 
 def _isoformat(value: datetime | None) -> str | None:
@@ -33,6 +35,7 @@ def get_company_recaps(
             "bullets": recap.bullets,
             "sources": recap.sources,
             "price_change": recap.price_change,
+            "audio": _audio_reader.playback(recap.audio_key, recap.audio_duration_s),
         }
         for recap in recaps
     ]

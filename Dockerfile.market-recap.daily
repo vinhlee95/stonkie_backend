@@ -10,4 +10,8 @@ COPY . .
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "scripts/run_market_recap.py", "--cadence", "daily", "--markets", "US,VN,FI"]
+# Recaps first, then audio for whatever was just written. Chained with && so a
+# recap failure skips (and does not pay for) TTS. Audio generation is idempotent
+# -- it only picks up rows with audio_key IS NULL, so a failed run self-heals on
+# the next day's pass.
+CMD ["sh", "-c", "python scripts/run_market_recap.py --cadence daily --markets US,VN,FI && python scripts/run_recap_audio.py --cadence daily --kind market --limit 10 --since-days 3"]

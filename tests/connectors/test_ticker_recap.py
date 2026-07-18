@@ -122,3 +122,50 @@ def test_upsert_round_trips_bullets_and_sources(recap_connector):
 
 def test_get_latest_unknown_ticker_returns_empty(recap_connector):
     assert recap_connector.get_latest("ZZZZ", "daily") == []
+
+
+def test_set_audio_persists_key_and_duration(recap_connector):
+    recap_id = recap_connector.upsert_recap(
+        ticker="AAPL",
+        cadence="daily",
+        payload=build_payload(),
+        model="audio-test-model",
+    ).recap_id
+
+    assert recap_connector.set_audio(recap_id, audio_key="ticker/AAPL/daily/x.mp3", audio_duration_s=73.6) is True
+
+    dto = recap_connector.get_by_id(recap_id)
+    assert dto.audio_key == "ticker/AAPL/daily/x.mp3"
+    assert dto.audio_duration_s == 73.6
+
+
+def test_set_audio_returns_false_for_missing_recap(recap_connector):
+    assert recap_connector.set_audio(999999, audio_key="k.mp3", audio_duration_s=1.0) is False
+
+
+def test_get_without_audio_excludes_rows_that_have_audio(recap_connector):
+    recap_id = recap_connector.upsert_recap(
+        ticker="AAPL",
+        cadence="daily",
+        payload=build_payload(),
+        model="audio-test-model",
+    ).recap_id
+
+    assert [d.id for d in recap_connector.get_without_audio(cadence="daily")] == [recap_id]
+
+    recap_connector.set_audio(recap_id, audio_key="k.mp3", audio_duration_s=1.0)
+    assert recap_connector.get_without_audio(cadence="daily") == []
+
+
+def test_get_without_audio_since_bounds_lookback(recap_connector):
+    # Guards against the job walking the whole archive once fresh rows are done,
+    # which would be an unintended billable backfill.
+    recap_connector.upsert_recap(
+        ticker="AAPL",
+        cadence="daily",
+        payload=build_payload(),
+        model="audio-test-model",
+    )
+
+    assert recap_connector.get_without_audio(cadence="daily", since=PERIOD_START) != []
+    assert recap_connector.get_without_audio(cadence="daily", since=PERIOD_END) == []

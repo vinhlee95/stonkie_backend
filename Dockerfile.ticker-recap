@@ -10,4 +10,9 @@ COPY . .
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "scripts/run_ticker_recap.py", "--cadence", "daily"]
+# Recaps first, then audio for whatever was just written. Chained with && so a
+# recap failure skips (and does not pay for) TTS. Audio generation is idempotent
+# -- it only picks up rows with audio_key IS NULL, so a failed run self-heals on
+# the next day's pass. --limit is sized to the ticker count in RECAP_TICKERS;
+# raise it when tickers are added.
+CMD ["sh", "-c", "python scripts/run_ticker_recap.py --cadence daily && python scripts/run_recap_audio.py --cadence daily --kind ticker --limit 20 --since-days 3"]

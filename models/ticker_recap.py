@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, Date, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from connectors.database import Base
@@ -19,6 +19,8 @@ class TickerRecap(Base):
     price_change = Column(JSON, nullable=True)
     search_query = Column(Text, nullable=True)
     model = Column(String, nullable=False)
+    audio_key = Column(String, nullable=True)
+    audio_duration_s = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
