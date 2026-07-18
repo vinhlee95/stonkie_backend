@@ -357,11 +357,56 @@ on the recap row.
 - **`--since-days 3` bounds the lookback.** Without it the query walks backwards
   through the whole archive once fresh rows are done — an unintended, billable
   backfill. Do not remove this flag. `--since-days -1` disables the bound
-  (deliberate full backfill only).
+  (deliberate full backfill only). See
+  [why the window is 3 days](#why-the-lookback-window-is-3-days-dont-widen-it).
 - **`--dry-run`** lists what would be generated without calling any API. Use it
   before changing `--limit` or `--since-days`.
 - Historical recaps (before 2026-07-17) were deliberately **not** backfilled and
   return `audio: null` from the API.
+
+### Why the lookback window is 3 days (don't widen it)
+
+Three days covers the only routine gap: the schedule is Tue–Sat, so Saturday's run
+to Tuesday's run is the longest normal interval. Widening it looks harmless but
+**narrates history nobody opens**. Measured 2026-07-18:
+
+| Window | Recaps that would be narrated | Cost |
+|--------|------------------------------|------|
+| 3 days | 0 (steady state) | $0.00 |
+| 7 days | 15 | ~$0.04 |
+| 14 days | 45 | ~$0.14 |
+
+The tempting argument for widening is "what if the jobs are down for a week —
+those recaps age out and never get audio." **That cannot happen.**
+`run_market_recap.py --cadence daily` generates only
+`compute_latest_completed_trading_day` and explicitly rejects `--backfill` for
+daily cadence. If the jobs are down Tue–Fri, those days' recaps are never created
+at all, so there is no orphaned text waiting for narration.
+
+The only way a recap ages out is: **text generation succeeds while audio fails for
+3+ consecutive days.** Because the two are chained with `&&`, each of those days
+exits non-zero and fires the recap alert — you would have three alerts before
+anything aged out. That is a loud failure being actively debugged, not a silent
+gap, so it does not justify a permanently wider window.
+
+### Recovery after an audio-only incident
+
+If audio was broken for several days and recaps have aged past the window, do a
+**one-off** catch-up rather than widening the flag. Check first:
+
+```bash
+PYTHONPATH=. python scripts/run_recap_audio.py --cadence daily --since-days 10 --dry-run
+```
+
+Then run it for real (drop `--dry-run`), or trigger the job for anything still
+inside the normal window:
+
+```bash
+gcloud run jobs execute daily-ticker-recap --region=europe-north1
+gcloud run jobs execute daily-market-recap --region=europe-north1
+```
+
+Both are idempotent — already-narrated recaps are skipped, so re-running is free.
 
 ### Gotcha: job-level `command`/`args` override the image CMD
 
