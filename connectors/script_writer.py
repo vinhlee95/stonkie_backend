@@ -23,7 +23,10 @@ Rules:
 - Speak numbers naturally: "-2.21%" -> "down two point two one percent".
 - Keep EVERY figure exactly as given. Never round, never approximate, never invent a number.
 - Cover every key point below. Do not drop any.
-- Open with a one-line hook, close with a brief sign-off.
+- Start immediately with the most important development. NO greeting, NO
+  "welcome back", NO "here's a look at", NO scene-setting preamble. The first
+  sentence must carry real information.
+- End on the last substantive point. NO sign-off, NO "thanks for listening".
 - Output only the script text.
 
 Recap period: {period}
@@ -43,7 +46,10 @@ Quy tắc:
 - Mã cổ phiếu đọc từng chữ cái theo tên tiếng Việt: "SSI" -> "ét ét i", "TCB" -> "tê xê bê".
 - "VN-Index" -> "vê en in-đéc". "Fed" -> "Cục Dự trữ Liên bang Mỹ". "USD" -> "đô la Mỹ".
 - Phải nhắc đủ tất cả các điểm chính bên dưới. Không bỏ sót điểm nào.
-- Mở đầu bằng một câu dẫn ngắn, kết thúc bằng lời chào ngắn.
+- Vào thẳng thông tin quan trọng nhất ngay câu đầu tiên. KHÔNG chào hỏi, KHÔNG
+  "Chào cả nhà", KHÔNG "hôm nay chúng ta cùng điểm qua", KHÔNG dẫn dắt vòng vo.
+  Câu đầu tiên phải chứa thông tin thật.
+- Kết thúc ngay sau ý cuối cùng. KHÔNG có lời chào kết, KHÔNG "cảm ơn đã lắng nghe".
 - Chỉ xuất ra nội dung kịch bản.
 
 Kỳ báo cáo: {period}
