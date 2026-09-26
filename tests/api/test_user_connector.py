@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from connectors import user as user_connector_module
@@ -29,10 +29,10 @@ def test_first_upsert_inserts_user(connector):
         "https://img/a.png",
     )
     assert user.created_at is not None
-    assert user.last_login_at is not None
+    assert user.last_seen_at is not None
 
 
-def test_repeat_upsert_updates_profile_and_last_login(connector, db_session):
+def test_repeat_upsert_with_changed_profile_updates_profile_and_last_seen(connector, db_session):
     first = connector.upsert(google_sub="g-1", email="a@example.com", name="Ann", avatar_url=None)
 
     second = connector.upsert(google_sub="g-1", email="new@example.com", name="Ann B", avatar_url="https://img/b.png")
@@ -40,7 +40,7 @@ def test_repeat_upsert_updates_profile_and_last_login(connector, db_session):
     assert second.id == first.id
     assert (second.email, second.name, second.avatar_url) == ("new@example.com", "Ann B", "https://img/b.png")
     assert second.created_at == first.created_at
-    assert second.last_login_at > first.last_login_at
+    assert second.last_seen_at > first.last_seen_at
     assert db_session.scalar(select(func.count()).select_from(User)) == 1
 
 
@@ -49,3 +49,22 @@ def test_missing_name_and_avatar_stored_as_null(connector):
 
     assert user.name is None
     assert user.avatar_url is None
+
+
+def test_repeat_upsert_with_same_profile_within_window_skips_write(connector):
+    first = connector.upsert(google_sub="g-1", email="a@example.com", name="Ann", avatar_url=None)
+
+    second = connector.upsert(google_sub="g-1", email="a@example.com", name="Ann", avatar_url=None)
+
+    assert second.id == first.id
+    assert second.last_seen_at == first.last_seen_at
+
+
+def test_repeat_upsert_after_window_refreshes_last_seen(connector, test_engine):
+    first = connector.upsert(google_sub="g-1", email="a@example.com", name="Ann", avatar_url=None)
+    with test_engine.begin() as conn:
+        conn.execute(text("UPDATE users SET last_seen_at = now() - interval '10 minutes'"))
+
+    second = connector.upsert(google_sub="g-1", email="a@example.com", name="Ann", avatar_url=None)
+
+    assert second.last_seen_at > first.last_seen_at

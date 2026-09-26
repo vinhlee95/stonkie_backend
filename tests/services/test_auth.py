@@ -93,7 +93,7 @@ class FakeUserConnector:
     def upsert(self, **kwargs) -> UserDto:
         self.calls.append(kwargs)
         now = datetime.now(UTC)
-        return UserDto(id="u-1", created_at=now, last_login_at=now, **kwargs)
+        return UserDto(id="u-1", created_at=now, last_seen_at=now, **kwargs)
 
 
 @pytest.fixture()
