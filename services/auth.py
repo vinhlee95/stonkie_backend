@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import jwt
 
+from connectors.user import UserConnector, UserDto
+
 TOKEN_ISSUER = "stonkie-web"
 TOKEN_AUDIENCE = "stonkie-api"
 LEEWAY_SECONDS = 30
@@ -56,3 +58,20 @@ def verify_backend_token(token: str, secret: str) -> TokenClaims:
         name=payload.get("name"),
         picture=payload.get("picture"),
     )
+
+
+def authenticate_bearer(authorization: str | None, users: UserConnector | None = None) -> UserDto:
+    """Verify an `Authorization: Bearer <jwt>` header and return the (upserted) user.
+
+    Raises AuthNotConfiguredError if the secret is unset, AuthError for any missing/invalid token.
+    """
+    secret = get_backend_jwt_secret()
+
+    scheme, _, token = (authorization or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        raise AuthError("missing bearer token")
+
+    claims = verify_backend_token(token, secret)
+    users = users or UserConnector()
+    return users.upsert(google_sub=claims.sub, email=claims.email, name=claims.name, avatar_url=claims.picture)

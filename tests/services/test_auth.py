@@ -1,12 +1,15 @@
 import time
+from datetime import UTC, datetime
 
 import jwt
 import pytest
 
-from core.auth import (
+from connectors.user import UserDto
+from services.auth import (
     AuthError,
     AuthNotConfiguredError,
     TokenClaims,
+    authenticate_bearer,
     get_backend_jwt_secret,
     verify_backend_token,
 )
@@ -81,3 +84,49 @@ def test_get_secret_requires_32_bytes(monkeypatch):
         get_backend_jwt_secret()
     monkeypatch.setenv("BACKEND_JWT_SECRET", SECRET)
     assert get_backend_jwt_secret() == SECRET
+
+
+class FakeUserConnector:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def upsert(self, **kwargs) -> UserDto:
+        self.calls.append(kwargs)
+        now = datetime.now(UTC)
+        return UserDto(id="u-1", created_at=now, last_login_at=now, **kwargs)
+
+
+@pytest.fixture()
+def secret_env(monkeypatch):
+    monkeypatch.setenv("BACKEND_JWT_SECRET", SECRET)
+
+
+def test_authenticate_bearer_upserts_user_from_claims(secret_env):
+    users = FakeUserConnector()
+
+    user = authenticate_bearer(f"Bearer {make_token()}", users=users)
+
+    assert user.id == "u-1"
+    assert users.calls == [
+        {"google_sub": "google-123", "email": "a@example.com", "name": "Ann", "avatar_url": "https://img/x.png"}
+    ]
+
+
+def test_authenticate_bearer_accepts_lowercase_scheme(secret_env):
+    assert authenticate_bearer(f"bearer {make_token()}", users=FakeUserConnector()).id == "u-1"
+
+
+@pytest.mark.parametrize("header", [None, "", "Basic abc", "Bearer ", "Bearer not-a-jwt"])
+def test_authenticate_bearer_rejects_bad_header(secret_env, header):
+    users = FakeUserConnector()
+
+    with pytest.raises(AuthError):
+        authenticate_bearer(header, users=users)
+    assert users.calls == []
+
+
+def test_authenticate_bearer_requires_configured_secret(monkeypatch):
+    monkeypatch.delenv("BACKEND_JWT_SECRET", raising=False)
+
+    with pytest.raises(AuthNotConfiguredError):
+        authenticate_bearer(f"Bearer {make_token()}", users=FakeUserConnector())

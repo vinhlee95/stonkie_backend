@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from api.deps import get_current_user
 from connectors.user import UserDto
-from core.current_user import get_current_user
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
