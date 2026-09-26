@@ -22,3 +22,4 @@ langfuse==3.10.5
 yfinance==1.2.0
 pgvector==0.3.6
 claude-agent-sdk==0.2.82
+PyJWT==2.12.1

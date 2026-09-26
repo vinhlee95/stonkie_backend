@@ -27,6 +27,7 @@ def test_engine():
         # re-run's `upgrade head` doesn't hit DuplicateTable (see phase-7 learnings).
         connection.execute(text("DROP TABLE IF EXISTS market_recap"))
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
+        connection.execute(text("DROP TABLE IF EXISTS users"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     setup_engine.dispose()
 
@@ -49,3 +50,4 @@ def db_session(test_engine):
         with test_engine.begin() as connection:
             connection.execute(text("TRUNCATE TABLE market_recap RESTART IDENTITY"))
             connection.execute(text("TRUNCATE TABLE ticker_recap RESTART IDENTITY"))
+            connection.execute(text("TRUNCATE TABLE users"))

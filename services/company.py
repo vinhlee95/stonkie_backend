@@ -8,7 +8,7 @@ from agent.agent import Agent
 from connectors.cache import can_dispatch_task, set_task_state
 from connectors.company import Company, CompanyConnector, CompanyFundamentalDto
 from connectors.company_financial import CompanyFinancialConnector
-from connectors.database import Base, SessionLocal, engine
+from connectors.database import SessionLocal
 from connectors.pdf_reader import PageData, get_pdf_content_from_bytes
 from connectors.vector_store import (
     add_vector_record_by_batch,
@@ -77,9 +77,6 @@ async def get_swot_analysis_for_ticker(ticker: str):
         logger.error("Failed to extract JSON from response", {"ticker": ticker, "response": accumulated_text})
         return None
 
-
-# Create tables
-Base.metadata.create_all(bind=engine)
 
 logger = logging.getLogger(__name__)
 
