@@ -26,6 +26,7 @@ def ticker_recap_engine():
     setup_engine = create_engine(TEST_DATABASE_URL)
     with setup_engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
+        connection.execute(text("DROP TABLE IF EXISTS users"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     setup_engine.dispose()
 
