@@ -189,6 +189,39 @@ nojq() { printf '%s' "$1" | PATH="$NOJQ_PATH" "$(command -v bash)" "$HOOK" >/dev
 expect "no jq: ls passes" 0 "$(nojq '{"tool_input":{"command":"ls -la"},"cwd":"'"$R"'"}')"
 expect "no jq: gh pr create blocks" 2 "$(nojq '{"tool_input":{"command":"gh pr create"},"cwd":"'"$R"'"}')"
 
+# 30. quote-aware splitting: separators inside single quotes are data
+R=$(new_repo r30); echo dirty >> "$R/f.txt"
+expect "single-quoted backticks in commit msg pass" 0 "$(run_hook 'git commit -m '"'"'fix: `gh pr create` gate'"'"'' "$R")"
+expect "single-quoted parens in echo pass" 0 "$(run_hook "echo '(gh pr create)'" "$R")"
+expect "here-string word passes" 0 "$(run_hook 'cat <<< "gh pr create"' "$R")"
+expect "multi-line quoted commit msg passes" 0 "$(run_hook "$(printf 'git commit -m "fix: gate\n\ngh pr create is gated now"')" "$R")"
+expect "double-quoted parens pass" 0 "$(run_hook 'git commit -m "hook (gh pr create gate)"' "$R")"
+R=$(new_repo r30b)
+expect "command substitution in double quotes blocks" 2 "$(run_hook 'echo "$(gh pr create --fill)"' "$R")"
+expect "here-string then gh on next line blocks" 2 "$(run_hook "$(printf 'grep x <<< foo\ngh pr create --fill')" "$R")"
+
+# 31. every gh api write flag family blocks; non-POST method and /pulls/<n> writes pass
+R=$(new_repo r31)
+expect "gh api --method POST blocks" 2 "$(run_hook 'gh api --method POST repos/o/r/pulls' "$R")"
+expect "gh api -F blocks" 2 "$(run_hook 'gh api repos/o/r/pulls -F title=x' "$R")"
+expect "gh api --field blocks" 2 "$(run_hook 'gh api repos/o/r/pulls --field title=x' "$R")"
+expect "gh api --raw-field blocks" 2 "$(run_hook 'gh api repos/o/r/pulls --raw-field title=x' "$R")"
+expect "gh api --input blocks" 2 "$(run_hook 'gh api repos/o/r/pulls --input body.json' "$R")"
+expect "gh api --method GET passes" 0 "$(run_hook 'gh api --method GET repos/o/r/pulls' "$R")"
+expect "gh api /pulls/12/comments write passes" 0 "$(run_hook 'gh api repos/o/r/pulls/12/comments -f body=x' "$R")"
+expect "gh api /pulls?per_page write blocks" 2 "$(run_hook 'gh api repos/o/r/pulls?x=1 -f title=x' "$R")"
+
+# 32. critical severity blocks and can be waived; more wrappers block
+CRIT='[{"id":"SEC-1","angles":["security"],"severity":"critical","file":"f.txt","line":1,"title":"t","detail":"d","suggestion":"s"}]'
+R=$(new_repo r32); write_state "$R" "$(head_sha "$R")" "$ALL_OK" "$CRIT" '[]'
+expect "unwaived critical blocks" 2 "$(run_hook 'gh pr create --fill' "$R")"
+R=$(new_repo r32b); write_state "$R" "$(head_sha "$R")" "$ALL_OK" "$CRIT" '[{"id":"SEC-1","reason":"fp"}]'
+expect "waived critical allows" 0 "$(run_hook 'gh pr create --fill' "$R")"
+R=$(new_repo r32c)
+for c in 'sudo gh pr create --fill' 'nohup gh pr create --fill' 'exec gh pr create --fill' 'time gh pr create --fill' 'env GH_TOKEN=x gh pr create' 'bash -lc "gh pr create --fill"'; do
+  expect "wrapper blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]

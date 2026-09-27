@@ -23,16 +23,47 @@ command -v git >/dev/null 2>&1 || block "git is not installed."
 cmd=$(printf '%s' "$input" | jq -er '.tool_input.command // ""' 2>/dev/null) \
   || block "could not parse hook input."
 
-# Split the command into simple-command segments: drop heredoc bodies, then break on
-# ; & | && || newline $( ` ( ) > < . Only a segment whose first word is gh counts, so text that
-# merely mentions `gh pr create` (commit messages, grep, echo) passes through.
+# Split the command into simple-command segments, one per line, the way a shell would:
+# break on ; & | && || newline $( ` ( ) > < outside quotes; inside single quotes everything
+# is data; inside double quotes only $( and ` start a command. Heredoc bodies and here-string
+# words are dropped. Only a segment whose first word is gh counts, so text that merely
+# mentions `gh pr create` (commit messages, grep, echo) passes through.
 segments() {
   printf '%s\n' "$1" | awk '
+    function flush() { print buf; buf = "" }
     delim != "" { t = $0; gsub(/^[ \t]+|[ \t]+$/, "", t); if (t == delim) delim = ""; next }
-    { print }
-    match($0, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/) {
-      d = substr($0, RSTART, RLENGTH); gsub(/^<<-?[ \t]*["\047]?/, "", d); delim = d
-    }' | sed -E 's/(&&|\|\||\$\(|[;&|`()<>])/\n/g'
+    {
+      line = $0; n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1); c2 = substr(line, i, 2)
+        if (q == "\047") { if (c == "\047") q = ""; buf = buf (c == "\047" ? c : (c ~ /[;&|`()<>$]/ ? " " : c)); i++; continue }
+        if (q == "\"") {
+          if (c == "\\") { buf = buf " "; i += 2; continue }
+          if (c == "\"") { q = ""; buf = buf c; i++; continue }
+          if (c == "`") { flush(); i++; continue }
+          if (c2 == "$(") { flush(); i += 2; continue }
+          buf = buf (c ~ /[;&|()<>]/ ? " " : c); i++; continue
+        }
+        if (substr(line, i, 3) == "<<<") {
+          i += 3; while (substr(line, i, 1) ~ /[ \t]/) i++
+          w = substr(line, i, 1)
+          if (w == "\047" || w == "\"") { j = index(substr(line, i + 1), w); i = (j ? i + j + 1 : n + 1) }
+          else { while (i <= n && substr(line, i, 1) !~ /[ \t;&|]/) i++ }
+          flush(); continue
+        }
+        if (c2 == "<<" && match(substr(line, i + 2), /^-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+          d = substr(line, i + 2 + RSTART - 1, RLENGTH); gsub(/^-?[ \t]*["\047]?|["\047]$/, "", d)
+          delim = d; i += 2 + RLENGTH; flush(); continue
+        }
+        if (c == "\047" || c == "\"") { q = c; buf = buf c; i++; continue }
+        if (c == "\\") { buf = buf substr(line, i, 2); i += 2; continue }
+        if (c2 == "$(") { flush(); i += 2; continue }
+        if (c ~ /[;&|`()<>]/) { flush(); i++; continue }
+        buf = buf c; i++
+      }
+      if (q == "") flush(); else buf = buf " "
+    }
+    END { if (buf != "") flush() }'
 }
 
 # gh [global flags [value]] ... ; quotes/backslashes are stripped before matching
@@ -40,7 +71,8 @@ flags='([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
 gh_head="^([^[:space:]]*/)?gh${flags}[[:space:]]+"
 pr_create_re="${gh_head}pr[[:space:]]+(create|new)([[:space:]]|\$)"
 api_re="${gh_head}api[[:space:]]"
-pulls_re='/pulls([^[:alnum:]_-]|$)'
+# only the create endpoint; /pulls/<n>/... (comments, reviews) is not PR creation
+pulls_re='/pulls([?[:space:]]|$)'
 api_write_re='(-X|--method)[[:space:]=]*POST|[[:space:]](-f|-F|--field|--raw-field|--input)'
 wrapper_re='^(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)|command|sudo|env|exec|time|nohup|(ba|z)?sh[[:space:]]+-l?c)[[:space:]]+'
 

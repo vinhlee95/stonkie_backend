@@ -50,9 +50,26 @@ jobs:
         with:
           ref: ${{ steps.pr.outputs.head }}
           fetch-depth: 0
+          persist-credentials: false
+
+      # The review must be driven by trusted instructions: take skill, agents, hooks, settings and
+      # CLAUDE.md from the base commit; the PR's own versions are only reviewed as diff data.
+      - name: Use review config from base
+        id: trusted
+        if: steps.pr.outputs.same_repo == 'true'
+        env:
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          if git cat-file -e "$BASE:.claude/skills/multi-review/SKILL.md" 2>/dev/null; then
+            git checkout "$BASE" -- .claude CLAUDE.md
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Base has no multi-review config yet; skipping review."
+          fi
 
       - name: Multi-angle review
-        if: steps.pr.outputs.same_repo == 'true'
+        if: steps.pr.outputs.same_repo == 'true' && steps.trusted.outputs.ok == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
