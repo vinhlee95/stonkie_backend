@@ -32,11 +32,14 @@ done
 w=.github/workflows/hook-tests.yml
 check "workflow checkout does not persist credentials" grep -q 'persist-credentials: false' "$w"
 check "workflow watches its own file" test "$(grep -c '".github/workflows/hook-tests.yml"' "$w")" -eq 2
+check "skill reviews lockfiles (no lockfile exclusion)" bash -c "! grep -qE 'drop:.*(package-lock|\\*\\.lock)' .claude/skills/multi-review/SKILL.md"
+check "skill passes file list as untrusted JSON" grep -q '<untrusted-files>' .claude/skills/multi-review/SKILL.md
 check "skill hands reviewers a diff file" grep -q 'DIFF_FILE' .claude/skills/multi-review/SKILL.md
 c=.claude/skills/multi-review/reviewer-contract.md
 check "contract grants no shell" bash -c "! grep -q 'Run \`git diff' '$c'"
 check "contract refers to guidelines" grep -q '.github/instructions/review-guidelines.instructions.md' "$c"
 check "contract has no rubric" bash -c "! grep -q '^- \`critical\`' '$c'"
+check "guidelines require an angle label on every comment" grep -qF '[<severity> · <angle>]' .github/instructions/review-guidelines.instructions.md
 check "guidelines has rubric" grep -q '^- `critical`' .github/instructions/review-guidelines.instructions.md
 
 echo

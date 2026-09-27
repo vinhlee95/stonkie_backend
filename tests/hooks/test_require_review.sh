@@ -19,6 +19,11 @@ new_repo() {
   echo "$repo"
 }
 
+new_repo_at() {
+  mkdir -p "$1" && git -C "$1" init -q && echo a > "$1/f.txt" && git -C "$1" add f.txt \
+    && git -C "$1" -c user.email=t@t -c user.name=t commit -qm init && echo "$1"
+}
+
 head_sha() { git -C "$1" rev-parse HEAD; }
 
 # write_state <repo> <sha> <angles-json> <findings-json> <waivers-json>
@@ -124,7 +129,7 @@ expect "worktree with review allows" 0 "$(run_hook 'gh pr create --fill' "$TMP/r
 
 # 18. malformed hook input -> block
 expect "malformed input mentioning gh blocks" 2 "$(echo 'garbage gh pr create' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
-expect "malformed input without gh passes" 0 "$(echo 'garbage' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
+expect "malformed input without gh blocks (fail closed)" 2 "$(echo 'garbage' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
 
 # 19. `gh pr new` alias -> block
 R=$(new_repo r19)
@@ -232,7 +237,8 @@ expect "continued non-gh command passes" 0 "$(run_hook "$(printf 'git commit \\\
 # 34. JSON \u escapes can't hide gh from the pre-filter
 R=$(new_repo r34)
 raw() { printf '%s' "$1" | bash "$HOOK" >/dev/null 2>&1; echo $?; }
-expect "unicode-escaped gh blocks" 2 "$(raw '{"tool_input":{"command":"gh pr create"},"cwd":"'"$R"'"}')"
+NOGH="$TMP/plain-$$"; R=$(new_repo_at "$NOGH/repo")
+expect "unicode-escaped gh blocks" 2 "$(raw '{"tool_input":{"command":"\u0067\u0068 pr create"},"cwd":"'"$R"'"}')"
 
 # 35. command substitutions nested in double quotes are commands
 R=$(new_repo r35)
@@ -271,6 +277,80 @@ expect "--head current branch allows" 0 "$(run_hook "gh pr create --head $BR --f
 expect "--head owner:current allows" 0 "$(run_hook "gh pr create --head me:$BR --fill" "$R")"
 expect "--head other branch blocks" 2 "$(run_hook 'gh pr create --head other-branch --fill' "$R")"
 expect "-H other branch blocks" 2 "$(run_hook 'gh pr create -H other-branch' "$R")"
+
+# 40. ANSI-C quoted command names are decoded
+R=$(new_repo r40)
+expect "ansi-c hex gh blocks" 2 "$(run_hook "\$'\\x67\\x68' pr create --fill" "$R")"
+expect "ansi-c octal gh blocks" 2 "$(run_hook "\$'\\147\\150' pr create" "$R")"
+expect "ansi-c unicode gh blocks" 2 "$(run_hook "\$'\\u0067h' pr create" "$R")"
+expect "ansi-c string as echo arg passes" 0 "$(run_hook "echo \$'gh pr create'" "$R")"
+
+# 41. heredoc bodies: unquoted delimiter runs $( ), quoted delimiter is literal
+R=$(new_repo r41)
+expect "heredoc body \$() blocks" 2 "$(run_hook "$(printf 'cat <<EOF\n$(gh pr create --fill)\nEOF')" "$R")"
+expect "heredoc body backtick blocks" 2 "$(run_hook "$(printf 'cat <<EOF\nx `gh pr create` y\nEOF')" "$R")"
+expect "quoted-delimiter heredoc body is literal" 0 "$(run_hook "$(printf "cat <<'EOF'\n\$(gh pr create --fill)\nEOF")" "$R")"
+
+# 42. redirections anywhere in the command
+R=$(new_repo r42)
+expect "leading redirect blocks" 2 "$(run_hook '>out gh pr create --fill' "$R")"
+expect "leading fd redirect blocks" 2 "$(run_hook '2>/dev/null gh pr create --fill' "$R")"
+expect "trailing redirect blocks" 2 "$(run_hook 'gh pr create --fill > out.txt 2>&1' "$R")"
+expect "process substitution blocks" 2 "$(run_hook 'cat <(gh pr create --fill)' "$R")"
+expect "redirect target text passes" 0 "$(run_hook 'echo hi > "gh pr create.txt"' "$R")"
+
+# 43. dynamic gh api method/endpoint fail closed
+R=$(new_repo r43)
+expect "gh api dynamic method on pulls blocks" 2 "$(run_hook 'METHOD=POST; gh api --method "$METHOD" repos/o/r/pulls' "$R")"
+expect "gh api dynamic endpoint write blocks" 2 "$(run_hook 'gh api "$URL" -f title=x' "$R")"
+expect "gh api lowercase post blocks" 2 "$(run_hook 'gh api --method post repos/o/r/pulls' "$R")"
+expect "gh api dynamic GET passes" 0 "$(run_hook 'gh api "$URL"' "$R")"
+
+# 44. wrapper options that take a value
+R=$(new_repo r44)
+for c in 'sudo -u build-user gh pr create --fill' 'timeout -s KILL 5 gh pr create' 'xargs -I {} gh pr create' 'env -u FOO gh pr create'; do
+  expect "wrapper with operand blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+
+# 45. any shell's -c runs its argument as a command
+R=$(new_repo r45)
+for c in "dash -c 'gh pr create'" "/bin/dash -c 'gh pr create'" "ksh -c 'gh pr create'" "bash -e -c 'gh pr create'" \
+         "sh -xc 'gh pr create'" "fish -c 'gh pr create'" "busybox sh -c 'gh pr create'"; do
+  expect "shell -c blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+expect "shell script arg passes" 0 "$(run_hook "dash ./build.sh" "$R")"
+
+# 46. escapes/quotes/expansions that build the gh command name
+R=$(new_repo r46)
+for c in 'g\h pr create --fill' "g''h pr create" '"g"h pr create' 'G=gh; $G pr create' '$(echo gh) pr create' 'gh api graphql -f query="mutation{createPullRequest(input:{})}"'; do
+  expect "built command name blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+
+# 47. cd targets: quoted paths are followed, dynamic/unknown ones fail closed
+R=$(new_repo r47); write_state "$R" "$(head_sha "$R")" "$ALL_OK" '[]' '[]'
+SPACED=$(new_repo_at "$TMP/with space/repo")
+expect "cd quoted path into unreviewed repo blocks" 2 "$(run_hook "cd \"$SPACED\" && gh pr create --fill" "$R")"
+expect "cd to variable blocks" 2 "$(run_hook 'cd "$DIR" && gh pr create --fill' "$R")"
+expect "cd - blocks" 2 "$(run_hook 'cd - && gh pr create --fill' "$R")"
+
+# 48. PR target repo/owner/base must be the reviewed ones
+R=$(new_repo r48); write_state "$R" "$(head_sha "$R")" "$ALL_OK" '[]' '[]'
+git -C "$R" remote add origin git@github.com:me/r48.git
+BR=$(git -C "$R" rev-parse --abbrev-ref HEAD)
+expect "gh api pulls in other repo blocks" 2 "$(run_hook 'gh api repos/attacker/other/pulls -f title=x' "$R")"
+expect "gh api pulls in own repo allows" 0 "$(run_hook 'gh api repos/me/r48/pulls -f title=x' "$R")"
+expect "--head other-owner:branch blocks" 2 "$(run_hook "gh pr create --head other-owner:$BR --fill" "$R")"
+expect "--base default branch allows" 0 "$(run_hook 'gh pr create --base main --fill' "$R")"
+expect "--base other branch blocks" 2 "$(run_hook 'gh pr create --base develop --fill' "$R")"
+expect "-B other branch blocks" 2 "$(run_hook 'gh pr create -B develop --fill' "$R")"
+expect "gh api base other branch blocks" 2 "$(run_hook 'gh api repos/me/r48/pulls -f base=develop -f title=x' "$R")"
+
+# 49. brace expansion builds command words
+R=$(new_repo r49)
+for c in '{gh,pr,create}' '{gh,pr,create} --fill' '{gh,} pr create' 'gh pr {create,}' '{{gh,pr},create}'; do
+  expect "brace expansion blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+expect "brace in unrelated command passes" 0 "$(run_hook 'echo {a,b}' "$R")"
 
 echo
 echo "passed: $PASSED  failed: $FAILED"

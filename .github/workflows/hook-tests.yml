@@ -30,9 +30,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Run require-review hook tests
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
         run: |
           git config --global user.email ci@example.com
           git config --global user.name ci
           bash tests/hooks/test_require_review.sh
       - name: Run review config tests
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
         run: bash tests/hooks/test_review_config.sh
