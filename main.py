@@ -16,6 +16,7 @@ from api.analyze_v2 import router as analyze_v2_router
 from api.companies import router as companies_router
 from api.markets import router as markets_router
 from api.me import router as me_router
+from api.portfolio import router as portfolio_router
 from api.quotes import router as quotes_router
 from api.recap_analyze import router as recap_analyze_router
 from connectors.conversation_store import (
@@ -81,6 +82,7 @@ app.include_router(companies_router)
 app.include_router(recap_analyze_router)
 app.include_router(quotes_router)
 app.include_router(me_router)
+app.include_router(portfolio_router)
 
 
 # Add logging middleware

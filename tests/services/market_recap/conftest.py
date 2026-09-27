@@ -27,6 +27,7 @@ def test_engine():
         # `upgrade head` also creates ticker_recap; drop it so a rebuild after the
         # ticker_recap suite's fixture ran doesn't hit DuplicateTable.
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
+        connection.execute(text("DROP TABLE IF EXISTS portfolio_holdings"))
         connection.execute(text("DROP TABLE IF EXISTS users"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     setup_engine.dispose()
