@@ -19,8 +19,15 @@ cmd=$(printf '%s' "$input" | jq -er '.tool_input.command // ""' 2>/dev/null) \
   || block "could not parse hook input."
 
 # bash regex, not `printf | grep -q`: with pipefail a SIGPIPE on printf would read as "no match" and open the gate
-pr_create_re='(^|[;&|(`[:space:]])gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-[[ "$cmd" =~ $pr_create_re ]] || exit 0
+# matches `gh pr create|new`, path-qualified gh, global flags (`gh -R o/r pr create`),
+# and `gh api` writes to /pulls (-X POST or -f/-F/--input, which make gh api POST)
+gh_re='(^|[;&|(`[:space:]])([^[:space:];&|]*/)?gh([[:space:]]+[^[:space:];&|]+)*'
+pr_create_re="${gh_re}[[:space:]]+pr[[:space:]]+(create|new)([[:space:]]|\$)"
+api_pulls_re="${gh_re}[[:space:]]+api[[:space:]].*/pulls([[:space:]?]|\$)"
+api_write_re='(-X|--method)[[:space:]=]*POST|[[:space:]](-f|-F|--field|--raw-field|--input)[[:space:]=]'
+if ! [[ "$cmd" =~ $pr_create_re ]]; then
+  [[ "$cmd" =~ $api_pulls_re && "$cmd" =~ $api_write_re ]] || exit 0
+fi
 
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="${CLAUDE_PROJECT_DIR:-$PWD}"

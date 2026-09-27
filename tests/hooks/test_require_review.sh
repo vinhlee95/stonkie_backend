@@ -125,6 +125,28 @@ expect "worktree with review allows" 0 "$(run_hook 'gh pr create --fill' "$TMP/r
 # 18. malformed hook input -> block
 expect "malformed input blocks" 2 "$(echo 'garbage' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
 
+# 19. `gh pr new` alias -> block
+R=$(new_repo r19)
+expect "gh pr new alias blocks" 2 "$(run_hook 'gh pr new --fill' "$R")"
+
+# 20. path-qualified gh -> block
+R=$(new_repo r20)
+expect "path-qualified gh blocks" 2 "$(run_hook '/opt/homebrew/bin/gh pr create --fill' "$R")"
+
+# 21. global flags before subcommand -> block
+R=$(new_repo r21)
+expect "gh -R flag blocks" 2 "$(run_hook 'gh -R owner/repo pr create --fill' "$R")"
+expect "gh --repo flag blocks" 2 "$(run_hook 'gh --repo owner/repo pr create --fill' "$R")"
+
+# 22. gh api POST to pulls -> block
+R=$(new_repo r22)
+expect "gh api pulls POST blocks" 2 "$(run_hook 'gh api -X POST repos/o/r/pulls -f title=x' "$R")"
+
+# 23. unrelated gh commands still pass
+R=$(new_repo r23)
+expect "gh pr list passthrough" 0 "$(run_hook 'gh pr list --state open' "$R")"
+expect "gh api GET pulls passthrough" 0 "$(run_hook 'gh api repos/o/r/pulls' "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]
