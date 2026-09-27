@@ -130,7 +130,7 @@ def test_minor_unit_quote_normalised_to_major_currency(client):
 
     assert row["currency"] == "GBP"
     assert row["price"] == pytest.approx(72.0)
-    assert row["avg_cost"] == pytest.approx(60.0)
+    assert row["avg_cost"] == 6000  # returned as entered, so it round-trips through PUT
     assert row["value"] == pytest.approx(100 * 72 * 1.2)
     assert row["cost_basis"] == pytest.approx(100 * 60 * 1.2)
     assert row["day_change"] == pytest.approx(100 * 2 * 1.2)

@@ -150,7 +150,8 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
     if currency in MINOR_UNIT_CURRENCIES:
         currency, divisor = MINOR_UNIT_CURRENCIES[currency]
         price, prev_close, avg_cost = price / divisor, prev_close / divisor, avg_cost / divisor
-    row.update(currency=currency, price=price, avg_cost=avg_cost)
+    # Row avg_cost stays as stored so clients can round-trip it via PUT.
+    row.update(currency=currency, price=price)
 
     fx = fx_for(currency)
     if fx is None:
