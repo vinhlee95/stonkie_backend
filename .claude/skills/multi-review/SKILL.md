@@ -65,7 +65,7 @@ INTENT:
 
 For each reviewer's output:
 1. Strip leading/trailing prose and ``` fences; take the outermost `[ ... ]`.
-2. Parse as JSON. Every element must have `angle`, `severity` ∈ {critical, high, medium, low}, `file`, `title`, `detail`, `suggestion`; `line` is an integer or null.
+2. Parse as JSON. Every element must have `angle` equal to the angle of the reviewer that returned it (a `tests` reviewer may only return `"angle": "tests"`), `severity` ∈ {critical, high, medium, low}, `file`, `title`, `detail`, `suggestion`; `line` is an integer or null.
 3. If invalid: re-dispatch that same agent ONCE with the same prompt plus the line `Your previous output was not valid JSON per the reviewer contract. Output ONLY the JSON array.`
 4. Still invalid (or the agent errored): mark that angle `errored`. Otherwise `ok`.
 

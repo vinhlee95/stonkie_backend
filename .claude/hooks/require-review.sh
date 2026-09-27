@@ -150,7 +150,7 @@ api_dynamic_re="${gh_head}api[[:space:]]+([^[:space:]]+[[:space:]]+)*[^-[:space:
 # command is the first gh word that follows, whatever options/operands sit in between
 wrapper_re='^(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)|([^[:space:]]*/)?(command|sudo|env|exec|eval|time|nohup|nice|timeout|xargs)|if|then|else|elif|do|while|until|!|\{|([^[:space:]]*/)?(busybox[[:space:]]+)?([a-z]*sh|fish)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*)[[:space:]]+'
 wrapped_gh_re='(^|[[:space:]])(([^[:space:]]*/)?gh([[:space:]].*)?)$'
-cd_re='^(cd|pushd)([[:space:]]+(-[LPe@]+[[:space:]]+)*(.*[^[:space:]]))?[[:space:]]*$'
+cd_re='^(cd|pushd)([[:space:]]+(-[LPe@]+[[:space:]]+|--[[:space:]]+)*(.*[^[:space:]]))?[[:space:]]*$'
 # a command name built from an expansion ($G, g${X}h, $(echo gh), leftover "pr create") can't be checked
 dyn_name_re='^([^[:space:]]*\$[^[:space:]]*[[:space:]]+([^[:space:]]+[[:space:]]+)*)?pr[[:space:]]+(create|new)([[:space:]]|$)'
 # gh api graphql can create PRs; a mutation, --input file, @file field or $ expansion can't be inspected
