@@ -147,6 +147,23 @@ R=$(new_repo r23)
 expect "gh pr list passthrough" 0 "$(run_hook 'gh pr list --state open' "$R")"
 expect "gh api GET pulls passthrough" 0 "$(run_hook 'gh api repos/o/r/pulls' "$R")"
 
+# 24. gh pr create followed by non-space separators / inside subshells -> block
+R=$(new_repo r24)
+for c in 'gh pr create;echo done' 'gh pr create&&echo done' 'gh pr create|tee x' 'gh pr create>out' \
+         '(gh pr create)' '$(gh pr create)' '`gh pr create`' 'bash -c "gh pr create"' "bash -c 'gh pr create'" \
+         '"gh" pr create' 'gh pr "create"'; do
+  expect "blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+
+# 25. gh api POST with attached field value -> block
+R=$(new_repo r25)
+expect "gh api -fhead=x blocks" 2 "$(run_hook 'gh api repos/o/r/pulls -fhead=x' "$R")"
+
+# 26. near-misses still pass
+R=$(new_repo r26)
+expect "gh pr created-list passthrough" 0 "$(run_hook 'gh pr view created' "$R")"
+expect "gh pr checks passthrough" 0 "$(run_hook 'gh pr checks 12' "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]

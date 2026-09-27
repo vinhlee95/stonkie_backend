@@ -123,8 +123,8 @@ Finding schema: `{"id", "angles": [..], "severity", "file", "line", "title", "de
    _Advisory only — does not block merge. Re-run: comment `@claude review`._
    ```
    If there are no findings, say "No findings." under the table.
-2. Find an existing summary: `gh api repos/{owner}/{repo}/issues/<pr>/comments --paginate --jq '.[] | select(.body | contains("<!-- multi-review -->")) | .id' | head -1`
-   - Found → `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@/tmp/multi-review-summary.md`
+2. Find an existing summary posted by a bot (single command, no shell pipes — only the allowed `gh api` forms work in CI): `gh api repos/{owner}/{repo}/issues/<pr>/comments --jq 'first(.[] | select(.user.type == "Bot" and (.body | contains("<!-- multi-review -->"))) | .id) // empty'`
+   - Found → `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@/tmp/multi-review-summary.md`. If the PATCH fails, fall back to posting a new comment.
    - Not found → `gh pr comment <pr> --body-file /tmp/multi-review-summary.md`
 3. For each critical/high/medium finding with a non-null `line`: create an inline comment with `mcp__github_inline_comment__create_inline_comment` on `file`/`line` (new side), body `**[ID] severity · angles** — title\n\ndetail\n\n_Suggestion:_ suggestion`. If the call fails (e.g. line not in the diff), skip it — the finding is already in the summary. Never abort the run for an inline-comment failure.
 4. Do not write a state file in CI mode.
