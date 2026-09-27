@@ -222,6 +222,13 @@ for c in 'sudo gh pr create --fill' 'nohup gh pr create --fill' 'exec gh pr crea
   expect "wrapper blocks: $c" 2 "$(run_hook "$c" "$R")"
 done
 
+# 33. backslash-newline continuation joins lines like the shell does
+R=$(new_repo r33)
+expect "continued gh pr \\ create blocks" 2 "$(run_hook "$(printf 'gh pr \\\ncreate --fill')" "$R")"
+expect "continued gh \\ pr create blocks" 2 "$(run_hook "$(printf 'gh \\\npr create')" "$R")"
+R=$(new_repo r33b); echo dirty >> "$R/f.txt"
+expect "continued non-gh command passes" 0 "$(run_hook "$(printf 'git commit \\\n-m x')" "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]

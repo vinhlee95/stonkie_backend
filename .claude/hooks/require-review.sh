@@ -61,6 +61,8 @@ segments() {
         if (c ~ /[;&|`()<>]/) { flush(); i++; continue }
         buf = buf c; i++
       }
+      # backslash-newline outside quotes is a line continuation: join like the shell does
+      if (q == "" && substr(buf, length(buf), 1) == "\\") { buf = substr(buf, 1, length(buf) - 1) " "; next }
       if (q == "") flush(); else buf = buf " "
     }
     END { if (buf != "") flush() }'

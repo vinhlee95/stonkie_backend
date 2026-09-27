@@ -1,6 +1,6 @@
 ---
 name: multi-review
-description: Multi-angle code review (functionality, architecture, security, scalability, tests) of the current branch or a PR, using 5 parallel reviewer subagents. REQUIRED before `gh pr create` — a hook blocks PR creation until HEAD has a passing review. Use when asked to review changes, before creating a PR, or when the require-review hook blocks `gh pr create`.
+description: Multi-angle code review (functionality, architecture, security, scalability, tests) of the current branch, using 5 parallel reviewer subagents. REQUIRED before `gh pr create` — a hook blocks PR creation until HEAD has a passing review. Use when asked to review changes, before creating a PR, or when the require-review hook blocks `gh pr create`.
 ---
 
 # /multi-review
@@ -8,7 +8,6 @@ description: Multi-angle code review (functionality, architecture, security, sca
 ## Arguments
 
 - no arguments → **local mode**
-- `ci <pr-number> <base-sha> <head-sha>` → **CI mode**
 - `--waive <FINDING-ID> "<reason>"` → **waive mode**
 
 ## Reviewers
@@ -32,10 +31,6 @@ Local mode:
 2. `git fetch origin main --quiet`
 3. `RANGE=origin/main...HEAD`, `SHA=$(git rev-parse HEAD)`, `TOP=$(git rev-parse --show-toplevel)`
 4. `INTENT=$(git log --format='%s%n%b' origin/main..HEAD)`
-
-CI mode:
-1. `RANGE=<base-sha>...<head-sha>`, `SHA=<head-sha>`
-2. `INTENT=$(gh pr view <pr-number> --json title,body --jq '.title + "\n\n" + .body')`
 
 ## Step 2 — Changed files
 
@@ -73,7 +68,7 @@ For each reviewer's output:
 
 Finding schema: `{"id", "angles": [..], "severity", "file", "line", "title", "detail", "suggestion"}`.
 
-## Step 6a — Local output
+## Step 6 — Output
 
 1. Compute `status`: `pass` iff all 5 angles are `ok` AND no critical/high finding lacks a waiver (a fresh review has no waivers). Otherwise `fail`.
 2. `mkdir -p "$TOP/.claude/review-state"` and write `$TOP/.claude/review-state/<SHA>.json` exactly:
@@ -94,40 +89,6 @@ Finding schema: `{"id", "angles": [..], "severity", "file", "line", "title", "de
    Waivers: none | - ID: reason
    ```
 5. If `fail`: list what must change. The fix loop is: fix → commit (only with user approval) → re-run `/multi-review`. **Never waive a finding yourself**, and never suggest bypassing the hook.
-
-## Step 6b — CI output
-
-1. Build the summary body in a temp file (e.g. `/tmp/multi-review-summary.md`):
-   ```
-   <!-- multi-review -->
-   ## 🔍 Multi-angle review — <short head sha>
-   Angles: functionality · architecture · security · scalability · tests
-   (errored angles listed as: ⚠️ <angle> not reviewed)
-
-   | | functionality | architecture | security | scalability | tests |
-   |---|---|---|---|---|---|
-   | critical | n | n | n | n | n |
-   | high | … |
-   | medium | … |
-   | low | … |
-
-   ### Critical / High / Medium  (one subsection each, omit if empty)
-   - **[ID]** `file:line` — title (angles)
-     detail
-     _Suggestion:_ suggestion
-
-   <details><summary>Low (n)</summary>
-   …same format…
-   </details>
-
-   _Advisory only — does not block merge. Re-run: comment `@claude review`._
-   ```
-   If there are no findings, say "No findings." under the table.
-2. Find an existing summary posted by a bot (single command, no shell pipes — only the allowed `gh api` forms work in CI): `gh api repos/{owner}/{repo}/issues/<pr>/comments?per_page=100 --jq 'first(.[] | select(.user.type == "Bot" and (.body | contains("<!-- multi-review -->"))) | .id) // empty'`
-   - Found → `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@/tmp/multi-review-summary.md`. If the PATCH fails, fall back to posting a new comment.
-   - Not found → `gh pr comment <pr> --body-file /tmp/multi-review-summary.md`
-3. For each critical/high/medium finding with a non-null `line`: create an inline comment with `mcp__github_inline_comment__create_inline_comment` on `file`/`line` (new side), body `**[ID] severity · angles** — title\n\ndetail\n\n_Suggestion:_ suggestion`. If the call fails (e.g. line not in the diff), skip it — the finding is already in the summary. Never abort the run for an inline-comment failure.
-4. Do not write a state file in CI mode.
 
 ## Waive mode
 
