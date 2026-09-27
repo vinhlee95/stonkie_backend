@@ -6,7 +6,7 @@ from collections.abc import Callable
 from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
-from services.price_change import get_price_changes
+from services.price_change import PriceFetchError, get_price_change, get_price_changes
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +25,17 @@ class HoldingLimitError(Exception):
     pass
 
 
+class QuoteUnavailableError(Exception):
+    """Yahoo could not be reached, so the ticker could not be validated; retryable."""
+
+
 def resolve_quote(ticker: str, yf_client: YFinanceClient) -> dict:
-    """Latest quote for a ticker, raising UnknownTickerError when Yahoo has no usable price."""
-    quote = get_price_changes([ticker], yf_client).get(ticker)
+    """Latest quote for a ticker. Raises UnknownTickerError when Yahoo has no usable price and
+    QuoteUnavailableError when the fetch itself fails."""
+    try:
+        quote = get_price_change(ticker, yf_client)
+    except PriceFetchError:
+        raise QuoteUnavailableError(ticker) from None
     if quote is None:
         raise UnknownTickerError(ticker)
     return quote

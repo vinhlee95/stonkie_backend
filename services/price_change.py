@@ -20,25 +20,38 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class PriceFetchError(Exception):
+    """Fetching the price history failed (as opposed to the ticker having no usable data)."""
+
+
 def get_price_changes(tickers: list[str], yf_client: YFinanceClient) -> dict[str, dict]:
     quotes: dict[str, dict] = {}
     for ticker in tickers:
-        cache_key = f"price_change:{ticker}"
-        cached = cache.get_json(cache_key)
-        if cached is not None and _is_valid_quote(cached):
-            quotes[ticker] = cached
-            continue
         try:
-            quote = _price_change_for_ticker(ticker, yf_client)
-        except Exception:
+            quote = get_price_change(ticker, yf_client)
+        except PriceFetchError:
             logger.warning("Failed to compute price change for %s", ticker, exc_info=True)
             continue
         if quote is None:
             logger.info("Insufficient price history for %s, omitting", ticker)
             continue
         quotes[ticker] = quote
-        cache.set_json(cache_key, quote, CACHE_TTL_SECONDS)
     return quotes
+
+
+def get_price_change(ticker: str, yf_client: YFinanceClient) -> dict | None:
+    """Cached quote for one ticker; None when history is insufficient, PriceFetchError when the fetch fails."""
+    cache_key = f"price_change:{ticker}"
+    cached = cache.get_json(cache_key)
+    if cached is not None and _is_valid_quote(cached):
+        return cached
+    try:
+        quote = _price_change_for_ticker(ticker, yf_client)
+    except Exception as exc:
+        raise PriceFetchError(ticker) from exc
+    if quote is not None:
+        cache.set_json(cache_key, quote, CACHE_TTL_SECONDS)
+    return quote
 
 
 def _price_change_for_ticker(ticker: str, yf_client: YFinanceClient) -> dict | None:

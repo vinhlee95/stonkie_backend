@@ -10,6 +10,7 @@ from connectors.yfinance_client import YFinanceClient
 from services.portfolio import (
     MAX_HOLDINGS_PER_USER,
     HoldingLimitError,
+    QuoteUnavailableError,
     UnknownTickerError,
     get_portfolio,
     remove_holding,
@@ -73,6 +74,8 @@ def put_holding(
         )
     except UnknownTickerError:
         raise HTTPException(status_code=422, detail=f"No price data for {ticker}")
+    except QuoteUnavailableError:
+        raise HTTPException(status_code=503, detail=f"Price data for {ticker} is temporarily unavailable")
     except HoldingLimitError:
         raise HTTPException(status_code=409, detail=f"Portfolio is limited to {MAX_HOLDINGS_PER_USER} holdings")
     return {"ticker": holding.ticker, "name": holding.name, "shares": holding.shares, "avg_cost": holding.avg_cost}

@@ -102,6 +102,14 @@ def test_put_replaces_existing_position(client):
     assert holdings[0]["name"] == "Apple"  # omitted name keeps the stored one
 
 
+def test_new_ticker_while_yahoo_down_is_retryable(client):
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+
+    response = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+
+    assert response.status_code == 503
+
+
 def test_edit_existing_holding_while_yahoo_down(client):
     client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 10, "avg_cost": 100}, headers=auth())
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
