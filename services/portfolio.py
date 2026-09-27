@@ -6,9 +6,11 @@ Holdings without a live quote fall back to the last completed daily close and ar
 import logging
 from collections.abc import Callable
 
+from connectors.company import CompanyConnector
 from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
+from services.holding_metadata import get_holdings_metadata
 from services.live_quote import get_live_quotes
 from services.price_change import PriceFetchError, get_price_change, get_price_changes
 
@@ -80,11 +82,17 @@ def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) 
 
 
 def get_portfolio(
-    user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient, fx: FxConnector | None = None
+    user_id: str,
+    portfolio: PortfolioConnector,
+    yf_client: YFinanceClient,
+    fx: FxConnector | None = None,
+    companies: CompanyConnector | None = None,
 ) -> dict:
     fx = fx or FxConnector(yf_client)
     holdings = portfolio.list_holdings(user_id)
-    quotes = _quotes([h.ticker for h in holdings], yf_client)
+    tickers = [h.ticker for h in holdings]
+    quotes = _quotes(tickers, yf_client)
+    metadata = get_holdings_metadata(tickers, yf_client, companies)
 
     fx_rates: dict[str, float | None] = {}
 
@@ -93,7 +101,7 @@ def get_portfolio(
             fx_rates[currency] = fx.get_live_rate(currency, BASE_CURRENCY)
         return fx_rates[currency]
 
-    rows = [_value_holding(h, quotes.get(h.ticker), fx_for) for h in holdings]
+    rows = [{**_value_holding(h, quotes.get(h.ticker), fx_for), **metadata[h.ticker]} for h in holdings]
     priced = [r for r in rows if r["value"] is not None]
 
     total_value = sum(r["value"] for r in priced)

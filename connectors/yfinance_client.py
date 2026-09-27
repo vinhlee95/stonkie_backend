@@ -41,6 +41,10 @@ class YFinanceClient:
         bars = yf_ticker.history(period="5d", interval="1h", auto_adjust=False)
         return parse_live_quote(yf_ticker.get_history_metadata(), bars)
 
+    def get_info(self, ticker: str) -> dict:
+        """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""
+        return yf.Ticker(ticker).info or {}
+
     def get_quote(self, ticker: str) -> dict | None:
         """Live quote snapshot used as a fallback when the latest daily bar's
         Close is missing. Yahoo populates these even when the daily chart's

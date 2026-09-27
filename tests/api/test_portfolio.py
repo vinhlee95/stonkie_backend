@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.portfolio import get_yfinance_client
 from connectors import cache
+from connectors import company as company_connector_module
 from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
@@ -20,6 +21,10 @@ HISTORIES = {
     "BP.L": make_history([400.0, 410.0], tz=NY_TZ),
     "USDEUR=X": make_history([0.9, 0.8], tz=NY_TZ),
     "GBPEUR=X": make_history([1.1, 1.2], tz=NY_TZ),
+}
+INFOS = {
+    "AAPL": {"quoteType": "EQUITY", "sector": "Technology", "country": "United States"},
+    "NOKIA.HE": {"quoteType": "EQUITY", "sector": "Technology", "country": "Finland"},
 }
 CURRENCIES = {"AAPL": "USD", "NOKIA.HE": "EUR", "VOD.L": "GBp", "BP.L": "GBp"}
 
@@ -39,7 +44,8 @@ def client(test_engine, db_session, monkeypatch):
     session_local = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
     monkeypatch.setattr(user_connector_module, "SessionLocal", session_local)
     monkeypatch.setattr(portfolio_connector_module, "SessionLocal", session_local)
-    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES)
+    monkeypatch.setattr(company_connector_module, "SessionLocal", session_local)
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, infos=INFOS)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
     with TestClient(app) as test_client:
         yield test_client
@@ -92,6 +98,8 @@ def test_add_values_holdings_in_eur(client):
     assert s["day_change"] == pytest.approx(80 - 100)
     assert s["day_change_percent"] == pytest.approx(-20 / (2080 + 20) * 100)
     assert aapl["weight"] + nokia["weight"] == pytest.approx(100)
+    assert (aapl["sector"], aapl["country"], aapl["asset_type"]) == ("Technology", "United States", "Stock")
+    assert (nokia["sector"], nokia["country"], nokia["asset_type"]) == ("Technology", "Finland", "Stock")
 
 
 def test_put_replaces_existing_position(client):

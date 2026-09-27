@@ -226,6 +226,17 @@ class CompanyConnector:
 
         return self.get_company_logo_url(ticker)
 
+    def get_classifications(self, tickers: list[str]) -> dict[str, tuple[str, str]]:
+        """(sector, country) per ticker from stored fundamentals; tickers without a row are omitted."""
+        if not tickers:
+            return {}
+        with SessionLocal() as db:
+            rows = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol.in_(tickers)).all()
+            return {
+                str(row.company_symbol): ((row.data or {}).get("sector") or "", (row.data or {}).get("country") or "")
+                for row in rows
+            }
+
     def get_by_ticker(self, ticker: str) -> Company | None:
         with SessionLocal() as db:
             data = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol == ticker.upper()).first()
