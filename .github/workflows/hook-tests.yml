@@ -1,15 +1,21 @@
-name: Review Gate Hook Tests
+name: Review Config Tests
 
 on:
   pull_request:
     paths:
       - ".claude/hooks/**"
       - "tests/hooks/**"
+      - ".github/instructions/**"
+      - ".claude/agents/**"
+      - ".claude/skills/multi-review/**"
   push:
     branches: [main]
     paths:
       - ".claude/hooks/**"
       - "tests/hooks/**"
+      - ".github/instructions/**"
+      - ".claude/agents/**"
+      - ".claude/skills/multi-review/**"
 
 jobs:
   hook-tests:
@@ -24,3 +30,5 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name ci
           bash tests/hooks/test_require_review.sh
+      - name: Run review config tests
+        run: bash tests/hooks/test_review_config.sh

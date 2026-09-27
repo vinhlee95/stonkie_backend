@@ -21,10 +21,7 @@ The orchestrator's message contains:
 
 ## Severity rubric
 
-- `critical` — exploitable security hole, secret leaked, data loss/corruption, crash on a main path.
-- `high` — wrong behavior on a realistic input; convention violation that will spread (e.g. layer violation); new core logic without tests; clear performance regression on a hot path.
-- `medium` — edge-case bug; maintainability problem that makes the code harder to change safely; weak or brittle test.
-- `low` — nit, naming, minor clarity issue not caught by linters.
+Use the rubric in `.github/instructions/review-guidelines.instructions.md`.
 
 ## Output
 
