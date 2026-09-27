@@ -123,7 +123,8 @@ write_state "$TMP/r17-wt" "$(head_sha "$TMP/r17-wt")" "$ALL_OK" '[]' '[]'
 expect "worktree with review allows" 0 "$(run_hook 'gh pr create --fill' "$TMP/r17-wt")"
 
 # 18. malformed hook input -> block
-expect "malformed input blocks" 2 "$(echo 'garbage' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
+expect "malformed input mentioning gh blocks" 2 "$(echo 'garbage gh pr create' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
+expect "malformed input without gh passes" 0 "$(echo 'garbage' | bash "$HOOK" >/dev/null 2>&1; echo $?)"
 
 # 19. `gh pr new` alias -> block
 R=$(new_repo r19)
@@ -163,6 +164,30 @@ expect "gh api -fhead=x blocks" 2 "$(run_hook 'gh api repos/o/r/pulls -fhead=x' 
 R=$(new_repo r26)
 expect "gh pr created-list passthrough" 0 "$(run_hook 'gh pr view created' "$R")"
 expect "gh pr checks passthrough" 0 "$(run_hook 'gh pr checks 12' "$R")"
+
+# 27. commands that only MENTION gh pr create pass through (dirty tree would otherwise block commits)
+R=$(new_repo r27); echo dirty >> "$R/f.txt"
+expect "commit msg mentioning gh pr create passes" 0 "$(run_hook 'git commit -m "gate gh pr create on review"' "$R")"
+expect "grep for gh pr create passes" 0 "$(run_hook "grep -rn 'gh pr create' ." "$R")"
+expect "gh issue titled pr create passes" 0 "$(run_hook 'gh issue create --title pr create' "$R")"
+expect "echo mentioning gh pr new passes" 0 "$(run_hook 'echo "use gh pr new later"' "$R")"
+HEREDOC_CMD=$(printf 'git commit -F - <<EOF\nfix: gate\ngh pr create is now gated\nEOF')
+expect "heredoc body mentioning gh pr create passes" 0 "$(run_hook "$HEREDOC_CMD" "$R")"
+expect "gh api GET pulls piped to grep -F passes" 0 "$(run_hook 'gh api repos/o/r/pulls > p.json && grep -F foo p.json' "$R")"
+
+# 28. real invocations behind wrappers still block
+R=$(new_repo r28)
+expect "env-prefixed gh blocks" 2 "$(run_hook 'GH_TOKEN=x gh pr create --fill' "$R")"
+expect "command gh blocks" 2 "$(run_hook 'command gh pr create --fill' "$R")"
+expect "gh after newline blocks" 2 "$(run_hook "$(printf 'git push\ngh pr create --fill')" "$R")"
+
+# 29. missing jq: non-gh commands still pass, gh pr create blocks
+R=$(new_repo r29)
+NOJQ_PATH="$TMP/nojq-bin"; mkdir -p "$NOJQ_PATH"
+for b in git bash sed awk grep tr cat printf dirname; do p=$(command -v "$b") && ln -sf "$p" "$NOJQ_PATH/$b"; done
+nojq() { printf '%s' "$1" | PATH="$NOJQ_PATH" "$(command -v bash)" "$HOOK" >/dev/null 2>&1; echo $?; }
+expect "no jq: ls passes" 0 "$(nojq '{"tool_input":{"command":"ls -la"},"cwd":"'"$R"'"}')"
+expect "no jq: gh pr create blocks" 2 "$(nojq '{"tool_input":{"command":"gh pr create"},"cwd":"'"$R"'"}')"
 
 echo
 echo "passed: $PASSED  failed: $FAILED"
