@@ -1,10 +1,9 @@
 """Portfolio valuation: holdings + daily quotes + FX, all reported in EUR."""
 
 import logging
-import math
 from collections.abc import Callable
 
-from connectors import cache
+from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
 from services.price_change import get_price_changes
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 BASE_CURRENCY = "EUR"
 # Bounds GET cost: valuation fetches one quote per holding (mirrors the /api/quotes 50-ticker cap).
 MAX_HOLDINGS_PER_USER = 50
-FX_CACHE_TTL_SECONDS = 6 * 3600
 # Yahoo quotes London listings in pence ("GBp"); normalise to pounds.
 MINOR_UNIT_CURRENCIES = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
 
@@ -25,27 +23,6 @@ class UnknownTickerError(Exception):
 
 class HoldingLimitError(Exception):
     pass
-
-
-def get_fx_rate(currency: str, yf_client: YFinanceClient) -> float | None:
-    """Units of BASE_CURRENCY per 1 unit of `currency`, from the latest daily close."""
-    if currency == BASE_CURRENCY:
-        return 1.0
-    cache_key = f"fx:{currency}{BASE_CURRENCY}"
-    cached = cache.get_json(cache_key)
-    if cached is not None and _is_finite(cached.get("rate")):
-        return cached["rate"]
-    try:
-        history, _ = yf_client.get_daily_history(f"{currency}{BASE_CURRENCY}=X")
-    except Exception:
-        logger.warning("Failed to fetch FX rate for %s", currency, exc_info=True)
-        return None
-    closes = [float(c) for c in history["Close"] if _is_finite(c)] if not history.empty else []
-    if not closes or closes[-1] <= 0:
-        return None
-    rate = closes[-1]
-    cache.set_json(cache_key, {"rate": rate}, FX_CACHE_TTL_SECONDS)
-    return rate
 
 
 def resolve_quote(ticker: str, yf_client: YFinanceClient) -> dict:
@@ -90,7 +67,10 @@ def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) 
     return portfolio.delete_holding(user_id=user_id, ticker=ticker)
 
 
-def get_portfolio(user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient) -> dict:
+def get_portfolio(
+    user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient, fx: FxConnector | None = None
+) -> dict:
+    fx = fx or FxConnector(yf_client)
     holdings = portfolio.list_holdings(user_id)
     quotes = get_price_changes([h.ticker for h in holdings], yf_client) if holdings else {}
 
@@ -98,7 +78,7 @@ def get_portfolio(user_id: str, portfolio: PortfolioConnector, yf_client: YFinan
 
     def fx_for(currency: str) -> float | None:
         if currency not in fx_rates:
-            fx_rates[currency] = get_fx_rate(currency, yf_client)
+            fx_rates[currency] = fx.get_rate(currency, BASE_CURRENCY)
         return fx_rates[currency]
 
     rows = [_value_holding(h, quotes.get(h.ticker), fx_for) for h in holdings]
@@ -181,7 +161,3 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
         total_return_percent=(value / cost_basis - 1) * 100 if cost_basis else 0.0,
     )
     return row
-
-
-def _is_finite(value) -> bool:
-    return isinstance(value, (int, float)) and math.isfinite(value)

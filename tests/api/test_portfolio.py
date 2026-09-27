@@ -238,7 +238,7 @@ def test_unpriced_holding_is_listed_but_excluded_from_totals(client):
 def test_fx_rate_fetched_once_per_currency(client, monkeypatch):
     client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
     client.put("/api/me/portfolio/holdings/BP.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
-    monkeypatch.setattr("services.portfolio.cache.get_json", lambda key: None)  # force FX cache misses
+    monkeypatch.setattr("connectors.fx.cache.get_json", lambda key: None)  # force FX cache misses
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
 
