@@ -47,11 +47,23 @@ def test_previous_close_falls_back_to_prior_day_last_bar():
     assert parse_live_quote(meta(previousClose=None), BARS).prev_close == 103.0
 
 
-def test_trading_date_uses_exchange_timezone():
-    # 01:00 UTC Saturday is still Friday evening in New York.
-    late = datetime(2026, 9, 26, 1, 0, tzinfo=UTC)
-    quote = parse_live_quote(meta(regularMarketTime=int(late.timestamp())), BARS)
+# 01:00 UTC Saturday: still Friday evening in New York, already Saturday in Tokyo.
+LATE = int(datetime(2026, 9, 26, 1, 0, tzinfo=UTC).timestamp())
+
+
+def test_trading_date_uses_exchange_timezone_from_meta():
+    quote = parse_live_quote(meta(regularMarketTime=LATE, exchangeTimezoneName="Asia/Tokyo"), BARS)
+    assert quote.trading_date == date(2026, 9, 26)
+
+
+def test_trading_date_falls_back_to_bars_timezone():
+    quote = parse_live_quote(meta(regularMarketTime=LATE), BARS)
     assert quote.trading_date == date(2026, 9, 25)
+
+
+def test_trading_date_falls_back_to_utc_without_timezone_or_bars():
+    quote = parse_live_quote(meta(regularMarketTime=LATE), pd.DataFrame({"Close": []}))
+    assert quote.trading_date == date(2026, 9, 26)
 
 
 def test_accepts_datetime_market_time():

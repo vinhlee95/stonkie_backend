@@ -54,3 +54,20 @@ def test_empty_tickers_makes_no_calls():
     fake = FakeYFinanceClient({})
     assert get_live_quotes([], fake) == {}
     assert fake.live_calls == []
+
+
+@pytest.mark.parametrize(
+    "cached",
+    [
+        '{"price": 1.0}',  # missing fields
+        '{"price": 1.0, "prev_close": 1.0, "currency": "USD", "market_time": "bad", "trading_date": "2026-09-25"}',
+    ],
+)
+def test_malformed_cache_entry_is_refetched(cached, fake_redis):
+    fake_redis.setex("live_quote:AAPL", 300, cached)
+    fake = FakeYFinanceClient({}, live_quotes={"AAPL": AAPL})
+
+    assert get_live_quotes(["AAPL"], fake) == {"AAPL": AAPL}
+    assert fake.live_calls == ["AAPL"]
+    assert get_live_quotes(["AAPL"], fake) == {"AAPL": AAPL}
+    assert fake.live_calls == ["AAPL"]  # re-cached with a valid entry
