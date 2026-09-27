@@ -30,8 +30,9 @@ def get_yfinance_client() -> YFinanceClient:
 
 
 class HoldingIn(BaseModel):
-    shares: float = Field(gt=0, lt=1e12)
-    avg_cost: float = Field(gt=0, lt=1e12)
+    # ge=1e-6 matches the Numeric(20, 6) column scale, so no accepted value rounds to 0.
+    shares: float = Field(ge=1e-6, lt=1e12)
+    avg_cost: float = Field(ge=1e-6, lt=1e12)
     name: str | None = Field(default=None, max_length=200)
 
 

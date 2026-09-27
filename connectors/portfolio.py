@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from connectors.database import SessionLocal
@@ -29,6 +29,10 @@ def _to_dto(row: PortfolioHolding) -> HoldingDto:
     )
 
 
+class HoldingLimitExceeded(Exception):
+    pass
+
+
 class PortfolioConnector:
     def list_holdings(self, user_id: str) -> list[HoldingDto]:
         with SessionLocal() as db:
@@ -38,8 +42,17 @@ class PortfolioConnector:
             return [_to_dto(row) for row in rows]
 
     def upsert_holding(
-        self, *, user_id: str, ticker: str, name: str | None, shares: float, avg_cost: float
+        self,
+        *,
+        user_id: str,
+        ticker: str,
+        name: str | None,
+        shares: float,
+        avg_cost: float,
+        max_holdings: int | None = None,
     ) -> HoldingDto:
+        """Insert or replace a holding. Raises HoldingLimitExceeded when inserting a new
+        ticker would exceed max_holdings; the check and insert share one transaction."""
         stmt = insert(PortfolioHolding).values(
             user_id=user_id, ticker=ticker, name=name, shares=shares, avg_cost=avg_cost
         )
@@ -54,6 +67,14 @@ class PortfolioConnector:
             },
         ).returning(PortfolioHolding)
         with SessionLocal() as db:
+            if max_holdings is not None:
+                # Serialise writes per user so concurrent PUTs can't both pass the count check.
+                db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:user_id))"), {"user_id": str(user_id)})
+                tickers = set(
+                    db.execute(select(PortfolioHolding.ticker).where(PortfolioHolding.user_id == user_id)).scalars()
+                )
+                if ticker not in tickers and len(tickers) >= max_holdings:
+                    raise HoldingLimitExceeded(ticker)
             row = db.execute(select(PortfolioHolding).from_statement(stmt)).scalar_one()
             dto = _to_dto(row)
             db.commit()

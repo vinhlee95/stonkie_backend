@@ -14,10 +14,11 @@ HISTORIES = {
     "AAPL": make_history([200.0, 210.0], tz=NY_TZ),
     "NOKIA.HE": make_history([5.0, 4.0], tz=NY_TZ),
     "VOD.L": make_history([7000.0, 7200.0], tz=NY_TZ),
+    "BP.L": make_history([400.0, 410.0], tz=NY_TZ),
     "USDEUR=X": make_history([0.9, 0.8], tz=NY_TZ),
     "GBPEUR=X": make_history([1.1, 1.2], tz=NY_TZ),
 }
-CURRENCIES = {"AAPL": "USD", "NOKIA.HE": "EUR", "VOD.L": "GBp"}
+CURRENCIES = {"AAPL": "USD", "NOKIA.HE": "EUR", "VOD.L": "GBp", "BP.L": "GBp"}
 
 
 def auth(sub: str = "google-123") -> dict:
@@ -122,6 +123,17 @@ def test_holdings_limit(client, monkeypatch):
     assert edit.status_code == 200
 
 
+def test_holdings_limit_enforced_on_insert(client, monkeypatch):
+    # Simulates a concurrent PUT: the service pre-check sees no holdings, so the connector must refuse.
+    monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
+    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "list_holdings", lambda self, user_id: [])
+
+    response = client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 1, "avg_cost": 1}, headers=auth())
+
+    assert response.status_code == 409
+
+
 def test_minor_unit_quote_normalised_to_major_currency(client):
     # avg_cost entered in pence, like the price Yahoo shows for .L listings.
     client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 100, "avg_cost": 6000}, headers=auth())
@@ -129,6 +141,7 @@ def test_minor_unit_quote_normalised_to_major_currency(client):
     row = client.get("/api/me/portfolio", headers=auth()).json()["holdings"][0]
 
     assert row["currency"] == "GBP"
+    assert row["quote_currency"] == "GBp"  # unit of avg_cost
     assert row["price"] == pytest.approx(72.0)
     assert row["avg_cost"] == 6000  # returned as entered, so it round-trips through PUT
     assert row["value"] == pytest.approx(100 * 72 * 1.2)
@@ -173,7 +186,16 @@ def test_unknown_ticker_rejected(client):
     assert response.status_code == 422
 
 
-@pytest.mark.parametrize("body", [{"shares": 0, "avg_cost": 1}, {"shares": 1, "avg_cost": -1}, {"shares": 1}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"shares": 0, "avg_cost": 1},
+        {"shares": 1, "avg_cost": -1},
+        {"shares": 1},
+        {"shares": 1e-7, "avg_cost": 1},  # would round to 0 in Numeric(20, 6)
+        {"shares": 1, "avg_cost": 1e-7},
+    ],
+)
 def test_invalid_body_rejected(client, body):
     assert client.put("/api/me/portfolio/holdings/AAPL", json=body, headers=auth()).status_code == 422
 
@@ -202,10 +224,25 @@ def test_users_are_isolated(client):
 
 def test_unpriced_holding_is_listed_but_excluded_from_totals(client):
     client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    cache.redis_client.store.clear()  # drop the quote PUT cached, so GET sees the outage
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
 
+    assert body["holdings"][0]["price"] is None
     assert body["holdings"][0]["value"] is None
     assert body["summary"]["priced_count"] == 0
     assert body["summary"]["total_value"] == 0
+
+
+def test_fx_rate_fetched_once_per_currency(client, monkeypatch):
+    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.put("/api/me/portfolio/holdings/BP.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    monkeypatch.setattr("services.portfolio.cache.get_json", lambda key: None)  # force FX cache misses
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES)
+    app.dependency_overrides[get_yfinance_client] = lambda: fake
+
+    body = client.get("/api/me/portfolio", headers=auth()).json()
+
+    assert body["summary"]["priced_count"] == 2
+    assert fake.calls.count("GBPEUR=X") == 1

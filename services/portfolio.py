@@ -5,7 +5,7 @@ import math
 from collections.abc import Callable
 
 from connectors import cache
-from connectors.portfolio import HoldingDto, PortfolioConnector
+from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
 from services.price_change import get_price_changes
 
@@ -68,11 +68,22 @@ def save_holding(
 ) -> HoldingDto:
     existing = {h.ticker for h in portfolio.list_holdings(user_id)}
     if ticker not in existing:
+        # Fail fast before hitting Yahoo; the connector re-checks atomically on insert.
         if len(existing) >= MAX_HOLDINGS_PER_USER:
             raise HoldingLimitError(ticker)
         # Only new tickers are validated, so editing a held position still works while Yahoo is down.
         resolve_quote(ticker, yf_client)
-    return portfolio.upsert_holding(user_id=user_id, ticker=ticker, name=name, shares=shares, avg_cost=avg_cost)
+    try:
+        return portfolio.upsert_holding(
+            user_id=user_id,
+            ticker=ticker,
+            name=name,
+            shares=shares,
+            avg_cost=avg_cost,
+            max_holdings=MAX_HOLDINGS_PER_USER,
+        )
+    except HoldingLimitExceeded:
+        raise HoldingLimitError(ticker) from None
 
 
 def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) -> bool:
@@ -126,6 +137,8 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
         "shares": h.shares,
         "avg_cost": h.avg_cost,
         "currency": None,
+        # Raw Yahoo currency (e.g. "GBp"): the unit avg_cost is entered and returned in.
+        "quote_currency": None,
         "price": None,
         "day_change_percent": None,
         "trading_date": None,
@@ -150,8 +163,8 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
     if currency in MINOR_UNIT_CURRENCIES:
         currency, divisor = MINOR_UNIT_CURRENCIES[currency]
         price, prev_close, avg_cost = price / divisor, prev_close / divisor, avg_cost / divisor
-    # Row avg_cost stays as stored so clients can round-trip it via PUT.
-    row.update(currency=currency, price=price)
+    # Row avg_cost stays as stored (in quote_currency) so clients can round-trip it via PUT.
+    row.update(currency=currency, quote_currency=quote["currency"], price=price)
 
     fx = fx_for(currency)
     if fx is None:
