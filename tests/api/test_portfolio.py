@@ -330,3 +330,29 @@ def test_all_delayed_portfolio_has_no_as_of(client):
     assert body["holdings"][0]["delayed"] is True
     assert body["summary"]["as_of"] is None
     assert body["summary"]["delayed_count"] == 1
+
+
+def test_live_row_without_fx_still_counts_for_as_of(client):
+    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
+    live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": RuntimeError("fx down")}
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(
+        histories, currencies=CURRENCIES, live_quotes=live_quotes
+    )
+
+    body = client.get("/api/me/portfolio", headers=auth()).json()
+
+    assert body["holdings"][0]["value"] is None
+    assert body["summary"]["priced_count"] == 0
+    assert body["summary"]["as_of"] == "2026-09-25T18:30:00+00:00"
+
+
+def test_delayed_row_without_fx_still_counted(client):
+    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(histories, currencies=CURRENCIES)
+
+    body = client.get("/api/me/portfolio", headers=auth()).json()
+
+    assert body["holdings"][0]["delayed"] is True and body["holdings"][0]["value"] is None
+    assert body["summary"]["delayed_count"] == 1

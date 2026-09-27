@@ -61,6 +61,13 @@ def test_empty_tickers_makes_no_calls():
     [
         '{"price": 1.0}',  # missing fields
         '{"price": 1.0, "prev_close": 1.0, "currency": "USD", "market_time": "bad", "trading_date": "2026-09-25"}',
+        *(
+            '{"price": %s, "prev_close": 1.0, "currency": "USD", '
+            '"market_time": "2026-09-25T18:30:00+00:00", "trading_date": "2026-09-25"}' % bad
+            for bad in ('"1.0"', "0", "-1", "NaN", "true")
+        ),
+        '{"price": 1.0, "prev_close": 0, "currency": "USD", '
+        '"market_time": "2026-09-25T18:30:00+00:00", "trading_date": "2026-09-25"}',
     ],
 )
 def test_malformed_cache_entry_is_refetched(cached, fake_redis):

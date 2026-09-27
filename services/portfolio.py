@@ -104,7 +104,8 @@ def get_portfolio(
     rows.sort(key=lambda r: r["value"] if r["value"] is not None else -1, reverse=True)
 
     prev_value = total_value - day_change
-    live_times = [r["as_of"] for r in priced if r["as_of"]]
+    # All rows, not just priced ones: a live quote counts even when its FX rate is missing.
+    live_times = [r["as_of"] for r in rows if r["as_of"]]
     return {
         "base_currency": BASE_CURRENCY,
         "summary": {
@@ -118,7 +119,7 @@ def get_portfolio(
             "day_change_percent": day_change / prev_value * 100 if prev_value else 0.0,
             # ISO UTC timestamps sort chronologically as strings.
             "as_of": max(live_times) if live_times else None,
-            "delayed_count": sum(1 for r in priced if r["delayed"]),
+            "delayed_count": sum(1 for r in rows if r["delayed"]),
         },
         "holdings": rows,
     }

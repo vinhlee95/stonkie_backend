@@ -1,6 +1,7 @@
 """Live regular-session quotes per ticker, cached briefly in Redis."""
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
@@ -56,6 +57,8 @@ def _from_cache(ticker: str) -> LiveQuoteDto | None:
     if cached is None:
         return None
     try:
+        if not (_is_positive(cached["price"]) and _is_positive(cached["prev_close"])):
+            raise ValueError("non-positive or non-numeric price")
         return LiveQuoteDto(
             price=cached["price"],
             prev_close=cached["prev_close"],
@@ -66,6 +69,10 @@ def _from_cache(ticker: str) -> LiveQuoteDto | None:
     except (KeyError, TypeError, ValueError):
         logger.warning("Invalid cached live quote for %s", ticker)
         return None
+
+
+def _is_positive(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
 def _to_json(quote: LiveQuoteDto) -> dict:
