@@ -2,6 +2,7 @@
 
 import logging
 import math
+from collections.abc import Callable
 
 from connectors import cache
 from connectors.portfolio import HoldingDto, PortfolioConnector
@@ -11,12 +12,18 @@ from services.price_change import get_price_changes
 logger = logging.getLogger(__name__)
 
 BASE_CURRENCY = "EUR"
+# Bounds GET cost: valuation fetches one quote per holding (mirrors the /api/quotes 50-ticker cap).
+MAX_HOLDINGS_PER_USER = 50
 FX_CACHE_TTL_SECONDS = 6 * 3600
 # Yahoo quotes London listings in pence ("GBp"); normalise to pounds.
 MINOR_UNIT_CURRENCIES = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
 
 
 class UnknownTickerError(Exception):
+    pass
+
+
+class HoldingLimitError(Exception):
     pass
 
 
@@ -59,15 +66,31 @@ def save_holding(
     portfolio: PortfolioConnector,
     yf_client: YFinanceClient,
 ) -> HoldingDto:
-    resolve_quote(ticker, yf_client)
+    existing = {h.ticker for h in portfolio.list_holdings(user_id)}
+    if ticker not in existing:
+        if len(existing) >= MAX_HOLDINGS_PER_USER:
+            raise HoldingLimitError(ticker)
+        # Only new tickers are validated, so editing a held position still works while Yahoo is down.
+        resolve_quote(ticker, yf_client)
     return portfolio.upsert_holding(user_id=user_id, ticker=ticker, name=name, shares=shares, avg_cost=avg_cost)
+
+
+def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) -> bool:
+    return portfolio.delete_holding(user_id=user_id, ticker=ticker)
 
 
 def get_portfolio(user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient) -> dict:
     holdings = portfolio.list_holdings(user_id)
     quotes = get_price_changes([h.ticker for h in holdings], yf_client) if holdings else {}
 
-    rows = [_value_holding(h, quotes.get(h.ticker), yf_client) for h in holdings]
+    fx_rates: dict[str, float | None] = {}
+
+    def fx_for(currency: str) -> float | None:
+        if currency not in fx_rates:
+            fx_rates[currency] = get_fx_rate(currency, yf_client)
+        return fx_rates[currency]
+
+    rows = [_value_holding(h, quotes.get(h.ticker), fx_for) for h in holdings]
     priced = [r for r in rows if r["value"] is not None]
 
     total_value = sum(r["value"] for r in priced)
@@ -96,7 +119,7 @@ def get_portfolio(user_id: str, portfolio: PortfolioConnector, yf_client: YFinan
     }
 
 
-def _value_holding(h: HoldingDto, quote: dict | None, yf_client: YFinanceClient) -> dict:
+def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], float | None]) -> dict:
     row = {
         "ticker": h.ticker,
         "name": h.name,
@@ -116,20 +139,25 @@ def _value_holding(h: HoldingDto, quote: dict | None, yf_client: YFinanceClient)
     if quote is None:
         return row
 
-    currency, price, prev_close = quote.get("currency") or "USD", quote["close"], quote["prev_close"]
+    row.update(day_change_percent=quote["change_percent"], trading_date=quote["trading_date"])
+    currency = quote.get("currency")
+    if not currency:
+        # Unknown quote currency: guessing one would silently misvalue the holding.
+        return row
+
+    # avg_cost is stored in the quote's unit (e.g. pence for GBp), so it is scaled together with price.
+    price, prev_close, avg_cost = quote["close"], quote["prev_close"], h.avg_cost
     if currency in MINOR_UNIT_CURRENCIES:
         currency, divisor = MINOR_UNIT_CURRENCIES[currency]
-        price, prev_close = price / divisor, prev_close / divisor
-    row.update(
-        currency=currency, price=price, day_change_percent=quote["change_percent"], trading_date=quote["trading_date"]
-    )
+        price, prev_close, avg_cost = price / divisor, prev_close / divisor, avg_cost / divisor
+    row.update(currency=currency, price=price, avg_cost=avg_cost)
 
-    fx = get_fx_rate(currency, yf_client)
+    fx = fx_for(currency)
     if fx is None:
         return row
     # Cost basis converted at today's FX: return reflects price move + currency move since purchase is not tracked.
     value = h.shares * price * fx
-    cost_basis = h.shares * h.avg_cost * fx
+    cost_basis = h.shares * avg_cost * fx
     row.update(
         fx_rate=fx,
         value=value,

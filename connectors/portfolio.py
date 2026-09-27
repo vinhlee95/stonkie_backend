@@ -40,16 +40,19 @@ class PortfolioConnector:
     def upsert_holding(
         self, *, user_id: str, ticker: str, name: str | None, shares: float, avg_cost: float
     ) -> HoldingDto:
-        values = {"name": name, "shares": shares, "avg_cost": avg_cost}
-        stmt = (
-            insert(PortfolioHolding)
-            .values(user_id=user_id, ticker=ticker, **values)
-            .on_conflict_do_update(
-                constraint="uq_portfolio_holdings_user_ticker",
-                set_={**values, "updated_at": func.now()},
-            )
-            .returning(PortfolioHolding)
+        stmt = insert(PortfolioHolding).values(
+            user_id=user_id, ticker=ticker, name=name, shares=shares, avg_cost=avg_cost
         )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_portfolio_holdings_user_ticker",
+            set_={
+                # An omitted name keeps the stored one.
+                "name": func.coalesce(stmt.excluded.name, PortfolioHolding.name),
+                "shares": shares,
+                "avg_cost": avg_cost,
+                "updated_at": func.now(),
+            },
+        ).returning(PortfolioHolding)
         with SessionLocal() as db:
             row = db.execute(select(PortfolioHolding).from_statement(stmt)).scalar_one()
             dto = _to_dto(row)

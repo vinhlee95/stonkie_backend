@@ -7,7 +7,14 @@ from api.deps import get_current_user
 from connectors.portfolio import PortfolioConnector
 from connectors.user import UserDto
 from connectors.yfinance_client import YFinanceClient
-from services.portfolio import UnknownTickerError, get_portfolio, save_holding
+from services.portfolio import (
+    MAX_HOLDINGS_PER_USER,
+    HoldingLimitError,
+    UnknownTickerError,
+    get_portfolio,
+    remove_holding,
+    save_holding,
+)
 
 router = APIRouter(prefix="/api/me/portfolio", tags=["portfolio"])
 
@@ -65,6 +72,8 @@ def put_holding(
         )
     except UnknownTickerError:
         raise HTTPException(status_code=422, detail=f"No price data for {ticker}")
+    except HoldingLimitError:
+        raise HTTPException(status_code=409, detail=f"Portfolio is limited to {MAX_HOLDINGS_PER_USER} holdings")
     return {"ticker": holding.ticker, "name": holding.name, "shares": holding.shares, "avg_cost": holding.avg_cost}
 
 
@@ -74,6 +83,6 @@ def delete_holding(
     user: UserDto = Depends(get_current_user),
     portfolio: PortfolioConnector = Depends(get_portfolio_connector),
 ):
-    if not portfolio.delete_holding(user_id=user.id, ticker=_normalise_ticker(ticker)):
+    if not remove_holding(user_id=user.id, ticker=_normalise_ticker(ticker), portfolio=portfolio):
         raise HTTPException(status_code=404, detail="Holding not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
