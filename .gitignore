@@ -16,4 +16,5 @@ scripts/*.pdf
 # Claude Code
 .claude/worktrees/
 .claude/plans/
+.claude/review-state/
 tmp/

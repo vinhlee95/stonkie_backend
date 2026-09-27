@@ -1,0 +1,46 @@
+name: Review Config Tests
+
+on:
+  pull_request:
+    paths:
+      - ".claude/hooks/**"
+      - ".claude/settings.json"
+      - ".github/workflows/hook-tests.yml"
+      - "tests/hooks/**"
+      - ".github/instructions/**"
+      - ".claude/agents/**"
+      - ".claude/skills/multi-review/**"
+  push:
+    branches: [main]
+    paths:
+      - ".claude/hooks/**"
+      - ".claude/settings.json"
+      - ".github/workflows/hook-tests.yml"
+      - "tests/hooks/**"
+      - ".github/instructions/**"
+      - ".claude/agents/**"
+      - ".claude/skills/multi-review/**"
+
+jobs:
+  hook-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run require-review hook tests
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          bash tests/hooks/test_require_review.sh
+      - name: Run review config tests
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: bash tests/hooks/test_review_config.sh
