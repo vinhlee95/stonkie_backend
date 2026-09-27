@@ -1,11 +1,15 @@
-"""Portfolio valuation: holdings + daily quotes + FX, all reported in EUR."""
+"""Portfolio valuation: holdings + live quotes + FX, all reported in EUR.
+
+Holdings without a live quote fall back to the last completed daily close and are flagged delayed.
+"""
 
 import logging
 from collections.abc import Callable
 
 from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
-from connectors.yfinance_client import YFinanceClient
+from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
+from services.live_quote import get_live_quotes
 from services.price_change import PriceFetchError, get_price_change, get_price_changes
 
 logger = logging.getLogger(__name__)
@@ -80,13 +84,13 @@ def get_portfolio(
 ) -> dict:
     fx = fx or FxConnector(yf_client)
     holdings = portfolio.list_holdings(user_id)
-    quotes = get_price_changes([h.ticker for h in holdings], yf_client) if holdings else {}
+    quotes = _quotes([h.ticker for h in holdings], yf_client)
 
     fx_rates: dict[str, float | None] = {}
 
     def fx_for(currency: str) -> float | None:
         if currency not in fx_rates:
-            fx_rates[currency] = fx.get_rate(currency, BASE_CURRENCY)
+            fx_rates[currency] = fx.get_live_rate(currency, BASE_CURRENCY)
         return fx_rates[currency]
 
     rows = [_value_holding(h, quotes.get(h.ticker), fx_for) for h in holdings]
@@ -100,7 +104,7 @@ def get_portfolio(
     rows.sort(key=lambda r: r["value"] if r["value"] is not None else -1, reverse=True)
 
     prev_value = total_value - day_change
-    trading_dates = [r["trading_date"] for r in priced if r["trading_date"]]
+    live_times = [r["as_of"] for r in priced if r["as_of"]]
     return {
         "base_currency": BASE_CURRENCY,
         "summary": {
@@ -112,9 +116,35 @@ def get_portfolio(
             "total_return_percent": (total_value / total_cost - 1) * 100 if total_cost else 0.0,
             "day_change": day_change,
             "day_change_percent": day_change / prev_value * 100 if prev_value else 0.0,
-            "as_of": max(trading_dates) if trading_dates else None,
+            # ISO UTC timestamps sort chronologically as strings.
+            "as_of": max(live_times) if live_times else None,
+            "delayed_count": sum(1 for r in priced if r["delayed"]),
         },
         "holdings": rows,
+    }
+
+
+def _quotes(tickers: list[str], yf_client: YFinanceClient) -> dict[str, dict]:
+    """Live quote per ticker; tickers without one fall back to the last completed daily close."""
+    if not tickers:
+        return {}
+    quotes = {t: _live_to_quote(q) for t, q in get_live_quotes(tickers, yf_client).items()}
+    missing = [t for t in tickers if t not in quotes]
+    if missing:
+        for ticker, quote in get_price_changes(missing, yf_client).items():
+            quotes[ticker] = {**quote, "as_of": None, "delayed": True}
+    return quotes
+
+
+def _live_to_quote(q: LiveQuoteDto) -> dict:
+    return {
+        "close": q.price,
+        "prev_close": q.prev_close,
+        "change_percent": round((q.price - q.prev_close) / q.prev_close * 100, 2),
+        "currency": q.currency,
+        "trading_date": q.trading_date.isoformat(),
+        "as_of": q.market_time.isoformat(),
+        "delayed": False,
     }
 
 
@@ -130,6 +160,9 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
         "price": None,
         "day_change_percent": None,
         "trading_date": None,
+        # Live quote time (ISO UTC); None for delayed rows priced at the last daily close.
+        "as_of": None,
+        "delayed": False,
         "fx_rate": None,
         "value": None,
         "cost_basis": None,
@@ -140,7 +173,12 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
     if quote is None:
         return row
 
-    row.update(day_change_percent=quote["change_percent"], trading_date=quote["trading_date"])
+    row.update(
+        day_change_percent=quote["change_percent"],
+        trading_date=quote["trading_date"],
+        as_of=quote["as_of"],
+        delayed=quote["delayed"],
+    )
     currency = quote.get("currency")
     if not currency:
         # Unknown quote currency: guessing one would silently misvalue the holding.
@@ -157,7 +195,7 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
     fx = fx_for(currency)
     if fx is None:
         return row
-    # Cost basis converted at today's FX: return reflects price move + currency move since purchase is not tracked.
+    # Cost basis converted at the current FX: return reflects price move + currency move since purchase is not tracked.
     value = h.shares * price * fx
     cost_basis = h.shares * avg_cost * fx
     row.update(

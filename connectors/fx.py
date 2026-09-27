@@ -1,4 +1,4 @@
-"""FX rates from Yahoo daily closes, cached in Redis."""
+"""FX rates from Yahoo (daily closes or live quotes), cached in Redis."""
 
 import logging
 import math
@@ -10,6 +10,7 @@ from connectors.yfinance_client import YFinanceClient
 logger = logging.getLogger(__name__)
 
 FX_CACHE_TTL_SECONDS = 6 * 3600
+FX_LIVE_CACHE_TTL_SECONDS = 300
 
 
 def _utcnow() -> datetime:
@@ -45,6 +46,24 @@ class FxConnector:
         rate = closes[-1]
         cache.set_json(cache_key, {"rate": rate}, FX_CACHE_TTL_SECONDS)
         return rate
+
+    def get_live_rate(self, currency: str, base: str) -> float | None:
+        """Latest intraday rate, falling back to the daily close when Yahoo has no live quote."""
+        if currency == base:
+            return 1.0
+        cache_key = f"fx_live:{currency}{base}"
+        cached = cache.get_json(cache_key)
+        if cached is not None and _is_finite(cached.get("rate")):
+            return cached["rate"]
+        try:
+            quote = self._yf_client.get_live_quote(f"{currency}{base}=X")
+        except Exception:
+            logger.warning("Failed to fetch live FX rate %s%s", currency, base, exc_info=True)
+            quote = None
+        if quote is None:
+            return self.get_rate(currency, base)
+        cache.set_json(cache_key, {"rate": quote.price}, FX_LIVE_CACHE_TTL_SECONDS)
+        return quote.price
 
 
 def _is_finite(value) -> bool:

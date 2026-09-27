@@ -1,3 +1,5 @@
+from datetime import UTC, date, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
@@ -6,6 +8,7 @@ from api.portfolio import get_yfinance_client
 from connectors import cache
 from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
+from connectors.yfinance_client import LiveQuoteDto
 from main import app
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
@@ -254,3 +257,76 @@ def test_fx_rate_fetched_once_per_currency(client, monkeypatch):
 
     assert body["summary"]["priced_count"] == 2
     assert fake.calls.count("GBPEUR=X") == 1
+
+
+def live(price: float, prev_close: float, currency: str | None, minute: int = 30) -> LiveQuoteDto:
+    return LiveQuoteDto(
+        price=price,
+        prev_close=prev_close,
+        currency=currency,
+        market_time=datetime(2026, 9, 25, 18, minute, tzinfo=UTC),
+        trading_date=date(2026, 9, 25),
+    )
+
+
+def test_live_quotes_value_holdings_and_missing_live_falls_back_to_daily_close(client):
+    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 10, "avg_cost": 100}, headers=auth())
+    client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 100, "avg_cost": 2}, headers=auth())
+    live_quotes = {"AAPL": live(220.0, 210.0, "USD"), "USDEUR=X": live(0.9, 0.9, "EUR")}
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
+    app.dependency_overrides[get_yfinance_client] = lambda: fake
+
+    body = client.get("/api/me/portfolio", headers=auth()).json()
+    aapl, nokia = body["holdings"]
+
+    assert aapl["delayed"] is False
+    assert aapl["price"] == pytest.approx(220)
+    assert aapl["fx_rate"] == pytest.approx(0.9)
+    assert aapl["value"] == pytest.approx(10 * 220 * 0.9)
+    assert aapl["day_change"] == pytest.approx(10 * 10 * 0.9)
+    assert aapl["day_change_percent"] == pytest.approx(4.76)
+    assert aapl["trading_date"] == "2026-09-25"
+    assert aapl["as_of"] == "2026-09-25T18:30:00+00:00"
+    assert nokia["delayed"] is True
+    assert nokia["as_of"] is None
+    assert nokia["price"] == pytest.approx(4.0)  # last daily close
+    s = body["summary"]
+    assert s["as_of"] == "2026-09-25T18:30:00+00:00"
+    assert s["delayed_count"] == 1
+
+
+def test_summary_as_of_is_newest_live_quote(client):
+    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    live_quotes = {"AAPL": live(220.0, 210.0, "USD", minute=45), "NOKIA.HE": live(4.5, 4.0, "EUR", minute=5)}
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
+    app.dependency_overrides[get_yfinance_client] = lambda: fake
+
+    s = client.get("/api/me/portfolio", headers=auth()).json()["summary"]
+
+    assert s["as_of"] == "2026-09-25T18:45:00+00:00"
+    assert s["delayed_count"] == 0
+
+
+def test_live_minor_unit_quote_normalised(client):
+    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 100, "avg_cost": 6000}, headers=auth())
+    live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": live(1.15, 1.15, "EUR")}
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
+    app.dependency_overrides[get_yfinance_client] = lambda: fake
+
+    row = client.get("/api/me/portfolio", headers=auth()).json()["holdings"][0]
+
+    assert row["delayed"] is False
+    assert row["price"] == pytest.approx(73.0)
+    assert row["value"] == pytest.approx(100 * 73 * 1.15)
+    assert row["day_change"] == pytest.approx(100 * 1 * 1.15)
+
+
+def test_all_delayed_portfolio_has_no_as_of(client):
+    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+
+    body = client.get("/api/me/portfolio", headers=auth()).json()
+
+    assert body["holdings"][0]["delayed"] is True
+    assert body["summary"]["as_of"] is None
+    assert body["summary"]["delayed_count"] == 1
