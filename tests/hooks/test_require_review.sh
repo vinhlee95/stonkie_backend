@@ -352,6 +352,69 @@ for c in '{gh,pr,create}' '{gh,pr,create} --fill' '{gh,} pr create' 'gh pr {crea
 done
 expect "brace in unrelated command passes" 0 "$(run_hook 'echo {a,b}' "$R")"
 
+# 50. PR comment activity is not PR creation: no review needed, any repo name
+R=$(new_repo r50)
+while IFS= read -r c; do
+  expect "PR comment activity passes: $c" 0 "$(run_hook "$c" "$R")"
+done <<'CMDS'
+gh api repos/o/r/pulls/32/comments/123/replies -f body="Fixed in abc"
+gh api repos/o/r/pulls/32/comments/123/replies -f body="Costs $5; see the /pulls endpoint"
+gh api repos/o/r/pulls/32/comments/$CID/replies -f body=ok
+gh api "repos/o/r/pulls/$PR/comments/$CID/replies" -f body="$MSG"
+gh api repos/o/r/pulls/32/comments -f body=x -f commit_id=abc -f path=a.py -F line=3
+gh api repos/o/r/pulls/32/reviews -f event=COMMENT -f body=x
+gh api -X POST repos/o/r/issues/32/comments -f body=x
+gh api repos/o/r/pulls -X GET -f state=open
+bash -c 'gh api repos/o/r/pulls/1/comments/2/replies -f body="x y"'
+gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"X"}) { thread { isResolved } } }'
+gh api graphql -f query='mutation($id: ID!) { resolveReviewThread(input:{threadId:$id}) { thread { isResolved } } }' -f id="$TID"
+gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"X", body:"hi"}) { comment { id } } }'
+CMDS
+expect "PR comment body from heredoc passes" 0 "$(run_hook "$(printf '%s\n' 'gh api repos/o/r/issues/32/comments -f body="$(cat <<'"'EOF'"'' 'text with $HOME' 'EOF' ')"')" "$R")"
+
+# 51. PR creation via gh api stays blocked however the endpoint/query is spelled
+R=$(new_repo r51)
+while IFS= read -r c; do
+  expect "gh api PR creation blocks: $c" 2 "$(run_hook "$c" "$R")"
+done <<'CMDS'
+gh api "$(echo repos/o/r/pulls)" -f title=x
+gh api `echo repos/o/r/pulls` -f title=x
+gh api repos/o/r/pulls/ -f title=x
+gh api /repos/o/r//pulls -f title=x
+gh api https://api.github.com/repos/o/r/pulls -f title=x
+gh api repos/o/r/PULLS -f title=x
+gh api repositories/1/pulls -f title=x
+gh api repos/o/r/{pulls,x} -f title=x
+gh api repos/o/r/pulls/32/../../pulls -f title=x
+gh api repos/$O/$R/pulls -f title=x
+gh api repos/o/r/pulls/$N -f title=x
+gh api $EP -f title=x
+gh api -f title=x
+gh api -f title=x -- repos/o/r/pulls
+gh api -iXPOST repos/o/r/pulls
+gh api -X GET -X POST repos/o/r/pulls
+gh api -H $H repos/o/r/issues/1/comments
+gh api repos/o/r/pulls -H $H
+gh api repos/o/r/pulls -f title=x > "$(mktemp)"
+bash -c 'gh api repos/o/r/pulls -f body="x y"'
+gh api graphql -f query="$(cat q.graphql)"
+gh api graphql -f query='mutation { createPullRequest(input:{}) { pullRequest { id } } }'
+gh api graphql -f query='mutation { create'"Pull"'Request(input:{}) { x } }'
+gh api graphql -f query="mutation { $OP(input:{}) { x } }"
+gh api graphql -f query=$'mutation{\x63reatePullRequest}'
+gh api graphql -f query=$'\''"$Q"'
+gh api graphql -F query=@q.graphql
+gh api graphql --input body.json
+gh api graphql -f $K='mutation{x}'
+gh api /graphql -f query='mutation{createPullRequest}'
+bash -c 'gh api graphql -f query="mutation{createPullRequest}"'
+CMDS
+
+# 52. gh pr create with a $( ) body still works after review; a $( ) head is checked, not dropped
+R=$(new_repo r52); write_state "$R" "$(head_sha "$R")" "$ALL_OK" '[]' '[]'
+expect "pr create heredoc body passes" 0 "$(run_hook "$(printf '%s\n' 'gh pr create --title t --body "$(cat <<'"'EOF'"'' 'body $x' 'EOF' ')"')" "$R")"
+expect "pr create dynamic --head blocks" 2 "$(run_hook 'gh pr create --head "$(git rev-parse --abbrev-ref HEAD)" --fill' "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]
