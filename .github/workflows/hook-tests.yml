@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".claude/hooks/**"
+      - ".claude/settings.json"
       - ".github/workflows/hook-tests.yml"
       - "tests/hooks/**"
       - ".github/instructions/**"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - ".claude/hooks/**"
+      - ".claude/settings.json"
       - ".github/workflows/hook-tests.yml"
       - "tests/hooks/**"
       - ".github/instructions/**"
