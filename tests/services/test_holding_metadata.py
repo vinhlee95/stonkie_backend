@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
-from services.holding_metadata import METADATA_TTL_SECONDS, get_holdings_metadata
+from connectors.company import CompanyClassificationDto
+from services.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS, get_holdings_metadata
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 
@@ -13,7 +16,7 @@ class FakeCompanies:
         self.calls.append(tickers)
         if isinstance(self.rows, Exception):
             raise self.rows
-        return {t: self.rows[t] for t in tickers if t in self.rows}
+        return {t: CompanyClassificationDto(*self.rows[t]) for t in tickers if t in self.rows}
 
 
 @pytest.fixture(autouse=True)
@@ -73,12 +76,44 @@ def test_cached_for_a_week_and_served_from_cache(fake_redis):
     assert fake_redis.ttl("holding_meta:AAPL") == METADATA_TTL_SECONDS
 
 
-def test_failures_answer_other_without_caching(fake_redis):
+def test_failures_answer_other_and_retry_after_a_short_ttl(fake_redis):
     companies = FakeCompanies(RuntimeError("db down"))
-    yf = FakeYFinanceClient({}, infos={"AAPL": RuntimeError("yahoo down")})
+    # Yahoo sometimes answers {} instead of raising; treated as a failure too.
+    yf = FakeYFinanceClient({}, infos={"AAPL": RuntimeError("yahoo down"), "MSFT": {}})
 
-    assert get_holdings_metadata(["AAPL"], yf, companies) == {"AAPL": meta("Other", "Other", "Other")}
-    assert fake_redis.ttl("holding_meta:AAPL") == -2
+    result = get_holdings_metadata(["AAPL", "MSFT"], yf, companies)
+
+    assert result == {"AAPL": meta("Other", "Other", "Other"), "MSFT": meta("Other", "Other", "Other")}
+    assert fake_redis.ttl("holding_meta:AAPL") == FAILED_TTL_SECONDS
+    assert fake_redis.ttl("holding_meta:MSFT") == FAILED_TTL_SECONDS
+    assert FAILED_TTL_SECONDS < METADATA_TTL_SECONDS
+
+
+def test_stored_row_without_country_falls_back_to_yahoo():
+    companies = FakeCompanies({"ASML": ("TECHNOLOGY", "")})
+    yf = FakeYFinanceClient(
+        {}, infos={"ASML": {"quoteType": "EQUITY", "sector": "Technology", "country": "Netherlands"}}
+    )
+
+    assert get_holdings_metadata(["ASML"], yf, companies) == {"ASML": meta("Technology", "Netherlands", "Stock")}
+    assert yf.info_calls == ["ASML"]
+
+
+def test_only_cache_misses_reach_sources_and_partial_entries_are_refetched(fake_redis):
+    fake_redis.setex("holding_meta:AAPL", 60, json.dumps(meta("Technology", "United States", "Stock")))
+    fake_redis.setex("holding_meta:MSFT", 60, json.dumps({"sector": "Technology", "country": "United States"}))
+    companies = FakeCompanies({"MSFT": ("Technology", "United States")})
+    yf = FakeYFinanceClient({}, infos={"VOO": {"quoteType": "ETF"}})
+
+    result = get_holdings_metadata(["AAPL", "MSFT", "VOO"], yf, companies)
+
+    assert result == {
+        "AAPL": meta("Technology", "United States", "Stock"),
+        "MSFT": meta("Technology", "United States", "Stock"),
+        "VOO": meta("Diversified", "Other", "ETF"),
+    }
+    assert companies.calls == [["MSFT", "VOO"]]
+    assert yf.info_calls == ["VOO"]
 
 
 def test_empty_tickers():
