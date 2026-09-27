@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.quotes import get_yfinance_client
+from connectors.yfinance_client import LiveQuoteDto
 from main import app
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -31,11 +32,14 @@ class FakeYFinanceClient:
         histories: dict[str, pd.DataFrame | Exception],
         currencies: dict[str, str] | None = None,
         quotes: dict[str, dict | None] | None = None,
+        live_quotes: dict[str, LiveQuoteDto | Exception | None] | None = None,
     ):
         self.histories = histories
         self.currencies = currencies or {}
         self.quotes = quotes or {}
+        self.live_quotes = live_quotes or {}
         self.calls: list[str] = []
+        self.live_calls: list[str] = []
 
     def get_daily_history(self, ticker: str) -> tuple[pd.DataFrame, str | None]:
         self.calls.append(ticker)
@@ -46,6 +50,13 @@ class FakeYFinanceClient:
 
     def get_quote(self, ticker: str) -> dict | None:
         return self.quotes.get(ticker)
+
+    def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
+        self.live_calls.append(ticker)
+        result = self.live_quotes.get(ticker)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 class FakeRedis:
