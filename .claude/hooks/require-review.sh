@@ -161,6 +161,7 @@ dyn_sub_re="${gh_head}([^[:space:]]*\\$|pr[[:space:]]+[^[:space:]]*\\$)"
 any_shell_c_re='(^|[[:space:]])([^[:space:]]*/)?(busybox[[:space:]]+)?([a-z]*sh|fish)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]+(.*)$'
 # running a script file (sh ./x.sh, ./x.sh, source x, . x): look inside it
 script_re='^(([^[:space:]]*/)?([a-z]*sh|fish|python[0-9.]*|node|ruby|perl|php|deno([[:space:]]+run)?|bun([[:space:]]+run)?|tsx|ts-node|npx[[:space:]]+(tsx|ts-node))([[:space:]]+-[^[:space:]]+)*[[:space:]]+|source[[:space:]]+|\.[[:space:]]+)?([^[:space:]-][^[:space:]]*)'
+inline_code_re='^([^[:space:]]*/)?(python[0-9.]*|node|ruby|perl|php|deno[[:space:]]+eval|bun[[:space:]]+-e)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*[cepr]([[:space:]]|$)'
 script_creates_pr() {  # script_creates_pr <path relative to cwd>
   local f=$1
   [[ $f == /* ]] || f="${cd_target:-$cwd}/$f"
@@ -270,9 +271,16 @@ while IFS= read -r seg; do
   if ! [[ "$seg" =~ ^([^[:space:]]*/)?gh[[:space:]] ]] && [[ "$raw_seg" =~ $generic_re ]]; then
     seg=$(printf '%s' "${BASH_REMATCH[2]}" | tr -d "\"'\\\\")
   fi
-  if [[ "$seg" =~ $script_re ]] && [[ -n "${BASH_REMATCH[1]}" || "${BASH_REMATCH[8]}" == */* ]] \
-     && script_creates_pr "${BASH_REMATCH[8]}"; then
-    block "script ${BASH_REMATCH[8]} contains gh PR-creation commands. Run gh pr create directly after /multi-review."
+  # script file: resolve the path from the quote-aware segment so "create pr.py" stays one path
+  qseg=$(printf '%s' "$raw_seg" | tr -d "\"'\\\\")
+  if [[ "$qseg" =~ $script_re ]] && [[ -n "${BASH_REMATCH[1]}" || "${BASH_REMATCH[8]}" == */* ]]; then
+    spath=$(printf '%s' "${BASH_REMATCH[8]}" | tr '\002' ' ')
+    script_creates_pr "$spath" && block "script $spath contains gh PR-creation commands. Run gh pr create directly after /multi-review."
+  fi
+  # inline interpreter code (python -c, node -e/-p, ruby/perl -e, php -r)
+  if [[ "$seg" =~ $inline_code_re ]] && [[ "$seg" =~ (^|[^[:alnum:]_-])gh([^[:alnum:]_-]|$) ]] \
+     && [[ "$seg" =~ pr[[:space:],]+(create|new)|/pulls|createPullRequest|mutation ]]; then
+    block "inline interpreter code contains gh PR-creation commands. Run gh pr create directly after /multi-review."
   fi
   if [[ "$seg" =~ $pr_create_re ]] || [[ "$seg" =~ $dyn_name_re ]] || [[ "$seg" =~ $dyn_sub_re ]] \
      || [[ "$seg" =~ $graphql_create_re ]] \
