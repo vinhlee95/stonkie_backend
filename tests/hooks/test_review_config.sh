@@ -18,7 +18,7 @@ for f in guidelines $ANGLES; do
   p=".github/instructions/review-$f.instructions.md"
   check "$p exists" test -f "$p"
   check "$p frontmatter" test "$(head -4 "$p" 2>/dev/null)" = "$FRONTMATTER"
-  check "$p tool-neutral" bash -c "! grep -qiE 'reviewer-contract|angle. value|JSON array' '$p'"
+  check "$p tool-neutral" bash -c "! grep -qE 'reviewer-contract|angle. value|JSON array|\bGrep\b|INTENT|\.\./CLAUDE' '$p'"
 done
 for a in $ANGLES; do
   p=".github/instructions/review-$a.instructions.md"
