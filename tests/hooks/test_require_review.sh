@@ -229,6 +229,49 @@ expect "continued gh \\ pr create blocks" 2 "$(run_hook "$(printf 'gh \\\npr cre
 R=$(new_repo r33b); echo dirty >> "$R/f.txt"
 expect "continued non-gh command passes" 0 "$(run_hook "$(printf 'git commit \\\n-m x')" "$R")"
 
+# 34. JSON \u escapes can't hide gh from the pre-filter
+R=$(new_repo r34)
+raw() { printf '%s' "$1" | bash "$HOOK" >/dev/null 2>&1; echo $?; }
+expect "unicode-escaped gh blocks" 2 "$(raw '{"tool_input":{"command":"gh pr create"},"cwd":"'"$R"'"}')"
+
+# 35. command substitutions nested in double quotes are commands
+R=$(new_repo r35)
+expect "nested quotes inside \$() block" 2 "$(run_hook 'echo "$(gh pr "create" --fill)"' "$R")"
+expect "\$() after quoted text blocks" 2 "$(run_hook 'echo "a $(echo "b" && gh pr create) c"' "$R")"
+expect "backtick in double quotes blocks" 2 "$(run_hook 'echo "x `gh pr create` y"' "$R")"
+expect "here-string with \$() blocks" 2 "$(run_hook 'cat <<< "$(gh pr create --fill)"' "$R")"
+
+# 36. shell control prefixes and more wrappers
+R=$(new_repo r36)
+for c in 'if gh pr create; then :; fi' '! gh pr create' 'while gh pr create; do break; done' '{ gh pr create; }' \
+         'eval gh pr create' 'eval "gh pr create"' 'timeout 5 gh pr create' 'nice -n 10 gh pr create' \
+         'sudo -E gh pr create' 'time -p gh pr create' 'echo | xargs -r gh pr create'; do
+  expect "control/wrapper blocks: $c" 2 "$(run_hook "$c" "$R")"
+done
+
+# 37. line continuation inside a word, quoted or not
+R=$(new_repo r37)
+expect "quoted word continuation blocks" 2 "$(run_hook "$(printf 'gh pr "cr\\\neate"')" "$R")"
+expect "unquoted word continuation blocks" 2 "$(run_hook "$(printf 'gh pr cr\\\neate')" "$R")"
+
+# 38. unterminated heredoc: its body is still inspected
+R=$(new_repo r38)
+expect "unterminated heredoc body blocks" 2 "$(run_hook "$(printf 'cat <<EOF\ngh pr create --fill')" "$R")"
+
+# 39. PR target: cd, -R/--repo, --head must match the reviewed repo/branch
+R=$(new_repo r39); write_state "$R" "$(head_sha "$R")" "$ALL_OK" '[]' '[]'
+git -C "$R" remote add origin git@github.com:me/r39.git
+BR=$(git -C "$R" rev-parse --abbrev-ref HEAD)
+S=$(new_repo r39s)
+expect "cd into unreviewed repo blocks" 2 "$(run_hook "cd $S && gh pr create --fill" "$R")"
+expect "cd into reviewed repo allows" 0 "$(run_hook "cd $R && gh pr create --fill" "$S")"
+expect "-R matching origin allows" 0 "$(run_hook 'gh -R me/r39 pr create --fill' "$R")"
+expect "--repo other blocks" 2 "$(run_hook 'gh pr create --repo other/x --fill' "$R")"
+expect "--head current branch allows" 0 "$(run_hook "gh pr create --head $BR --fill" "$R")"
+expect "--head owner:current allows" 0 "$(run_hook "gh pr create --head me:$BR --fill" "$R")"
+expect "--head other branch blocks" 2 "$(run_hook 'gh pr create --head other-branch --fill' "$R")"
+expect "-H other branch blocks" 2 "$(run_hook 'gh pr create -H other-branch' "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]

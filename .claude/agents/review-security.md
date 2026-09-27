@@ -1,7 +1,7 @@
 ---
 name: review-security
 description: Security reviewer for /multi-review. Reviews a git diff range for auth, injection, secrets, input validation and data exposure issues. Returns JSON findings only. Invoked by the multi-review skill, not directly.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob
 model: opus
 ---
 

@@ -14,8 +14,8 @@ block() {
 input=$(cat)
 
 # cheap pre-filter so a missing jq only affects commands that could invoke gh
-# (no left boundary: in raw JSON a preceding newline is the two chars `\n`)
-[[ "$input" =~ gh([^[:alnum:]_-]|$) ]] || exit 0
+# (no left boundary: in raw JSON a preceding newline is the two chars `\n`; `\u` escapes can spell gh)
+[[ "$input" =~ gh([^[:alnum:]_-]|$) || "$input" == *'\u'* ]] || exit 0
 
 command -v jq >/dev/null 2>&1 || block "jq is not installed."
 command -v git >/dev/null 2>&1 || block "git is not installed."
@@ -24,14 +24,25 @@ cmd=$(printf '%s' "$input" | jq -er '.tool_input.command // ""' 2>/dev/null) \
   || block "could not parse hook input."
 
 # Split the command into simple-command segments, one per line, the way a shell would:
-# break on ; & | && || newline $( ` ( ) > < outside quotes; inside single quotes everything
-# is data; inside double quotes only $( and ` start a command. Heredoc bodies and here-string
-# words are dropped. Only a segment whose first word is gh counts, so text that merely
-# mentions `gh pr create` (commit messages, grep, echo) passes through.
+# - backslash-newline is removed first (line continuation, also inside double quotes)
+# - break on ; & | && || newline > < outside quotes
+# - $( ` ( open a nested command (also inside double quotes) and ) ` close it again,
+#   restoring the surrounding quote state
+# - single-quoted text is data; a here-string word is data but its $( ) still runs
+# - heredoc bodies are dropped, unless the heredoc is never terminated
+# Only a segment whose first word is gh counts, so text that merely mentions
+# `gh pr create` (commit messages, grep, echo) passes through.
 segments() {
-  printf '%s\n' "$1" | awk '
+  local joined=${1//$'\\\n'/}
+  printf '%s\n' "$joined" | awk '
     function flush() { print buf; buf = "" }
-    delim != "" { t = $0; gsub(/^[ \t]+|[ \t]+$/, "", t); if (t == delim) delim = ""; next }
+    function push(o) { flush(); sp++; sq[sp] = q; so[sp] = o; q = "" }
+    function pop() { flush(); q = sq[sp]; sp-- }
+    delim != "" {
+      t = $0; gsub(/^[ \t]+|[ \t]+$/, "", t)
+      if (t == delim) { delim = ""; nb = 0 } else body[++nb] = $0
+      next
+    }
     {
       line = $0; n = length(line); i = 1
       while (i <= n) {
@@ -40,32 +51,27 @@ segments() {
         if (q == "\"") {
           if (c == "\\") { buf = buf " "; i += 2; continue }
           if (c == "\"") { q = ""; buf = buf c; i++; continue }
-          if (c == "`") { flush(); i++; continue }
-          if (c2 == "$(") { flush(); i += 2; continue }
+          if (c2 == "$(") { push("("); i += 2; continue }
+          if (c == "`") { push("`"); i++; continue }
           buf = buf (c ~ /[;&|()<>]/ ? " " : c); i++; continue
         }
-        if (substr(line, i, 3) == "<<<") {
-          i += 3; while (substr(line, i, 1) ~ /[ \t]/) i++
-          w = substr(line, i, 1)
-          if (w == "\047" || w == "\"") { j = index(substr(line, i + 1), w); i = (j ? i + j + 1 : n + 1) }
-          else { while (i <= n && substr(line, i, 1) !~ /[ \t;&|]/) i++ }
-          flush(); continue
-        }
+        if (c == "`") { if (sp > 0 && so[sp] == "`") pop(); else push("`"); i++; continue }
+        if (c2 == "$(") { push("("); i += 2; continue }
+        if (c == "(") { push("("); i++; continue }
+        if (c == ")") { if (sp > 0 && so[sp] == "(") pop(); else flush(); i++; continue }
+        if (substr(line, i, 3) == "<<<") { flush(); buf = "HERESTRING "; i += 3; continue }
         if (c2 == "<<" && match(substr(line, i + 2), /^-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
           d = substr(line, i + 2 + RSTART - 1, RLENGTH); gsub(/^-?[ \t]*["\047]?|["\047]$/, "", d)
-          delim = d; i += 2 + RLENGTH; flush(); continue
+          delim = d; nb = 0; i += 2 + RLENGTH; flush(); continue
         }
         if (c == "\047" || c == "\"") { q = c; buf = buf c; i++; continue }
         if (c == "\\") { buf = buf substr(line, i, 2); i += 2; continue }
-        if (c2 == "$(") { flush(); i += 2; continue }
-        if (c ~ /[;&|`()<>]/) { flush(); i++; continue }
+        if (c ~ /[;&|<>]/) { flush(); i++; continue }
         buf = buf c; i++
       }
-      # backslash-newline outside quotes is a line continuation: join like the shell does
-      if (q == "" && substr(buf, length(buf), 1) == "\\") { buf = substr(buf, 1, length(buf) - 1) " "; next }
       if (q == "") flush(); else buf = buf " "
     }
-    END { if (buf != "") flush() }'
+    END { if (buf != "") flush(); for (k = 1; k <= nb; k++) print body[k] }'
 }
 
 # gh [global flags [value]] ... ; quotes/backslashes are stripped before matching
@@ -76,16 +82,28 @@ api_re="${gh_head}api[[:space:]]"
 # only the create endpoint; /pulls/<n>/... (comments, reviews) is not PR creation
 pulls_re='/pulls([?[:space:]]|$)'
 api_write_re='(-X|--method)[[:space:]=]*POST|[[:space:]](-f|-F|--field|--raw-field|--input)'
-wrapper_re='^(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)|command|sudo|env|exec|time|nohup|(ba|z)?sh[[:space:]]+-l?c)[[:space:]]+'
+# commands/keywords that run the rest of the segment as a command; options/numbers after them are skipped
+wrapper_re='^(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)|command|sudo|env|exec|eval|time|nohup|nice|timeout|xargs|if|then|else|elif|do|while|until|!|\{|(ba|z)?sh[[:space:]]+-l?c)[[:space:]]+'
+wrapper_arg_re='^(-[^[:space:]]*|[0-9]+[smhd]?)[[:space:]]+'
+cd_re='^(cd|pushd)([[:space:]]+([^[:space:]]+))?[[:space:]]*$'
 
 is_pr_create=false
+pr_seg=""
+cd_target=""
 while IFS= read -r seg; do
   seg=$(printf '%s' "$seg" | tr -d "\"'\\\\")
   seg="${seg#"${seg%%[![:space:]]*}"}"
-  while [[ "$seg" =~ $wrapper_re ]]; do seg="${seg:${#BASH_REMATCH[0]}}"; done
+  wrapped=false
+  while :; do
+    if [[ "$seg" =~ $wrapper_re ]]; then seg="${seg:${#BASH_REMATCH[0]}}"; wrapped=true
+    elif $wrapped && [[ "$seg" =~ $wrapper_arg_re ]]; then seg="${seg:${#BASH_REMATCH[0]}}"
+    else break; fi
+  done
+  if [[ "$seg" =~ $cd_re ]]; then cd_target="${BASH_REMATCH[3]:-$HOME}"; continue; fi
   if [[ "$seg" =~ $pr_create_re ]] \
      || { [[ "$seg" =~ $api_re ]] && [[ "$seg" =~ $pulls_re ]] && [[ "$seg" =~ $api_write_re ]]; }; then
     is_pr_create=true
+    pr_seg="$seg"
     break
   fi
 done < <(segments "$cmd")
@@ -93,9 +111,29 @@ $is_pr_create || exit 0
 
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
+# `cd <dir> && gh pr create` creates the PR from <dir>: judge that repo
+if [ -n "$cd_target" ]; then
+  case "$cd_target" in
+    "~"*) cwd="$HOME${cd_target#\~}" ;;
+    /*) cwd="$cd_target" ;;
+    *) cwd="$cwd/$cd_target" ;;
+  esac
+fi
 
 top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || block "$cwd is not inside a git repository."
 sha=$(git -C "$top" rev-parse HEAD 2>/dev/null) || block "could not resolve HEAD in $top."
+
+# the PR must target the reviewed repo and branch
+if [[ "$pr_seg" =~ (^|[[:space:]])(-R|--repo)([[:space:]]+|=)([^[:space:]]+) ]]; then
+  want=$(printf '%s' "${BASH_REMATCH[4]}" | tr '[:upper:]' '[:lower:]' | awk -F/ '{print $(NF-1) "/" $NF}')
+  have=$(git -C "$top" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/]+)$#\1#')
+  [ -n "$have" ] && [ "$want" = "$have" ] || block "--repo $want is not this repository's origin (${have:-none}). Create the PR from the reviewed repo."
+fi
+if [[ "$pr_seg" =~ (^|[[:space:]])(-H|--head)([[:space:]]+|=)([^[:space:]]+) ]]; then
+  head_branch="${BASH_REMATCH[4]##*:}"
+  current=$(git -C "$top" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  [ "$head_branch" = "$current" ] || block "--head $head_branch is not the reviewed branch ($current). Check it out and run /multi-review there."
+fi
 
 if [ -n "$(git -C "$top" status --porcelain --untracked-files=no)" ]; then
   block "uncommitted changes to tracked files. Commit them, then run /multi-review so the review covers exactly what will be pushed."

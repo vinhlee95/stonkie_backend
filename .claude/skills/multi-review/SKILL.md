@@ -40,10 +40,14 @@ If the list is empty: skip Steps 3–4; all 5 angles are `ok` with zero findings
 
 ## Step 3 — Dispatch reviewers in parallel
 
+Reviewers have no shell, so write the diff for them first:
+`mkdir -p "$TOP/.claude/review-state" && git diff $RANGE > "$TOP/.claude/review-state/$SHA.diff"` (gitignored). `DIFF_FILE` below is that absolute path.
+
 In a SINGLE message, dispatch all 5 agents with the subagent tool (`Agent`, formerly `Task`) (one call per agent, `subagent_type` = agent name). Prompt for each, exactly:
 
 ```
 RANGE: <RANGE>
+DIFF_FILE: <absolute path of the .diff file>
 FILES:
 <one path per line>
 INTENT:

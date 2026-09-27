@@ -1,7 +1,7 @@
 ---
 name: review-functionality
 description: Functionality/correctness reviewer for /multi-review. Reviews a git diff range for logic bugs, edge cases and regressions against the stated intent. Returns JSON findings only. Invoked by the multi-review skill, not directly.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob
 model: opus
 ---
 

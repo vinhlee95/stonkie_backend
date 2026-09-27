@@ -26,9 +26,15 @@ for a in $ANGLES; do
   g=".claude/agents/review-$a.md"
   check "$g refers to guidelines" grep -q '.github/instructions/review-guidelines.instructions.md' "$g"
   check "$g refers to its angle file" grep -q ".github/instructions/review-$a.instructions.md" "$g"
+  check "$g has no shell (tools: Read, Grep, Glob)" grep -qx 'tools: Read, Grep, Glob' "$g"
   check "$g has no checklist" test "$(body "$g" | grep -c '^ *- ')" -eq 0
 done
+w=.github/workflows/hook-tests.yml
+check "workflow checkout does not persist credentials" grep -q 'persist-credentials: false' "$w"
+check "workflow watches its own file" test "$(grep -c '".github/workflows/hook-tests.yml"' "$w")" -eq 2
+check "skill hands reviewers a diff file" grep -q 'DIFF_FILE' .claude/skills/multi-review/SKILL.md
 c=.claude/skills/multi-review/reviewer-contract.md
+check "contract grants no shell" bash -c "! grep -q 'Run \`git diff' '$c'"
 check "contract refers to guidelines" grep -q '.github/instructions/review-guidelines.instructions.md' "$c"
 check "contract has no rubric" bash -c "! grep -q '^- \`critical\`' '$c'"
 check "guidelines has rubric" grep -q '^- `critical`' .github/instructions/review-guidelines.instructions.md
