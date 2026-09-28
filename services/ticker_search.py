@@ -19,10 +19,10 @@ def search_tickers(query: str, yf_client: YFinanceClient) -> list[dict]:
     """Matches as [{symbol, name, exchange}]; raises TickerSearchError when Yahoo fails."""
     normalised = query.strip().lower()
     cache_key = f"ticker_search:{normalised}"
-    cached = cache.get_json(cache_key)
+    cached, outage = cache.get_json_many([cache_key, OUTAGE_KEY])
     if cached is not None:
         return cached["results"]
-    if cache.get_json(OUTAGE_KEY) is not None:
+    if outage is not None:
         raise TickerSearchError(normalised)
     try:
         quotes = yf_client.search(normalised)
@@ -30,7 +30,9 @@ def search_tickers(query: str, yf_client: YFinanceClient) -> list[dict]:
         cache.set_json(OUTAGE_KEY, {"down": True}, OUTAGE_TTL_SECONDS)
         raise TickerSearchError(normalised) from exc
     results = [_to_result(q) for q in quotes if _is_holdable(q)]
-    cache.set_json(cache_key, {"results": results}, CACHE_TTL_SECONDS)
+    # yfinance returns empty quotes for some Yahoo glitches (e.g. a non-JSON 200), so misses aren't cached.
+    if results:
+        cache.set_json(cache_key, {"results": results}, CACHE_TTL_SECONDS)
     return results
 
 

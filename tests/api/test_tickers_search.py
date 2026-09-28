@@ -43,12 +43,17 @@ class FakeYFinanceClient:
 class FakeRedis:
     def __init__(self):
         self.store: dict[str, bytes] = {}
+        self.ttls: dict[str, int] = {}
 
     def get(self, key):
         return self.store.get(key)
 
+    def mget(self, keys):
+        return [self.store.get(k) for k in keys]
+
     def setex(self, key, ttl, value):
         self.store[key] = value.encode() if isinstance(value, str) else value
+        self.ttls[key] = ttl
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +88,7 @@ def test_returns_holdable_yahoo_listings(make_client):
     }
 
 
-def test_second_request_served_from_cache(make_client):
+def test_second_request_served_from_cache(make_client, fake_redis):
     fake = FakeYFinanceClient(SXR8_QUOTES)
     client = make_client(fake)
 
@@ -93,13 +98,20 @@ def test_second_request_served_from_cache(make_client):
     assert res.status_code == 200
     assert len(res.json()["data"]) == 3
     assert fake.calls == ["sxr8"]
+    assert fake_redis.ttls["ticker_search:sxr8"] == 3600
 
 
-def test_empty_results_are_not_an_error(make_client):
-    client = make_client(FakeYFinanceClient([]))
+def test_empty_results_are_not_an_error_and_not_cached(make_client, fake_redis):
+    fake = FakeYFinanceClient([])
+    client = make_client(fake)
+
     res = client.get("/api/tickers/search", params={"q": "zzzz"})
+    client.get("/api/tickers/search", params={"q": "zzzz"})
+
     assert res.status_code == 200
     assert res.json() == {"data": []}
+    assert fake.calls == ["zzzz", "zzzz"]
+    assert fake_redis.store == {}
 
 
 @pytest.mark.parametrize("params", [{}, {"q": ""}, {"q": "   "}, {"q": "x" * 65}])
@@ -127,7 +139,7 @@ def test_yahoo_failure_returns_502_without_caching_results(make_client, fake_red
     assert "ticker_search:sxr8" not in fake_redis.store
 
 
-def test_yahoo_failure_short_circuits_later_searches(make_client):
+def test_yahoo_failure_short_circuits_later_searches(make_client, fake_redis):
     fake = FakeYFinanceClient(RuntimeError("yahoo down"))
     client = make_client(fake)
 
@@ -136,3 +148,18 @@ def test_yahoo_failure_short_circuits_later_searches(make_client):
 
     assert res.status_code == 502
     assert fake.calls == ["sxr8"]
+    assert fake_redis.ttls["ticker_search:__yahoo_down"] == 60
+
+
+def test_cached_query_still_served_during_outage(make_client):
+    fake = FakeYFinanceClient(SXR8_QUOTES)
+    client = make_client(fake)
+    client.get("/api/tickers/search", params={"q": "sxr8"})
+
+    fake.result = RuntimeError("yahoo down")
+    assert client.get("/api/tickers/search", params={"q": "apple"}).status_code == 502
+    res = client.get("/api/tickers/search", params={"q": "sxr8"})
+
+    assert res.status_code == 200
+    assert len(res.json()["data"]) == 3
+    assert fake.calls == ["sxr8", "apple"]
