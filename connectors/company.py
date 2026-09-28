@@ -42,6 +42,12 @@ class CompanyFundamentalDto:
     currency: str = "USD"
 
 
+@dataclass(frozen=True)
+class CompanyClassificationDto:
+    sector: str
+    country: str
+
+
 def safe_int(value, default=0):
     try:
         if value in [None, "None", ""]:
@@ -225,6 +231,20 @@ class CompanyConnector:
             return company.logo_url
 
         return self.get_company_logo_url(ticker)
+
+    def get_classifications(self, tickers: list[str]) -> dict[str, CompanyClassificationDto]:
+        """Sector and country per ticker from stored fundamentals; tickers without a row are omitted."""
+        if not tickers:
+            return {}
+        with SessionLocal() as db:
+            rows = db.query(CompanyFundamental).filter(CompanyFundamental.company_symbol.in_(tickers)).all()
+            result = {}
+            for row in rows:
+                data = row.data or {}
+                result[str(row.company_symbol)] = CompanyClassificationDto(
+                    sector=data.get("sector") or "", country=data.get("country") or ""
+                )
+            return result
 
     def get_by_ticker(self, ticker: str) -> Company | None:
         with SessionLocal() as db:

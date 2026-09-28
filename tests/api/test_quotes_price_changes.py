@@ -33,11 +33,14 @@ class FakeYFinanceClient:
         currencies: dict[str, str] | None = None,
         quotes: dict[str, dict | None] | None = None,
         live_quotes: dict[str, LiveQuoteDto | Exception | None] | None = None,
+        infos: dict[str, dict | Exception] | None = None,
     ):
         self.histories = histories
         self.currencies = currencies or {}
         self.quotes = quotes or {}
         self.live_quotes = live_quotes or {}
+        self.infos = infos or {}
+        self.info_calls: list[str] = []
         self.calls: list[str] = []
         self.live_calls: list[str] = []
 
@@ -50,6 +53,13 @@ class FakeYFinanceClient:
 
     def get_quote(self, ticker: str) -> dict | None:
         return self.quotes.get(ticker)
+
+    def get_info(self, ticker: str) -> dict:
+        self.info_calls.append(ticker)
+        result = self.infos.get(ticker, {})
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
         self.live_calls.append(ticker)
@@ -66,6 +76,9 @@ class FakeRedis:
     def get(self, key):
         entry = self.store.get(key)
         return entry[0].encode() if entry else None
+
+    def mget(self, keys):
+        return [self.get(key) for key in keys]
 
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
