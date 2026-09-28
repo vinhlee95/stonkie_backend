@@ -37,8 +37,7 @@ def get_holdings_metadata(
     """Metadata for every ticker; unknown fields are "Other". Never raises."""
     result: dict[str, HoldingMetadata] = {}
     misses = []
-    for ticker in tickers:
-        cached = cache.get_json(_cache_key(ticker))
+    for ticker, cached in zip(tickers, cache.get_json_many([_cache_key(t) for t in tickers])):
         if cached is not None and set(cached) >= set(HoldingMetadata.__annotations__):
             result[ticker] = HoldingMetadata(
                 sector=cached["sector"], country=cached["country"], asset_type=cached["asset_type"]
@@ -89,7 +88,8 @@ def _from_yahoo(ticker: str, yf_client: YFinanceClient) -> HoldingMetadata | Non
         logger.info("No metadata for %s", ticker)
         return None
     asset_type = QUOTE_TYPES.get(quote_type, "")
-    sector = info.get("sector") or (ETF_SECTOR if asset_type == "ETF" else "")
+    # Funds span sectors; Yahoo's occasional ETF "sector" is its largest holding's, not the fund's.
+    sector = ETF_SECTOR if asset_type == "ETF" else info.get("sector") or ""
     return _metadata(sector, info.get("country") or "", asset_type)
 
 

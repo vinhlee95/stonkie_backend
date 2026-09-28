@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import redis
 
 from connectors.company import CompanyClassificationDto
 from services.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS, get_holdings_metadata
@@ -49,15 +50,17 @@ def test_falls_back_to_yahoo_info_for_etfs_and_missing_rows():
         {},
         infos={
             "VOO": {"quoteType": "ETF"},
+            "QQQ": {"quoteType": "ETF", "sector": "Technology"},
             "NOKIA.HE": {"quoteType": "EQUITY", "sector": "Technology", "country": "Finland"},
             "BTC-USD": {"quoteType": "CRYPTOCURRENCY"},
         },
     )
 
-    result = get_holdings_metadata(["VOO", "NOKIA.HE", "BTC-USD"], yf, companies)
+    result = get_holdings_metadata(["VOO", "QQQ", "NOKIA.HE", "BTC-USD"], yf, companies)
 
     assert result == {
         "VOO": meta("Diversified", "Other", "ETF"),
+        "QQQ": meta("Diversified", "Other", "ETF"),
         "NOKIA.HE": meta("Technology", "Finland", "Stock"),
         "BTC-USD": meta("Other", "Other", "Other"),
     }
@@ -120,3 +123,15 @@ def test_empty_tickers():
     companies = FakeCompanies({})
     assert get_holdings_metadata([], FakeYFinanceClient({}), companies) == {}
     assert companies.calls == []
+
+
+def test_redis_failure_falls_through_to_sources(monkeypatch):
+    def broken_mget(keys):
+        raise redis.RedisError("down")
+
+    monkeypatch.setattr("connectors.cache.redis_client.mget", broken_mget)
+    companies = FakeCompanies({"AAPL": ("Technology", "United States")})
+
+    assert get_holdings_metadata(["AAPL"], FakeYFinanceClient({}), companies) == {
+        "AAPL": meta("Technology", "United States", "Stock")
+    }

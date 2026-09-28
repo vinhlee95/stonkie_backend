@@ -77,6 +77,9 @@ class FakeRedis:
         entry = self.store.get(key)
         return entry[0].encode() if entry else None
 
+    def mget(self, keys):
+        return [self.get(key) for key in keys]
+
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
 

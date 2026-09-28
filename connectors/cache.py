@@ -184,6 +184,25 @@ def get_json(key: str) -> Optional[dict]:
         return None
 
 
+def get_json_many(keys: list[str]) -> list[Optional[dict]]:
+    """One MGET for many keys; each entry is None on miss or parse error, all None on Redis failure."""
+    if not keys:
+        return []
+    try:
+        raws = redis_client.mget(keys)
+    except redis.RedisError:
+        logger.warning("Redis mget failed for %d keys", len(keys), exc_info=True)
+        return [None] * len(keys)
+    values: list[Optional[dict]] = []
+    for key, raw in zip(keys, raws):
+        try:
+            values.append(json.loads(raw) if raw is not None else None)
+        except (ValueError, TypeError):
+            logger.warning("Invalid JSON in Redis for key %s", key)
+            values.append(None)
+    return values
+
+
 def set_json(key: str, value: dict, ttl_seconds: int) -> None:
     """Set a JSON value in Redis with TTL. Failures are logged, never raised."""
     try:
