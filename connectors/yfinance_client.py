@@ -43,7 +43,7 @@ class YFinanceClient:
 
     def search(self, query: str) -> list[dict]:
         """Yahoo symbol search; raw quote dicts (symbol, quoteType, exchDisp, longname, ...)."""
-        return yf.Search(query, max_results=10, news_count=0, lists_count=0, timeout=10, raise_errors=True).quotes
+        return yf.Search(query, max_results=10, news_count=0, lists_count=0, timeout=3, raise_errors=True).quotes
 
     def get_info(self, ticker: str) -> dict:
         """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""

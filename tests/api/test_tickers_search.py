@@ -110,8 +110,29 @@ def test_rejects_missing_blank_or_long_query(make_client, params):
     assert fake.calls == []
 
 
-def test_yahoo_failure_returns_502_and_is_not_cached(make_client, fake_redis):
+def test_maps_missing_fields_and_drops_symbolless_quotes(make_client):
+    quotes = [
+        {"symbol": "nokia.he", "quoteType": "EQUITY", "isYahooFinance": True},
+        {"shortname": "No symbol", "quoteType": "EQUITY", "isYahooFinance": True},
+    ]
+    client = make_client(FakeYFinanceClient(quotes))
+    res = client.get("/api/tickers/search", params={"q": "nokia"})
+    assert res.json() == {"data": [{"symbol": "NOKIA.HE", "name": "NOKIA.HE", "exchange": None}]}
+
+
+def test_yahoo_failure_returns_502_without_caching_results(make_client, fake_redis):
     client = make_client(FakeYFinanceClient(RuntimeError("yahoo down")))
     res = client.get("/api/tickers/search", params={"q": "SXR8"})
     assert res.status_code == 502
-    assert fake_redis.store == {}
+    assert "ticker_search:sxr8" not in fake_redis.store
+
+
+def test_yahoo_failure_short_circuits_later_searches(make_client):
+    fake = FakeYFinanceClient(RuntimeError("yahoo down"))
+    client = make_client(fake)
+
+    client.get("/api/tickers/search", params={"q": "SXR8"})
+    res = client.get("/api/tickers/search", params={"q": "apple"})
+
+    assert res.status_code == 502
+    assert fake.calls == ["sxr8"]
