@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import delete, exists, func, select, text
+from sqlalchemy import delete, exists, func, select, text, update
 from sqlalchemy.orm import Session
 
 from connectors.database import SessionLocal
@@ -76,6 +76,22 @@ def _lock_user(db: Session, user_id) -> None:
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:user_id))"), {"user_id": str(user_id)})
 
 
+def _sync_legacy_position(db: Session, holding_id: uuid.UUID) -> None:
+    """Mirror the lots' aggregate into the legacy holding columns, which pre-lots code (deploy overlap,
+    rollback) still reads. Drop together with those columns in the contract migration."""
+    shares, cost = db.execute(
+        select(func.sum(PortfolioLot.shares), func.sum(PortfolioLot.shares * PortfolioLot.price)).where(
+            PortfolioLot.holding_id == holding_id
+        )
+    ).one()
+    if shares:
+        db.execute(
+            update(PortfolioHolding)
+            .where(PortfolioHolding.id == holding_id)
+            .values(shares=shares, avg_cost=cost / shares)
+        )
+
+
 class PortfolioConnector:
     def list_holdings(self, user_id) -> list[HoldingDto]:
         """Holdings with their lots, by ticker. A holding without lots holds nothing and is skipped."""
@@ -135,6 +151,7 @@ class PortfolioConnector:
             lot = PortfolioLot(holding_id=holding.id, shares=shares, price=price, purchased_on=purchased_on)
             db.add(lot)
             db.flush()
+            _sync_legacy_position(db, holding.id)
             db.refresh(lot)
             dto = _to_lot_dto(lot, ticker)
             db.commit()
@@ -156,6 +173,7 @@ class PortfolioConnector:
                 if field in changes:
                     setattr(lot, field, changes[field])
             db.flush()
+            _sync_legacy_position(db, lot.holding_id)
             db.refresh(lot)
             dto = _to_lot_dto(lot, ticker)
             db.commit()
@@ -173,6 +191,7 @@ class PortfolioConnector:
             if holding_id is None:
                 return False
             db.execute(delete(PortfolioLot).where(PortfolioLot.id == lot_id))
+            _sync_legacy_position(db, holding_id)
             db.execute(
                 delete(PortfolioHolding).where(
                     PortfolioHolding.id == holding_id,

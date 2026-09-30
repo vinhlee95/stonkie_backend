@@ -154,3 +154,30 @@ def test_holding_without_lots_is_hidden_and_revived_by_next_lot(portfolio, users
 
     [holding] = portfolio.list_holdings(alice)
     assert (holding.shares, holding.avg_cost) == (2, 5)
+
+
+def _legacy_position(test_engine, user_id, ticker="AAPL"):
+    with test_engine.connect() as connection:
+        return connection.execute(
+            text(
+                "SELECT shares, avg_cost FROM portfolio_holdings "
+                "WHERE user_id = CAST(:user_id AS uuid) AND ticker = :ticker"
+            ),
+            {"user_id": str(user_id), "ticker": ticker},
+        ).one_or_none()
+
+
+def test_lot_writes_keep_legacy_position_columns_in_sync(portfolio, users, test_engine):
+    # Pre-lots code (deploy overlap, rollback) reads only portfolio_holdings.shares/avg_cost.
+    alice, _ = users
+    first = add(portfolio, alice, shares=10, price=100)
+    assert _legacy_position(test_engine, alice) == (10, 100)
+
+    second = add(portfolio, alice, shares=30, price=200)
+    assert _legacy_position(test_engine, alice) == (40, 175)
+
+    portfolio.update_lot(user_id=alice, lot_id=second.id, changes={"shares": 10})
+    assert _legacy_position(test_engine, alice) == (20, 150)
+
+    portfolio.delete_lot(user_id=alice, lot_id=first.id)
+    assert _legacy_position(test_engine, alice) == (10, 200)
