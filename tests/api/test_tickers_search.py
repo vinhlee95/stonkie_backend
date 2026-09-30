@@ -148,7 +148,19 @@ def test_yahoo_failure_short_circuits_later_searches(make_client, fake_redis):
 
     assert res.status_code == 502
     assert fake.calls == ["sxr8"]
-    assert fake_redis.ttls["ticker_search:__yahoo_down"] == 60
+    assert fake_redis.ttls["ticker_search_outage:yahoo"] == 60
+
+
+def test_query_cannot_collide_with_outage_key(make_client, fake_redis):
+    fake = FakeYFinanceClient(SXR8_QUOTES)
+    client = make_client(fake)
+
+    client.get("/api/tickers/search", params={"q": "__yahoo_down"})
+    res = client.get("/api/tickers/search", params={"q": "apple"})
+
+    assert res.status_code == 200
+    assert fake.calls == ["__yahoo_down", "apple"]
+    assert "ticker_search_outage:yahoo" not in fake_redis.store
 
 
 def test_cached_query_still_served_during_outage(make_client):

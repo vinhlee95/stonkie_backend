@@ -5,7 +5,8 @@ from connectors.yfinance_client import YFinanceClient
 
 CACHE_TTL_SECONDS = 3600
 # After a Yahoo failure, fail fast for a while so a typeahead can't pin threadpool workers on timeouts.
-OUTAGE_KEY = "ticker_search:__yahoo_down"
+# Own namespace so no query string can collide with it.
+OUTAGE_KEY = "ticker_search_outage:yahoo"
 OUTAGE_TTL_SECONDS = 60
 # Holdable instruments the portfolio can price; skips indices, currencies, futures, options.
 QUOTE_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
