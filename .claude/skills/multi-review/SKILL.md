@@ -46,9 +46,12 @@ Only if `git diff --quiet $RANGE` succeeds (the diff is truly empty): skip Steps
 Reviewers have no shell, so write the diff for them first:
 `mkdir -p "$TOP/.claude/review-state" && git diff $RANGE > "$TOP/.claude/review-state/$SHA.diff"` (gitignored). `DIFF_FILE` below is that absolute path.
 
+The `review-*` agents load from the session root's `.claude/agents`. A session started at the monorepo root gets them via the symlink `stonkie/.claude/agents -> ../backend/.claude/agents` (agents are repo-agnostic: they read everything under REPO_ROOT). If an agent type is missing, STOP and tell the user; do not substitute other agent types.
+
 In a SINGLE message, dispatch all 5 agents with the subagent tool (`Agent`, formerly `Task`) (one call per agent, `subagent_type` = agent name). Prompt for each, exactly:
 
 ```
+REPO_ROOT: <TOP>
 RANGE: <RANGE>
 DIFF_FILE: <absolute path of the .diff file>
 FILES:

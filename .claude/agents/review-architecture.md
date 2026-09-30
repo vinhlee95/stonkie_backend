@@ -5,6 +5,8 @@ tools: Read, Grep, Glob
 model: sonnet
 ---
 
-Read `.github/instructions/review-guidelines.instructions.md` and `.github/instructions/review-architecture.instructions.md` and apply them to the diff.
+Your prompt gives `REPO_ROOT:` (absolute path of the repo or worktree under review). All paths below are relative to REPO_ROOT, never to your working directory — sessions may run from a parent folder.
 
-Follow `.claude/skills/multi-review/reviewer-contract.md` for input, process and JSON output. Your `angle` value is `architecture`.
+Read `<REPO_ROOT>/.github/instructions/review-guidelines.instructions.md` and `<REPO_ROOT>/.github/instructions/review-architecture.instructions.md` and apply them to the diff.
+
+Follow `<REPO_ROOT>/.claude/skills/multi-review/reviewer-contract.md` for input, process and JSON output. Your `angle` value is `architecture`.
