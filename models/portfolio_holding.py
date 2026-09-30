@@ -15,9 +15,9 @@ class PortfolioHolding(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     ticker = Column(String, nullable=False)
     name = Column(String, nullable=True)
-    shares = Column(Numeric(20, 6), nullable=False)
-    # Average cost per share in the ticker's native trading currency.
-    avg_cost = Column(Numeric(20, 6), nullable=False)
+    # Legacy pre-lots position, kept nullable until old deploys are gone; read lots instead.
+    shares = Column(Numeric(20, 6), nullable=True)
+    avg_cost = Column(Numeric(20, 6), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -27,6 +27,7 @@ def test_engine():
         # re-run's `upgrade head` doesn't hit DuplicateTable (see phase-7 learnings).
         connection.execute(text("DROP TABLE IF EXISTS market_recap"))
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
+        connection.execute(text("DROP TABLE IF EXISTS portfolio_lots"))
         connection.execute(text("DROP TABLE IF EXISTS portfolio_holdings"))
         connection.execute(text("DROP TABLE IF EXISTS users"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
