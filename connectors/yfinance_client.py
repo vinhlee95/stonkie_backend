@@ -1,5 +1,6 @@
 """yfinance connector for daily price history and live quotes."""
 
+import json
 import logging
 import math
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFDataException, YFRateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,25 @@ class LiveQuoteDto:
     currency: str | None
     market_time: datetime
     trading_date: date
+
+
+@dataclass(frozen=True)
+class TickerSearchQuoteDto:
+    """One Yahoo symbol-search match."""
+
+    symbol: str
+    name: str | None
+    exchange: str | None
+    quote_type: str | None
+    is_yahoo_finance: bool
+
+
+class YahooSearchUnavailableError(Exception):
+    """Yahoo search is down, rate-limited, timing out or unreachable (not a per-query failure)."""
+
+
+# Transport failures, named as yfinance does (curl_cffi and requests share these names).
+_TRANSPORT_ERROR_NAMES = {"Timeout", "ConnectTimeout", "ReadTimeout", "ConnectionError", "RemoteDisconnected"}
 
 
 class YFinanceClient:
@@ -41,6 +62,16 @@ class YFinanceClient:
         bars = yf_ticker.history(period="5d", interval="1h", auto_adjust=False)
         return parse_live_quote(yf_ticker.get_history_metadata(), bars)
 
+    def search(self, query: str) -> list[TickerSearchQuoteDto]:
+        """Yahoo symbol search. Raises YahooSearchUnavailableError for outage-type failures."""
+        try:
+            quotes = yf.Search(query, max_results=10, news_count=0, lists_count=0, timeout=3, raise_errors=True).quotes
+        except Exception as exc:
+            if _is_search_outage(exc):
+                raise YahooSearchUnavailableError(str(exc)) from exc
+            raise
+        return [dto for q in quotes if (dto := parse_search_quote(q)) is not None]
+
     def get_info(self, ticker: str) -> dict:
         """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""
         return yf.Ticker(ticker).info or {}
@@ -59,6 +90,26 @@ class YFinanceClient:
         if last_price is None and prev_close is None:
             return None
         return {"last_price": last_price, "prev_close": prev_close}
+
+
+def parse_search_quote(quote: dict) -> TickerSearchQuoteDto | None:
+    symbol = quote.get("symbol")
+    if not symbol:
+        return None
+    return TickerSearchQuoteDto(
+        symbol=symbol,
+        name=quote.get("longname") or quote.get("shortname"),
+        exchange=quote.get("exchDisp"),
+        quote_type=quote.get("quoteType"),
+        is_yahoo_finance=bool(quote.get("isYahooFinance")),
+    )
+
+
+def _is_search_outage(exc: Exception) -> bool:
+    # Non-JSON body = Yahoo error page (5xx/maintenance), not a problem with the query.
+    if isinstance(exc, (YFDataException, YFRateLimitError, TimeoutError, ConnectionError, json.JSONDecodeError)):
+        return True
+    return type(exc).__name__ in _TRANSPORT_ERROR_NAMES
 
 
 def parse_live_quote(meta: dict, bars: pd.DataFrame) -> LiveQuoteDto | None:
