@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.tickers import get_yfinance_client
+from connectors.yfinance_client import TickerSearchQuoteDto, YahooSearchUnavailableError, parse_search_quote
 from main import app
 
 SXR8_QUOTES = [
@@ -33,11 +34,11 @@ class FakeYFinanceClient:
         self.result = result
         self.calls: list[str] = []
 
-    def search(self, query: str) -> list[dict]:
+    def search(self, query: str) -> list[TickerSearchQuoteDto]:
         self.calls.append(query)
         if isinstance(self.result, Exception):
             raise self.result
-        return self.result
+        return [dto for q in self.result if (dto := parse_search_quote(q)) is not None]
 
 
 class FakeRedis:
@@ -133,14 +134,40 @@ def test_maps_missing_fields_and_drops_symbolless_quotes(make_client):
 
 
 def test_yahoo_failure_returns_502_without_caching_results(make_client, fake_redis):
-    client = make_client(FakeYFinanceClient(RuntimeError("yahoo down")))
+    client = make_client(FakeYFinanceClient(YahooSearchUnavailableError("yahoo down")))
     res = client.get("/api/tickers/search", params={"q": "SXR8"})
     assert res.status_code == 502
     assert "ticker_search:sxr8" not in fake_redis.store
 
 
+def test_query_specific_failure_does_not_trip_outage(make_client, fake_redis):
+    fake = FakeYFinanceClient(ValueError("bad query"))
+    client = make_client(fake)
+
+    assert client.get("/api/tickers/search", params={"q": "weird"}).status_code == 502
+    fake.result = SXR8_QUOTES
+    res = client.get("/api/tickers/search", params={"q": "sxr8"})
+
+    assert res.status_code == 200
+    assert "ticker_search_outage:yahoo" not in fake_redis.store
+    assert fake.calls == ["weird", "sxr8"]
+
+
+def test_search_resumes_after_outage_expires(make_client, fake_redis):
+    fake = FakeYFinanceClient(YahooSearchUnavailableError("yahoo down"))
+    client = make_client(fake)
+    client.get("/api/tickers/search", params={"q": "sxr8"})
+
+    fake.result = SXR8_QUOTES
+    del fake_redis.store["ticker_search_outage:yahoo"]  # TTL elapsed
+    res = client.get("/api/tickers/search", params={"q": "sxr8"})
+
+    assert res.status_code == 200
+    assert fake.calls == ["sxr8", "sxr8"]
+
+
 def test_yahoo_failure_short_circuits_later_searches(make_client, fake_redis):
-    fake = FakeYFinanceClient(RuntimeError("yahoo down"))
+    fake = FakeYFinanceClient(YahooSearchUnavailableError("yahoo down"))
     client = make_client(fake)
 
     client.get("/api/tickers/search", params={"q": "SXR8"})
@@ -168,7 +195,7 @@ def test_cached_query_still_served_during_outage(make_client):
     client = make_client(fake)
     client.get("/api/tickers/search", params={"q": "sxr8"})
 
-    fake.result = RuntimeError("yahoo down")
+    fake.result = YahooSearchUnavailableError("yahoo down")
     assert client.get("/api/tickers/search", params={"q": "apple"}).status_code == 502
     res = client.get("/api/tickers/search", params={"q": "sxr8"})
 

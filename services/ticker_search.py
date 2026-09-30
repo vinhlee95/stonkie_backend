@@ -1,7 +1,7 @@
 """Yahoo symbol search for holdings: stocks, ETFs and funds with exchange suffixes (SXR8 → SXR8.DE)."""
 
 from connectors import cache
-from connectors.yfinance_client import YFinanceClient
+from connectors.yfinance_client import TickerSearchQuoteDto, YahooSearchUnavailableError, YFinanceClient
 
 CACHE_TTL_SECONDS = 3600
 # After a Yahoo failure, fail fast for a while so a typeahead can't pin threadpool workers on timeouts.
@@ -27,8 +27,11 @@ def search_tickers(query: str, yf_client: YFinanceClient) -> list[dict]:
         raise TickerSearchError(normalised)
     try:
         quotes = yf_client.search(normalised)
-    except Exception as exc:
+    except YahooSearchUnavailableError as exc:
         cache.set_json(OUTAGE_KEY, {"down": True}, OUTAGE_TTL_SECONDS)
+        raise TickerSearchError(normalised) from exc
+    except Exception as exc:
+        # Query-specific failure: fail this request only, don't trip the shared breaker.
         raise TickerSearchError(normalised) from exc
     results = [_to_result(q) for q in quotes if _is_holdable(q)]
     # yfinance returns empty quotes for some Yahoo glitches (e.g. a non-JSON 200), so misses aren't cached.
@@ -37,14 +40,10 @@ def search_tickers(query: str, yf_client: YFinanceClient) -> list[dict]:
     return results
 
 
-def _is_holdable(quote: dict) -> bool:
-    return bool(quote.get("symbol")) and bool(quote.get("isYahooFinance")) and quote.get("quoteType") in QUOTE_TYPES
+def _is_holdable(quote: TickerSearchQuoteDto) -> bool:
+    return quote.is_yahoo_finance and quote.quote_type in QUOTE_TYPES
 
 
-def _to_result(quote: dict) -> dict:
-    symbol = quote["symbol"].upper()
-    return {
-        "symbol": symbol,
-        "name": quote.get("longname") or quote.get("shortname") or symbol,
-        "exchange": quote.get("exchDisp"),
-    }
+def _to_result(quote: TickerSearchQuoteDto) -> dict:
+    symbol = quote.symbol.upper()
+    return {"symbol": symbol, "name": quote.name or symbol, "exchange": quote.exchange}
