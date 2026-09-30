@@ -1,5 +1,5 @@
 ---
-name: review-tests
+name: backend-review-tests
 description: Test coverage/quality reviewer for /multi-review. Reviews a git diff range for missing, weak or forbidden tests. Returns JSON findings only. Invoked by the multi-review skill, not directly.
 tools: Read, Grep, Glob
 model: sonnet

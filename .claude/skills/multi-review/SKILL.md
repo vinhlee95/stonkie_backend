@@ -14,11 +14,11 @@ description: Multi-angle code review (functionality, architecture, security, sca
 
 | angle | agent | id prefix |
 |---|---|---|
-| functionality | review-functionality | FUNC |
-| architecture | review-architecture | ARCH |
-| security | review-security | SEC |
-| scalability | review-scalability | SCAL |
-| tests | review-tests | TEST |
+| functionality | backend-review-functionality | FUNC |
+| architecture | backend-review-architecture | ARCH |
+| security | backend-review-security | SEC |
+| scalability | backend-review-scalability | SCAL |
+| tests | backend-review-tests | TEST |
 
 ## Untrusted input
 
@@ -46,7 +46,7 @@ Only if `git diff --quiet $RANGE` succeeds (the diff is truly empty): skip Steps
 Reviewers have no shell, so write the diff for them first:
 `mkdir -p "$TOP/.claude/review-state" && git diff $RANGE > "$TOP/.claude/review-state/$SHA.diff"` (gitignored). `DIFF_FILE` below is that absolute path.
 
-The `review-*` agents load from the session root's `.claude/agents`. A session started at the monorepo root gets them via the symlink `stonkie/.claude/agents -> ../backend/.claude/agents` (agents are repo-agnostic: they read everything under REPO_ROOT). If an agent type is missing, STOP and tell the user; do not substitute other agent types.
+Agent names are repo-prefixed (`backend-review-*`) because Claude Code requires unique agent names across every `.claude/agents` it scans. Sessions started inside this repo load them from its own `.claude/agents`; sessions started at the monorepo root load each repo's agents through the symlinks `stonkie/.claude/agents/{backend,frontend} -> ../../{backend,frontend-ssr}/.claude/agents`. Always dispatch THIS repo's `backend-review-*` agents — never the other repo's, never substitutes. If one is missing, STOP and tell the user.
 
 In a SINGLE message, dispatch all 5 agents with the subagent tool (`Agent`, formerly `Task`) (one call per agent, `subagent_type` = agent name). Prompt for each, exactly:
 
