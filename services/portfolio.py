@@ -5,10 +5,11 @@ Holdings without a live quote fall back to the last completed daily close and ar
 
 import logging
 from collections.abc import Callable
+from datetime import date
 
 from connectors.company import CompanyConnector
 from connectors.fx import FxConnector
-from connectors.portfolio import HoldingDto, HoldingLimitExceeded, PortfolioConnector
+from connectors.portfolio import HoldingDto, HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
 from services.holding_metadata import get_holdings_metadata
 from services.live_quote import get_live_quotes
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 BASE_CURRENCY = "EUR"
 # Bounds GET cost: valuation fetches one quote per holding (mirrors the /api/quotes 50-ticker cap).
 MAX_HOLDINGS_PER_USER = 50
+# Bounds a position's lot list (and the GET payload).
+MAX_LOTS_PER_HOLDING = 100
 # Yahoo quotes London listings in pence ("GBp"); normalise to pounds.
 MINOR_UNIT_CURRENCIES = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
 
@@ -28,6 +31,10 @@ class UnknownTickerError(Exception):
 
 
 class HoldingLimitError(Exception):
+    pass
+
+
+class LotLimitError(Exception):
     pass
 
 
@@ -47,38 +54,60 @@ def resolve_quote(ticker: str, yf_client: YFinanceClient) -> dict:
     return quote
 
 
-def save_holding(
+def add_lot(
     *,
     user_id: str,
     ticker: str,
     name: str | None,
     shares: float,
-    avg_cost: float,
+    price: float,
+    purchased_on: date | None,
     portfolio: PortfolioConnector,
     yf_client: YFinanceClient,
-) -> HoldingDto:
+) -> LotDto:
     existing = {h.ticker for h in portfolio.list_holdings(user_id)}
     if ticker not in existing:
         # Fail fast before hitting Yahoo; the connector re-checks atomically on insert.
         if len(existing) >= MAX_HOLDINGS_PER_USER:
             raise HoldingLimitError(ticker)
-        # Only new tickers are validated, so editing a held position still works while Yahoo is down.
+        # Only new tickers are validated, so adding to a held position still works while Yahoo is down.
         resolve_quote(ticker, yf_client)
     try:
-        return portfolio.upsert_holding(
+        return portfolio.add_lot(
             user_id=user_id,
             ticker=ticker,
             name=name,
             shares=shares,
-            avg_cost=avg_cost,
+            price=price,
+            purchased_on=purchased_on,
             max_holdings=MAX_HOLDINGS_PER_USER,
+            max_lots=MAX_LOTS_PER_HOLDING,
         )
     except HoldingLimitExceeded:
         raise HoldingLimitError(ticker) from None
+    except LotLimitExceeded:
+        raise LotLimitError(ticker) from None
+
+
+def update_lot(*, user_id: str, lot_id, changes: dict, portfolio: PortfolioConnector) -> LotDto | None:
+    return portfolio.update_lot(user_id=user_id, lot_id=lot_id, changes=changes)
+
+
+def remove_lot(*, user_id: str, lot_id, portfolio: PortfolioConnector) -> bool:
+    return portfolio.delete_lot(user_id=user_id, lot_id=lot_id)
 
 
 def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) -> bool:
     return portfolio.delete_holding(user_id=user_id, ticker=ticker)
+
+
+def lot_to_dict(lot: LotDto) -> dict:
+    return {
+        "id": str(lot.id),
+        "shares": lot.shares,
+        "price": lot.price,
+        "purchased_on": lot.purchased_on.isoformat() if lot.purchased_on else None,
+    }
 
 
 def get_portfolio(
@@ -163,6 +192,8 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
         "name": h.name,
         "shares": h.shares,
         "avg_cost": h.avg_cost,
+        # Newest purchase first; shares/avg_cost above aggregate them.
+        "lots": [lot_to_dict(lot) for lot in h.lots],
         "currency": None,
         # Raw Yahoo currency (e.g. "GBp"): the unit avg_cost is entered and returned in.
         "quote_currency": None,
