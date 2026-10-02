@@ -19,6 +19,7 @@ from api.me import router as me_router
 from api.portfolio import router as portfolio_router
 from api.quotes import router as quotes_router
 from api.recap_analyze import router as recap_analyze_router
+from api.tickers import router as tickers_router
 from connectors.conversation_store import (
     append_assistant_message,
     append_user_message,
@@ -83,6 +84,7 @@ app.include_router(recap_analyze_router)
 app.include_router(quotes_router)
 app.include_router(me_router)
 app.include_router(portfolio_router)
+app.include_router(tickers_router)
 
 
 # Add logging middleware
