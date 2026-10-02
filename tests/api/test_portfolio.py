@@ -1,7 +1,9 @@
-from datetime import UTC, date, datetime
+import uuid
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from api.portfolio import get_yfinance_client
@@ -33,6 +35,14 @@ def auth(sub: str = "google-123") -> dict:
     return {"Authorization": f"Bearer {make_token(sub=sub, email=f'{sub}@example.com')}"}
 
 
+def post_lot(client, ticker: str, shares: float = 1, price: float = 1, headers: dict | None = None, **extra):
+    return client.post(
+        f"/api/me/portfolio/holdings/{ticker}/lots",
+        json={"shares": shares, "price": price, **extra},
+        headers=headers or auth(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
     monkeypatch.setattr("connectors.cache.redis_client", FakeRedis())
@@ -53,8 +63,11 @@ def client(test_engine, db_session, monkeypatch):
 
 
 def test_requires_auth(client):
+    lot_url = f"/api/me/portfolio/lots/{uuid.uuid4()}"
     assert client.get("/api/me/portfolio").status_code == 401
-    assert client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}).status_code == 401
+    assert client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}).status_code == 401
+    assert client.patch(lot_url, json={"shares": 1}).status_code == 401
+    assert client.delete(lot_url).status_code == 401
     assert client.delete("/api/me/portfolio/holdings/AAPL").status_code == 401
 
 
@@ -69,16 +82,16 @@ def test_empty_portfolio(client):
 
 def test_add_values_holdings_in_eur(client):
     assert (
-        client.put(
-            "/api/me/portfolio/holdings/aapl", json={"shares": 10, "avg_cost": 100, "name": "Apple"}, headers=auth()
+        client.post(
+            "/api/me/portfolio/holdings/aapl/lots", json={"shares": 10, "price": 100, "name": "Apple"}, headers=auth()
         ).status_code
-        == 200
+        == 201
     )
     assert (
-        client.put(
-            "/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 100, "avg_cost": 2}, headers=auth()
+        client.post(
+            "/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 100, "price": 2}, headers=auth()
         ).status_code
-        == 200
+        == 201
     )
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
@@ -102,67 +115,46 @@ def test_add_values_holdings_in_eur(client):
     assert (nokia["sector"], nokia["country"], nokia["asset_type"]) == ("Technology", "Finland", "Stock")
 
 
-def test_put_replaces_existing_position(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 10, "avg_cost": 100, "name": "Apple"}, headers=auth())
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 3, "avg_cost": 150}, headers=auth())
-
-    holdings = client.get("/api/me/portfolio", headers=auth()).json()["holdings"]
-
-    assert len(holdings) == 1
-    assert holdings[0]["shares"] == 3 and holdings[0]["avg_cost"] == 150
-    assert holdings[0]["name"] == "Apple"  # omitted name keeps the stored one
-
-
 def test_new_ticker_while_yahoo_down_is_retryable(client):
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
 
-    response = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    response = client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     assert response.status_code == 503
 
 
-def test_edit_existing_holding_while_yahoo_down(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 10, "avg_cost": 100}, headers=auth())
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
-
-    response = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 5, "avg_cost": 100}, headers=auth())
-
-    assert response.status_code == 200
-    assert response.json()["shares"] == 5
-
-
 def test_holdings_limit(client, monkeypatch):
     monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
-    over = client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 1, "avg_cost": 1}, headers=auth())
-    edit = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 2, "avg_cost": 1}, headers=auth())
+    over = client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
+    another_lot = client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 2, "price": 1}, headers=auth())
 
     assert over.status_code == 409
-    assert edit.status_code == 200
+    assert another_lot.status_code == 201
 
 
 def test_holdings_limit_enforced_on_insert(client, monkeypatch):
-    # Simulates a concurrent PUT: the service pre-check sees no holdings, so the connector must refuse.
+    # Simulates a concurrent POST: the service pre-check sees no holdings, so the connector must refuse.
     monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
-    monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "list_holdings", lambda self, user_id: [])
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
+    monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "held_tickers", lambda self, user_id: set())
 
-    response = client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    response = client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     assert response.status_code == 409
 
 
 def test_minor_unit_quote_normalised_to_major_currency(client):
     # avg_cost entered in pence, like the price Yahoo shows for .L listings.
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 100, "avg_cost": 6000}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 100, "price": 6000}, headers=auth())
 
     row = client.get("/api/me/portfolio", headers=auth()).json()["holdings"][0]
 
     assert row["currency"] == "GBP"
     assert row["quote_currency"] == "GBp"  # unit of avg_cost
     assert row["price"] == pytest.approx(72.0)
-    assert row["avg_cost"] == 6000  # returned as entered, so it round-trips through PUT
+    assert row["avg_cost"] == 6000  # returned in pence, as entered
     assert row["value"] == pytest.approx(100 * 72 * 1.2)
     assert row["cost_basis"] == pytest.approx(100 * 60 * 1.2)
     assert row["day_change"] == pytest.approx(100 * 2 * 1.2)
@@ -170,8 +162,8 @@ def test_minor_unit_quote_normalised_to_major_currency(client):
 
 
 def test_holding_without_fx_rate_is_excluded_from_totals(client):
-    client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 100, "avg_cost": 2}, headers=auth())
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 100, "avg_cost": 6000}, headers=auth())
+    client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 100, "price": 2}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 100, "price": 6000}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(histories, currencies=CURRENCIES)
 
@@ -186,7 +178,7 @@ def test_holding_without_fx_rate_is_excluded_from_totals(client):
 
 
 def test_holding_with_unknown_currency_is_not_valued(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     cache.redis_client.store.clear()  # drop the quote PUT cached with a currency
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(HISTORIES, currencies={})
 
@@ -200,7 +192,7 @@ def test_unknown_ticker_rejected(client):
     fake = FakeYFinanceClient({"NOPE": make_history([], tz=NY_TZ)})
     app.dependency_overrides[get_yfinance_client] = lambda: fake
 
-    response = client.put("/api/me/portfolio/holdings/NOPE", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    response = client.post("/api/me/portfolio/holdings/NOPE/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     assert response.status_code == 422
 
@@ -208,26 +200,27 @@ def test_unknown_ticker_rejected(client):
 @pytest.mark.parametrize(
     "body",
     [
-        {"shares": 0, "avg_cost": 1},
-        {"shares": 1, "avg_cost": -1},
+        {"shares": 0, "price": 1},
+        {"shares": 1, "price": -1},
         {"shares": 1},
-        {"shares": 1e-7, "avg_cost": 1},  # would round to 0 in Numeric(20, 6)
-        {"shares": 1, "avg_cost": 1e-7},
+        {"shares": 1e-7, "price": 1},  # would round to 0 in Numeric(20, 6)
+        {"shares": 1, "price": 1e-7},
+        {"shares": 1, "price": 1, "purchased_on": "not-a-date"},
     ],
 )
 def test_invalid_body_rejected(client, body):
-    assert client.put("/api/me/portfolio/holdings/AAPL", json=body, headers=auth()).status_code == 422
+    assert client.post("/api/me/portfolio/holdings/AAPL/lots", json=body, headers=auth()).status_code == 422
 
 
 def test_invalid_ticker_rejected(client):
     assert (
-        client.put("/api/me/portfolio/holdings/$$$", json={"shares": 1, "avg_cost": 1}, headers=auth()).status_code
+        client.post("/api/me/portfolio/holdings/$$$/lots", json={"shares": 1, "price": 1}, headers=auth()).status_code
         == 422
     )
 
 
 def test_delete(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     assert client.delete("/api/me/portfolio/holdings/AAPL", headers=auth()).status_code == 204
     assert client.delete("/api/me/portfolio/holdings/AAPL", headers=auth()).status_code == 404
@@ -235,14 +228,14 @@ def test_delete(client):
 
 
 def test_users_are_isolated(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth("alice"))
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth("alice"))
 
     assert client.get("/api/me/portfolio", headers=auth("bob")).json()["holdings"] == []
     assert client.delete("/api/me/portfolio/holdings/AAPL", headers=auth("bob")).status_code == 404
 
 
 def test_unpriced_holding_is_listed_but_excluded_from_totals(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     cache.redis_client.store.clear()  # drop the quote PUT cached, so GET sees the outage
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
 
@@ -255,8 +248,8 @@ def test_unpriced_holding_is_listed_but_excluded_from_totals(client):
 
 
 def test_fx_rate_fetched_once_per_currency(client, monkeypatch):
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
-    client.put("/api/me/portfolio/holdings/BP.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 1, "price": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/BP.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     monkeypatch.setattr("connectors.fx.cache.get_json", lambda key: None)  # force FX cache misses
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
@@ -278,8 +271,8 @@ def live(price: float, prev_close: float, currency: str | None, minute: int = 30
 
 
 def test_live_quotes_value_holdings_and_missing_live_falls_back_to_daily_close(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 10, "avg_cost": 100}, headers=auth())
-    client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 100, "avg_cost": 2}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 10, "price": 100}, headers=auth())
+    client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 100, "price": 2}, headers=auth())
     live_quotes = {"AAPL": live(220.0, 210.0, "USD"), "USDEUR=X": live(0.9, 0.9, "EUR")}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
@@ -304,8 +297,8 @@ def test_live_quotes_value_holdings_and_missing_live_falls_back_to_daily_close(c
 
 
 def test_summary_as_of_is_newest_live_quote(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
-    client.put("/api/me/portfolio/holdings/NOKIA.HE", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
     live_quotes = {"AAPL": live(220.0, 210.0, "USD", minute=45), "NOKIA.HE": live(4.5, 4.0, "EUR", minute=5)}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
@@ -317,7 +310,7 @@ def test_summary_as_of_is_newest_live_quote(client):
 
 
 def test_live_minor_unit_quote_normalised(client):
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 100, "avg_cost": 6000}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 100, "price": 6000}, headers=auth())
     live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": live(1.15, 1.15, "EUR")}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
     app.dependency_overrides[get_yfinance_client] = lambda: fake
@@ -331,7 +324,7 @@ def test_live_minor_unit_quote_normalised(client):
 
 
 def test_all_delayed_portfolio_has_no_as_of(client):
-    client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
 
@@ -341,7 +334,7 @@ def test_all_delayed_portfolio_has_no_as_of(client):
 
 
 def test_live_row_without_fx_still_counts_for_as_of(client):
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
     live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": RuntimeError("fx down")}
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(
@@ -356,7 +349,7 @@ def test_live_row_without_fx_still_counts_for_as_of(client):
 
 
 def test_delayed_row_without_fx_still_counted(client):
-    client.put("/api/me/portfolio/holdings/VOD.L", json={"shares": 1, "avg_cost": 1}, headers=auth())
+    client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
     app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(histories, currencies=CURRENCIES)
 
@@ -364,3 +357,157 @@ def test_delayed_row_without_fx_still_counted(client):
 
     assert body["holdings"][0]["delayed"] is True and body["holdings"][0]["value"] is None
     assert body["summary"]["delayed_count"] == 1
+
+
+LOTS_URL = "/api/me/portfolio/lots"
+
+
+def portfolio_rows(client, headers: dict | None = None) -> list[dict]:
+    return client.get("/api/me/portfolio", headers=headers or auth()).json()["holdings"]
+
+
+def test_lots_of_same_ticker_aggregate_into_one_position(client):
+    first = post_lot(client, "AAPL", shares=10, price=100, name="Apple", purchased_on="2025-01-02")
+    second = post_lot(client, "aapl", shares=30, price=200, purchased_on="2025-06-01")
+
+    [row] = portfolio_rows(client)
+
+    assert first.status_code == 201 and second.status_code == 201
+    assert first.json() == {
+        "id": first.json()["id"],
+        "ticker": "AAPL",
+        "shares": 10,
+        "price": 100,
+        "purchased_on": "2025-01-02",
+    }
+    assert row["name"] == "Apple"
+    assert row["shares"] == 40
+    assert row["avg_cost"] == pytest.approx(175)
+    assert row["cost_basis"] == pytest.approx(40 * 175 * 0.8)
+    assert row["value"] == pytest.approx(40 * 210 * 0.8)
+    assert [lot["purchased_on"] for lot in row["lots"]] == ["2025-06-01", "2025-01-02"]
+    assert row["lots"][1] == {"id": first.json()["id"], "shares": 10, "price": 100, "purchased_on": "2025-01-02"}
+
+
+def test_minor_unit_lots_are_valued_in_major_currency(client):
+    post_lot(client, "VOD.L", shares=50, price=5000)
+    post_lot(client, "VOD.L", shares=50, price=7000)
+
+    [row] = portfolio_rows(client)
+
+    assert row["avg_cost"] == pytest.approx(6000)  # pence, like the lots
+    assert row["cost_basis"] == pytest.approx(100 * 60 * 1.2)
+    assert row["value"] == pytest.approx(100 * 72 * 1.2)
+
+
+def test_add_lot_to_held_ticker_while_yahoo_down(client):
+    post_lot(client, "AAPL", shares=10, price=100)
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+
+    response = post_lot(client, "AAPL", shares=5, price=100)
+
+    assert response.status_code == 201
+
+
+def test_lot_limit(client, monkeypatch):
+    monkeypatch.setattr("services.portfolio.MAX_LOTS_PER_HOLDING", 1)
+    post_lot(client, "AAPL")
+
+    assert post_lot(client, "AAPL").status_code == 409
+    assert post_lot(client, "NOKIA.HE").status_code == 201
+
+
+def test_purchase_date_window(client):
+    today = datetime.now(UTC).date()
+
+    # A user east of UTC can already be on tomorrow's date.
+    assert post_lot(client, "AAPL", purchased_on=(today + timedelta(days=1)).isoformat()).status_code == 201
+    assert post_lot(client, "AAPL", purchased_on=(today + timedelta(days=2)).isoformat()).status_code == 422
+    assert post_lot(client, "AAPL", purchased_on="1900-01-01").status_code == 201
+    assert post_lot(client, "AAPL", purchased_on="1899-12-31").status_code == 422
+
+
+def test_patch_lot(client):
+    lot = post_lot(client, "AAPL", shares=1, price=10, purchased_on="2025-01-01").json()
+
+    response = client.patch(f"{LOTS_URL}/{lot['id']}", json={"shares": 3}, headers=auth())
+    cleared = client.patch(f"{LOTS_URL}/{lot['id']}", json={"purchased_on": None}, headers=auth())
+
+    assert response.status_code == 200
+    assert response.json() == {**lot, "shares": 3}
+    assert cleared.json() == {**lot, "shares": 3, "purchased_on": None}
+    assert portfolio_rows(client)[0]["shares"] == 3
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"shares": None},
+        {"price": None},
+        {"shares": 0},
+        {"price": 1e-7},
+        {"purchased_on": "1899-12-31"},
+        {"ticker": "MSFT"},
+    ],
+)
+def test_patch_lot_rejects_invalid_body(client, body):
+    lot = post_lot(client, "AAPL").json()
+
+    assert client.patch(f"{LOTS_URL}/{lot['id']}", json=body, headers=auth()).status_code == 422
+
+
+def test_lots_are_private(client):
+    lot = post_lot(client, "AAPL", headers=auth("alice")).json()
+
+    assert client.patch(f"{LOTS_URL}/{lot['id']}", json={"shares": 2}, headers=auth("bob")).status_code == 404
+    assert client.delete(f"{LOTS_URL}/{lot['id']}", headers=auth("bob")).status_code == 404
+    assert portfolio_rows(client, auth("alice"))[0]["shares"] == 1
+
+
+def test_delete_lot_and_last_lot_removes_position(client):
+    first = post_lot(client, "AAPL", shares=1).json()
+    second = post_lot(client, "AAPL", shares=2).json()
+
+    assert client.delete(f"{LOTS_URL}/{first['id']}", headers=auth()).status_code == 204
+    assert portfolio_rows(client)[0]["shares"] == 2
+    assert client.delete(f"{LOTS_URL}/{second['id']}", headers=auth()).status_code == 204
+    assert portfolio_rows(client) == []
+    assert client.delete(f"{LOTS_URL}/{second['id']}", headers=auth()).status_code == 404
+
+
+def test_delete_holding_removes_all_lots(client):
+    lot = post_lot(client, "AAPL").json()
+    post_lot(client, "AAPL")
+
+    assert client.delete("/api/me/portfolio/holdings/AAPL", headers=auth()).status_code == 204
+    assert client.patch(f"{LOTS_URL}/{lot['id']}", json={"shares": 2}, headers=auth()).status_code == 404
+
+
+def test_malformed_lot_id_rejected(client):
+    assert client.patch(f"{LOTS_URL}/not-a-uuid", json={"shares": 1}, headers=auth()).status_code == 422
+    assert client.delete(f"{LOTS_URL}/not-a-uuid", headers=auth()).status_code == 422
+
+
+def test_put_holding_is_gone(client):
+    response = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
+
+    assert response.status_code == 405
+
+
+def test_lotless_legacy_holding_is_not_revalidated_on_first_lot(client, test_engine):
+    # Pre-lots code running between migration and deploy leaves holdings without lots.
+    post_lot(client, "AAPL")
+    with test_engine.begin() as connection:
+        connection.execute(text("DELETE FROM portfolio_lots"))
+    cache.redis_client.store.clear()  # drop the quote the first POST cached, so a lookup would hit Yahoo
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+
+    assert post_lot(client, "AAPL").status_code == 201
+
+
+def test_purchase_date_error_names_the_allowed_window(client):
+    response = post_lot(client, "AAPL", purchased_on="1899-12-31")
+
+    assert response.status_code == 422
+    assert "tomorrow (UTC)" in response.text

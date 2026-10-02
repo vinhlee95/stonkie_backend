@@ -25,6 +25,7 @@ from connectors.database import Base
 # Import all models for autogenerate to detect them
 from models.market_recap import MarketRecap  # noqa: F401
 from models.portfolio_holding import PortfolioHolding  # noqa: F401
+from models.portfolio_lot import PortfolioLot  # noqa: F401
 from models.semantic_cache import SemanticCacheEntry  # noqa: F401
 from models.ticker_recap import TickerRecap  # noqa: F401
 from models.user import User  # noqa: F401
