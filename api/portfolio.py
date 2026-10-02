@@ -45,7 +45,7 @@ def _check_purchase_date(value: date | None) -> date | None:
     # One day of slack: a user east of UTC can already be on tomorrow's date.
     latest = datetime.now(UTC).date() + timedelta(days=1)
     if value is not None and not EARLIEST_PURCHASE_DATE <= value <= latest:
-        raise ValueError("purchased_on must be between 1900-01-01 and today")
+        raise ValueError("purchased_on must be between 1900-01-01 and tomorrow (UTC)")
     return value
 
 

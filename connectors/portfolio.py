@@ -111,6 +111,11 @@ class PortfolioConnector:
                 grouped.setdefault(holding.id, (holding, []))[1].append(lot)
             return [_to_holding_dto(holding, lots) for holding, lots in grouped.values()]
 
+    def held_tickers(self, user_id) -> set[str]:
+        """Tickers with a holding row, including lot-less ones written by pre-lots code."""
+        with SessionLocal() as db:
+            return set(db.execute(select(PortfolioHolding.ticker).where(PortfolioHolding.user_id == user_id)).scalars())
+
     def add_lot(
         self,
         *,
@@ -161,6 +166,7 @@ class PortfolioConnector:
         """Apply `changes` (any of shares, price, purchased_on; purchased_on=None clears the date) to one
         of the user's lots. None when the lot doesn't exist or belongs to someone else."""
         with SessionLocal() as db:
+            _lock_user(db, user_id)
             row = db.execute(
                 select(PortfolioLot, PortfolioHolding.ticker)
                 .join(PortfolioHolding, PortfolioHolding.id == PortfolioLot.holding_id)
@@ -204,6 +210,7 @@ class PortfolioConnector:
     def delete_holding(self, *, user_id, ticker: str) -> bool:
         """Delete a position; its lots go with it (ON DELETE CASCADE)."""
         with SessionLocal() as db:
+            _lock_user(db, user_id)
             result = db.execute(
                 delete(PortfolioHolding).where(PortfolioHolding.user_id == user_id, PortfolioHolding.ticker == ticker)
             )

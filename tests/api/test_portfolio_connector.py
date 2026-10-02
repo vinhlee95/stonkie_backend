@@ -181,3 +181,37 @@ def test_lot_writes_keep_legacy_position_columns_in_sync(portfolio, users, test_
 
     portfolio.delete_lot(user_id=alice, lot_id=first.id)
     assert _legacy_position(test_engine, alice) == (10, 200)
+
+
+def test_update_lot_and_delete_holding_take_the_user_lock(portfolio, users, monkeypatch):
+    # Serialised with add/delete so the legacy mirror and cascades can't race.
+    alice, _ = users
+    lot = add(portfolio, alice)
+    locked = []
+    real_lock = portfolio_connector_module._lock_user
+
+    def recording_lock(db, user_id):
+        locked.append(user_id)
+        real_lock(db, user_id)
+
+    monkeypatch.setattr(portfolio_connector_module, "_lock_user", recording_lock)
+
+    portfolio.update_lot(user_id=alice, lot_id=lot.id, changes={"shares": 2})
+    portfolio.delete_holding(user_id=alice, ticker="AAPL")
+
+    assert locked == [alice, alice]
+
+
+def test_held_tickers_includes_lotless_holdings(portfolio, users, test_engine):
+    alice, _ = users
+    add(portfolio, alice, ticker="MSFT")
+    with test_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO portfolio_holdings (user_id, ticker, shares, avg_cost) "
+                "VALUES (CAST(:user_id AS uuid), 'AAPL', 1, 1)"
+            ),
+            {"user_id": str(alice)},
+        )
+
+    assert portfolio.held_tickers(alice) == {"AAPL", "MSFT"}

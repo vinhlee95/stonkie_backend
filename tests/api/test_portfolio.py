@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from api.portfolio import get_yfinance_client
@@ -134,10 +135,10 @@ def test_holdings_limit(client, monkeypatch):
 
 
 def test_holdings_limit_enforced_on_insert(client, monkeypatch):
-    # Simulates a concurrent PUT: the service pre-check sees no holdings, so the connector must refuse.
+    # Simulates a concurrent POST: the service pre-check sees no holdings, so the connector must refuse.
     monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
-    monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "list_holdings", lambda self, user_id: [])
+    monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "held_tickers", lambda self, user_id: set())
 
     response = client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
 
@@ -492,3 +493,21 @@ def test_put_holding_is_gone(client):
     response = client.put("/api/me/portfolio/holdings/AAPL", json={"shares": 1, "avg_cost": 1}, headers=auth())
 
     assert response.status_code == 405
+
+
+def test_lotless_legacy_holding_is_not_revalidated_on_first_lot(client, test_engine):
+    # Pre-lots code running between migration and deploy leaves holdings without lots.
+    post_lot(client, "AAPL")
+    with test_engine.begin() as connection:
+        connection.execute(text("DELETE FROM portfolio_lots"))
+    cache.redis_client.store.clear()  # drop the quote the first POST cached, so a lookup would hit Yahoo
+    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+
+    assert post_lot(client, "AAPL").status_code == 201
+
+
+def test_purchase_date_error_names_the_allowed_window(client):
+    response = post_lot(client, "AAPL", purchased_on="1899-12-31")
+
+    assert response.status_code == 422
+    assert "tomorrow (UTC)" in response.text

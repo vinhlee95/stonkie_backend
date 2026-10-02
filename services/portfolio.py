@@ -65,7 +65,7 @@ def add_lot(
     portfolio: PortfolioConnector,
     yf_client: YFinanceClient,
 ) -> LotDto:
-    existing = {h.ticker for h in portfolio.list_holdings(user_id)}
+    existing = portfolio.held_tickers(user_id)
     if ticker not in existing:
         # Fail fast before hitting Yahoo; the connector re-checks atomically on insert.
         if len(existing) >= MAX_HOLDINGS_PER_USER:
