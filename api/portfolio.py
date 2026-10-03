@@ -24,6 +24,7 @@ from services.portfolio import (
     remove_lot,
     update_lot,
 )
+from services.portfolio_performance import get_performance
 
 router = APIRouter(prefix="/api/me/portfolio", tags=["portfolio"])
 
@@ -96,6 +97,15 @@ def read_portfolio(
     yf_client: YFinanceClient = Depends(get_yfinance_client),
 ):
     return get_portfolio(user.id, portfolio, yf_client)
+
+
+@router.get("/performance")
+def read_performance(
+    user: UserDto = Depends(get_current_user),
+    portfolio: PortfolioConnector = Depends(get_portfolio_connector),
+    yf_client: YFinanceClient = Depends(get_yfinance_client),
+):
+    return get_performance(user.id, portfolio, yf_client)
 
 
 @router.post("/holdings/{ticker}/lots", status_code=status.HTTP_201_CREATED)

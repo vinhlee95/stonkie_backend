@@ -55,6 +55,14 @@ class YFinanceClient:
             logger.warning("Failed to fetch currency for %s", ticker, exc_info=True)
         return history, currency
 
+    def get_close_history_batch(self, symbols: list[str]) -> dict[str, pd.Series]:
+        """5y of daily closes per symbol in one batched download, indexed by session date (tz-naive).
+        Symbols Yahoo has no data for are omitted."""
+        frame = yf.download(
+            symbols, period="5y", interval="1d", auto_adjust=False, group_by="ticker", threads=True, progress=False
+        )
+        return parse_close_batch(frame, symbols)
+
     def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
         """One chart request: hourly bars fill the history metadata (price, time, currency) in the
         same response, so get_history_metadata() does not refetch."""
@@ -103,6 +111,22 @@ def parse_search_quote(quote: dict) -> TickerSearchQuoteDto | None:
         quote_type=quote.get("quoteType"),
         is_yahoo_finance=bool(quote.get("isYahooFinance")),
     )
+
+
+def parse_close_batch(frame: pd.DataFrame | None, symbols: list[str]) -> dict[str, pd.Series]:
+    """Close column per symbol from a group_by="ticker" download. The frame shares one date index
+    across symbols, so each column's NaNs (non-trading days, unknown symbols) are dropped."""
+    if frame is None or frame.empty or not isinstance(frame.columns, pd.MultiIndex):
+        return {}
+    present = set(frame.columns.get_level_values(0))
+    closes = {}
+    for symbol in symbols:
+        if symbol not in present or "Close" not in frame[symbol]:
+            continue
+        series = frame[symbol]["Close"].dropna()
+        if not series.empty:
+            closes[symbol] = series
+    return closes
 
 
 def _is_search_outage(exc: Exception) -> bool:

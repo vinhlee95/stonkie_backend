@@ -34,6 +34,7 @@ class FakeYFinanceClient:
         quotes: dict[str, dict | None] | None = None,
         live_quotes: dict[str, LiveQuoteDto | Exception | None] | None = None,
         infos: dict[str, dict | Exception] | None = None,
+        close_histories: dict[str, pd.Series] | Exception | None = None,
     ):
         self.histories = histories
         self.currencies = currencies or {}
@@ -43,6 +44,8 @@ class FakeYFinanceClient:
         self.info_calls: list[str] = []
         self.calls: list[str] = []
         self.live_calls: list[str] = []
+        self.close_histories = close_histories if close_histories is not None else {}
+        self.batch_calls: list[list[str]] = []
 
     def get_daily_history(self, ticker: str) -> tuple[pd.DataFrame, str | None]:
         self.calls.append(ticker)
@@ -60,6 +63,12 @@ class FakeYFinanceClient:
         if isinstance(result, Exception):
             raise result
         return result
+
+    def get_close_history_batch(self, symbols: list[str]) -> dict[str, pd.Series]:
+        self.batch_calls.append(list(symbols))
+        if isinstance(self.close_histories, Exception):
+            raise self.close_histories
+        return {s: self.close_histories[s] for s in symbols if s in self.close_histories}
 
     def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
         self.live_calls.append(ticker)

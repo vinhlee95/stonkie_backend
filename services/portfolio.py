@@ -120,7 +120,7 @@ def get_portfolio(
     fx = fx or FxConnector(yf_client)
     holdings = portfolio.list_holdings(user_id)
     tickers = [h.ticker for h in holdings]
-    quotes = _quotes(tickers, yf_client)
+    quotes = get_quotes(tickers, yf_client)
     metadata = get_holdings_metadata(tickers, yf_client, companies)
 
     fx_rates: dict[str, float | None] = {}
@@ -162,7 +162,7 @@ def get_portfolio(
     }
 
 
-def _quotes(tickers: list[str], yf_client: YFinanceClient) -> dict[str, dict]:
+def get_quotes(tickers: list[str], yf_client: YFinanceClient) -> dict[str, dict]:
     """Live quote per ticker; tickers without one fall back to the last completed daily close."""
     if not tickers:
         return {}
