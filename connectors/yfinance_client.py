@@ -3,13 +3,14 @@
 import json
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
-from yfinance.exceptions import YFDataException, YFRateLimitError
+from yfinance.exceptions import YFDataException, YFRateLimitError, YFTickerMissingError
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,20 @@ class LiveQuoteDto:
     currency: str | None
     market_time: datetime
     trading_date: date
+
+
+@dataclass(frozen=True)
+class CloseHistoryBatchDto:
+    """Daily closes per symbol, indexed by exchange-local session timestamp."""
+
+    closes: dict[str, pd.Series]
+    # Fetch errored (network, rate limit, timeout): retryable, unlike symbols Yahoo has no prices for,
+    # which are simply absent from `closes`.
+    failed: list[str]
+
+
+# Caps concurrent Yahoo requests per history batch; a portfolio holds at most 50 tickers.
+HISTORY_MAX_WORKERS = 8
 
 
 @dataclass(frozen=True)
@@ -54,6 +69,23 @@ class YFinanceClient:
         except Exception:
             logger.warning("Failed to fetch currency for %s", ticker, exc_info=True)
         return history, currency
+
+    def get_close_history_batch(self, symbols: list[str]) -> CloseHistoryBatchDto:
+        """5y of daily closes per symbol, one Ticker.history request each on a local pool.
+        Not yf.download: it resets module-global state on every call, so concurrent requests
+        would drop each other's symbols or hang."""
+        if not symbols:
+            return CloseHistoryBatchDto(closes={}, failed=[])
+        with ThreadPoolExecutor(max_workers=min(HISTORY_MAX_WORKERS, len(symbols))) as pool:
+            results = list(pool.map(_fetch_closes, symbols))
+        closes: dict[str, pd.Series] = {}
+        failed: list[str] = []
+        for symbol, result in zip(symbols, results):
+            if isinstance(result, Exception):
+                failed.append(symbol)
+            elif result is not None and not result.empty:
+                closes[symbol] = result
+        return CloseHistoryBatchDto(closes=closes, failed=failed)
 
     def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
         """One chart request: hourly bars fill the history metadata (price, time, currency) in the
@@ -103,6 +135,22 @@ def parse_search_quote(quote: dict) -> TickerSearchQuoteDto | None:
         quote_type=quote.get("quoteType"),
         is_yahoo_finance=bool(quote.get("isYahooFinance")),
     )
+
+
+def _fetch_closes(symbol: str) -> pd.Series | Exception | None:
+    """Close column for 5y of daily bars; None when Yahoo has no prices, the exception on failure."""
+    try:
+        # raise_errors separates "no prices" (YFTickerMissingError) from transport/rate-limit errors,
+        # which hide_exceptions would otherwise turn into the same empty frame.
+        history = yf.Ticker(symbol).history(period="5y", interval="1d", auto_adjust=False, raise_errors=True)
+    except YFTickerMissingError:
+        return None
+    except Exception as exc:
+        logger.warning("Failed to fetch price history for %s", symbol, exc_info=True)
+        return exc
+    if "Close" not in history:
+        return None
+    return history["Close"].dropna()
 
 
 def _is_search_outage(exc: Exception) -> bool:
