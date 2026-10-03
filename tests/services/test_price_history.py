@@ -79,6 +79,7 @@ def test_symbol_without_usable_history_is_omitted_and_remembered_briefly(fake_re
     fake = FakeYFinanceClient(
         {}, close_histories={"AAPL": AAPL, "TODAY": closes({"2026-10-02": 1.0}), "ZERO": closes({"2026-10-01": 0.0})}
     )
+    assert NO_HISTORY_TTL_SECONDS == 300
     symbols = ["AAPL", "TODAY", "ZERO", "NONE"]
 
     assert set(get_close_histories(symbols, fake)) == {"AAPL"}
@@ -86,6 +87,15 @@ def test_symbol_without_usable_history_is_omitted_and_remembered_briefly(fake_re
         assert fake_redis.ttl(KEY.format(symbol)) == NO_HISTORY_TTL_SECONDS
     assert set(get_close_histories(symbols, fake)) == {"AAPL"}
     assert len(fake.batch_calls) == 1  # no re-download for known-empty symbols
+
+
+def test_download_returning_nothing_is_an_outage_and_not_cached(fake_redis):
+    fake = FakeYFinanceClient({}, close_histories={})
+
+    assert get_close_histories(["AAPL", "^GSPC"], fake) == {}
+    assert fake_redis.ttl(KEY.format("^GSPC")) == -2
+    get_close_histories(["AAPL", "^GSPC"], fake)
+    assert len(fake.batch_calls) == 2  # retried
 
 
 def test_new_utc_day_refetches_so_all_symbols_share_one_cutoff(monkeypatch):

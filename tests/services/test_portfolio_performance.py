@@ -132,6 +132,14 @@ def test_no_benchmark_history_returns_no_points():
     assert result["excluded"] == []
 
 
+def test_no_usd_fx_for_benchmark_returns_no_points():
+    histories = {k: v for k, v in HISTORIES.items() if k != "USDEUR=X"}
+
+    result, _ = run({"NOKIA.HE": 10}, histories, {"NOKIA.HE": live("EUR")})
+
+    assert result == {"base_currency": "EUR", "points": [], "excluded": []}
+
+
 def test_everything_excluded_returns_no_points():
     result, _ = run({"NOCCY": 1}, live_quotes={"NOCCY": live(None)})
 
