@@ -9,8 +9,11 @@ from connectors.yfinance_client import YFinanceClient
 
 logger = logging.getLogger(__name__)
 
-# Closes only change once per session; dropping today's bar (below) keeps a cached entry from going stale mid-session.
-PRICE_HISTORY_TTL_SECONDS = 12 * 3600
+# Entries are keyed by UTC date, so every symbol in a request shares one "completed sessions" cutoff
+# and a holding's newest close never sits next to a benchmark cached before that session closed.
+PRICE_HISTORY_TTL_SECONDS = 24 * 3600
+# Unknown/delisted symbols are remembered briefly so each dashboard load doesn't re-download them.
+NO_HISTORY_TTL_SECONDS = 3600
 
 
 def _utcnow() -> datetime:
@@ -21,14 +24,16 @@ def get_close_histories(symbols: list[str], yf_client: YFinanceClient) -> dict[s
     """Daily closes per symbol as {ISO date: close}, oldest first. Cache misses are fetched in one
     batched download. Symbols without usable history (or a failed download) are omitted."""
     symbols = list(dict.fromkeys(symbols))
+    # Bars are dated in exchange-local time; anything dated today (UTC) or later may still be trading.
+    today = _utcnow().date()
     histories: dict[str, dict[str, float]] = {}
     misses = []
-    for symbol, cached in zip(symbols, cache.get_json_many([_cache_key(s) for s in symbols])):
+    for symbol, cached in zip(symbols, cache.get_json_many([_cache_key(s, today) for s in symbols])):
         closes = _from_cache(symbol, cached)
-        if closes is not None:
-            histories[symbol] = closes
-        else:
+        if closes is None:
             misses.append(symbol)
+        elif closes:
+            histories[symbol] = closes
     if not misses:
         return histories
 
@@ -38,8 +43,6 @@ def get_close_histories(symbols: list[str], yf_client: YFinanceClient) -> dict[s
         logger.warning("Failed to fetch price history for %s", misses, exc_info=True)
         return histories
 
-    # Bars are dated in exchange-local time; anything dated today (UTC) or later may still be trading.
-    today = _utcnow().date()
     for symbol in misses:
         series = fetched.get(symbol)
         closes = {}
@@ -49,22 +52,24 @@ def get_close_histories(symbols: list[str], yf_client: YFinanceClient) -> dict[s
             }
         if not closes:
             logger.info("No price history for %s", symbol)
+            cache.set_json(_cache_key(symbol, today), {"closes": {}}, NO_HISTORY_TTL_SECONDS)
             continue
         histories[symbol] = closes
-        cache.set_json(_cache_key(symbol), {"closes": closes}, PRICE_HISTORY_TTL_SECONDS)
+        cache.set_json(_cache_key(symbol, today), {"closes": closes}, PRICE_HISTORY_TTL_SECONDS)
     return histories
 
 
-def _cache_key(symbol: str) -> str:
-    return f"price_history:{symbol}:5y"
+def _cache_key(symbol: str, today: date) -> str:
+    return f"price_history:{symbol}:5y:{today.isoformat()}"
 
 
 def _from_cache(symbol: str, cached: dict | None) -> dict[str, float] | None:
+    """Cached closes, {} for a symbol known to have none, or None on a miss / invalid entry."""
     if cached is None:
         return None
     closes = cached.get("closes") if isinstance(cached, dict) else None
     try:
-        if not isinstance(closes, dict) or not closes:
+        if not isinstance(closes, dict):
             raise ValueError("missing closes")
         for day, close in closes.items():
             date.fromisoformat(day)

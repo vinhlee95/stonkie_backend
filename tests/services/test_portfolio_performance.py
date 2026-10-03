@@ -91,6 +91,21 @@ def test_late_listing_is_flat_at_first_close_before_it_trades():
     assert [p["portfolio_value"] for p in result["points"]] == [10.0, 10.0]
 
 
+def test_holding_whose_history_stops_early_is_carried_flat():
+    histories = {**HISTORIES, "OLD.HE": closes({"2026-09-28": 7.0})}
+    result, _ = run({"OLD.HE": 1}, histories, {"OLD.HE": live("EUR")})
+
+    assert [p["portfolio_value"] for p in result["points"]] == [7.0, 7.0]
+
+
+def test_all_eur_portfolio_still_converts_benchmark_on_its_own_dates():
+    result, fake = run({"NOKIA.HE": 10}, live_quotes={"NOKIA.HE": live("EUR")})
+
+    assert sorted(fake.batch_calls[0]) == ["NOKIA.HE", "USDEUR=X", "^GSPC"]
+    # Helsinki trades on the US holiday: ^GSPC carries Monday's close at that day's FX.
+    assert by_date(result)["2026-09-29"] == (pytest.approx(50.0), pytest.approx(5000 * 0.9))
+
+
 def test_holdings_without_currency_history_or_fx_are_excluded():
     histories = {k: v for k, v in HISTORIES.items() if k != "GBPEUR=X"}
     live_quotes = {**LIVE, "NOCCY": live(None), "NOHIST": live("EUR")}

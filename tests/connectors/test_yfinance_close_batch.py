@@ -2,7 +2,7 @@ import math
 
 import pandas as pd
 
-from connectors.yfinance_client import parse_close_batch
+from connectors.yfinance_client import YFinanceClient, parse_close_batch
 
 INDEX = pd.to_datetime(["2026-09-29", "2026-09-30", "2026-10-01"])
 NAN = math.nan
@@ -34,3 +34,27 @@ def test_empty_or_flat_frame_returns_nothing():
     assert parse_close_batch(pd.DataFrame(), ["AAPL"]) == {}
     assert parse_close_batch(None, ["AAPL"]) == {}
     assert parse_close_batch(pd.DataFrame({"Close": [1.0]}), ["AAPL"]) == {}
+
+
+def test_batch_download_requests_5y_unadjusted_daily_grouped_by_ticker(monkeypatch):
+    calls = []
+
+    def fake_download(symbols, **kwargs):
+        calls.append((symbols, kwargs))
+        return batch({"AAPL": [1.0, 2.0, 3.0]})
+
+    monkeypatch.setattr("connectors.yfinance_client.yf.download", fake_download)
+
+    result = YFinanceClient().get_close_history_batch(["AAPL"])
+
+    assert result["AAPL"].tolist() == [1.0, 2.0, 3.0]  # single symbol still comes back grouped
+    symbols, kwargs = calls[0]
+    assert symbols == ["AAPL"]
+    assert kwargs == {
+        "period": "5y",
+        "interval": "1d",
+        "auto_adjust": False,
+        "group_by": "ticker",
+        "threads": True,
+        "progress": False,
+    }
