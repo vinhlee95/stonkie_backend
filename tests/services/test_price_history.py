@@ -41,7 +41,7 @@ def test_fetches_misses_in_one_batch_and_caches_each_symbol(fake_redis):
         "^GSPC": {"2026-09-30": 6600.0, "2026-10-01": 6650.0},
     }
     assert fake.batch_calls == [["AAPL", "^GSPC"]]
-    assert fake_redis.ttl(KEY.format("AAPL")) == PRICE_HISTORY_TTL_SECONDS == 24 * 3600
+    assert fake_redis.ttl(KEY.format("AAPL")) == PRICE_HISTORY_TTL_SECONDS
 
 
 def test_second_call_served_from_cache():
@@ -79,7 +79,6 @@ def test_symbol_without_usable_history_is_omitted_and_remembered_briefly(fake_re
     fake = FakeYFinanceClient(
         {}, close_histories={"AAPL": AAPL, "TODAY": closes({"2026-10-02": 1.0}), "ZERO": closes({"2026-10-01": 0.0})}
     )
-    assert NO_HISTORY_TTL_SECONDS == 300
     symbols = ["AAPL", "TODAY", "ZERO", "NONE"]
 
     assert set(get_close_histories(symbols, fake)) == {"AAPL"}
@@ -89,13 +88,24 @@ def test_symbol_without_usable_history_is_omitted_and_remembered_briefly(fake_re
     assert len(fake.batch_calls) == 1  # no re-download for known-empty symbols
 
 
-def test_download_returning_nothing_is_an_outage_and_not_cached(fake_redis):
-    fake = FakeYFinanceClient({}, close_histories={})
+def test_failed_symbols_are_retried_not_cached_as_empty(fake_redis):
+    fake = FakeYFinanceClient({}, close_histories={"AAPL": AAPL, "^GSPC": RuntimeError("rate limited")})
 
-    assert get_close_histories(["AAPL", "^GSPC"], fake) == {}
+    assert set(get_close_histories(["AAPL", "^GSPC"], fake)) == {"AAPL"}
     assert fake_redis.ttl(KEY.format("^GSPC")) == -2
     get_close_histories(["AAPL", "^GSPC"], fake)
-    assert len(fake.batch_calls) == 2  # retried
+    assert fake.batch_calls == [["AAPL", "^GSPC"], ["^GSPC"]]
+
+
+def test_lone_symbol_without_prices_is_still_remembered(fake_redis):
+    get_close_histories(["AAPL"], FakeYFinanceClient({}, close_histories={"AAPL": AAPL}))
+    fake = FakeYFinanceClient({}, close_histories={"AAPL": AAPL})
+
+    get_close_histories(["AAPL", "XXXEUR=X"], fake)
+    get_close_histories(["AAPL", "XXXEUR=X"], fake)
+
+    assert fake.batch_calls == [["XXXEUR=X"]]
+    assert fake_redis.ttl(KEY.format("XXXEUR=X")) == NO_HISTORY_TTL_SECONDS
 
 
 def test_new_utc_day_refetches_so_all_symbols_share_one_cutoff(monkeypatch):

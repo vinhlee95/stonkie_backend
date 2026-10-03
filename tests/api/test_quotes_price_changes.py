@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.quotes import get_yfinance_client
-from connectors.yfinance_client import LiveQuoteDto
+from connectors.yfinance_client import CloseHistoryBatchDto, LiveQuoteDto
 from main import app
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -34,7 +34,7 @@ class FakeYFinanceClient:
         quotes: dict[str, dict | None] | None = None,
         live_quotes: dict[str, LiveQuoteDto | Exception | None] | None = None,
         infos: dict[str, dict | Exception] | None = None,
-        close_histories: dict[str, pd.Series] | Exception | None = None,
+        close_histories: dict[str, pd.Series | Exception] | Exception | None = None,
     ):
         self.histories = histories
         self.currencies = currencies or {}
@@ -64,11 +64,16 @@ class FakeYFinanceClient:
             raise result
         return result
 
-    def get_close_history_batch(self, symbols: list[str]) -> dict[str, pd.Series]:
+    def get_close_history_batch(self, symbols: list[str]) -> CloseHistoryBatchDto:
+        """An Exception value marks that symbol's fetch as failed; absent symbols have no prices."""
         self.batch_calls.append(list(symbols))
         if isinstance(self.close_histories, Exception):
             raise self.close_histories
-        return {s: self.close_histories[s] for s in symbols if s in self.close_histories}
+        results = {s: self.close_histories[s] for s in symbols if s in self.close_histories}
+        return CloseHistoryBatchDto(
+            closes={s: r for s, r in results.items() if not isinstance(r, Exception)},
+            failed=[s for s, r in results.items() if isinstance(r, Exception)],
+        )
 
     def get_live_quote(self, ticker: str) -> LiveQuoteDto | None:
         self.live_calls.append(ticker)

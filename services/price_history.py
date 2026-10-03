@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 # Entries are keyed by UTC date, so every symbol in a request shares one "completed sessions" cutoff
 # and a holding's newest close never sits next to a benchmark cached before that session closed.
 PRICE_HISTORY_TTL_SECONDS = 24 * 3600
-# Unknown/delisted symbols are remembered briefly so each dashboard load doesn't re-download them.
-# Kept short: yf.download reports rate limits/timeouts as missing symbols rather than raising, and
-# the shared ^GSPC / FX keys blank every user's chart while marked empty.
+# Symbols Yahoo has no prices for are remembered briefly so each dashboard load doesn't re-download
+# them. Failed fetches are never cached this way; kept short anyway since a shared ^GSPC / FX key
+# marked empty blanks every user's chart.
 NO_HISTORY_TTL_SECONDS = 300
 
 
@@ -40,18 +40,16 @@ def get_close_histories(symbols: list[str], yf_client: YFinanceClient) -> dict[s
         return histories
 
     try:
-        fetched = yf_client.get_close_history_batch(misses)
+        batch = yf_client.get_close_history_batch(misses)
     except Exception:
         logger.warning("Failed to fetch price history for %s", misses, exc_info=True)
         return histories
 
-    if not fetched:
-        # Nothing came back for any symbol: an outage, not N unknown tickers. Retry next request.
-        logger.warning("Price history download returned no data for %s", misses)
-        return histories
-
+    failed = set(batch.failed)
     for symbol in misses:
-        series = fetched.get(symbol)
+        if symbol in failed:
+            continue  # transient: retried on the next request
+        series = batch.closes.get(symbol)
         closes = {}
         if series is not None:
             closes = {
