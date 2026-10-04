@@ -1,6 +1,7 @@
 """Which holdings a Portfolio chat question is about, for focusing the news search."""
 
 import re
+from typing import Literal
 
 # Holdings searched per question: the focus holding(s), or the biggest movers.
 MAX_SEARCH_HOLDINGS = 2
@@ -14,6 +15,14 @@ GENERIC_NAME_WORDS = {
 
 def base_symbol(ticker: str) -> str:
     return ticker.split(".")[0]
+
+
+def _brands(name: str | None) -> set[str]:
+    """Distinctive forms of a company name's first word: "Coca-Cola" → {"CocaCola", "Coca", "Cola"},
+    "Amazon.com," → {"Amazoncom", "Amazon"}. Generic words and short pieces are dropped."""
+    first = (name or "").split(" ")[0]
+    candidates = {re.sub(r"\W", "", first), *re.split(r"\W+", first)}
+    return {c for c in candidates if len(c) >= 4 and c.lower() not in GENERIC_NAME_WORDS}
 
 
 def mentioned_holdings(question: str, rows: list[dict]) -> list[dict]:
@@ -35,21 +44,31 @@ def mentioned_holdings(question: str, rows: list[dict]) -> list[dict]:
     for row in rows:
         tickers = {row["ticker"], base_symbol(row["ticker"])}
         by_ticker = any(found(t, question) if len(t) > 2 else found(f"${t}", question) for t in tickers)
-        brand = re.sub(r"\W", "", (row.get("name") or "").split(" ")[0])
-        by_name = len(brand) >= 4 and brand.lower() not in GENERIC_NAME_WORDS and found_brand(brand)
+        by_name = any(found_brand(brand) for brand in _brands(row.get("name")))
         if by_ticker or by_name:
             matches.append(row)
     return matches
 
 
-def search_targets(question: str, rows: list[dict], scope_ticker: str | None) -> tuple[list[dict], bool]:
-    """Holdings to search news for, and whether they came from the question/scope (vs the biggest movers)."""
+SearchMode = Literal["named", "movers", "question"]
+
+# Questions about price moves; anything else unnamed (macro, rates, sectors) is searched as asked.
+_MOVE_WORDS = re.compile(
+    r"\b(mov|up\b|down\b|drop|fell|fall|ris|rose|gain|los|jump|slid|rall|plung|surg|today|perform)", re.IGNORECASE
+)
+
+
+def search_targets(question: str, rows: list[dict], scope_ticker: str | None) -> tuple[list[dict], SearchMode]:
+    """What to search news for: the focus holding or holdings named in the question; for an unnamed
+    question about moves, the biggest movers; otherwise ([], "question") to search the question itself."""
     if scope_ticker:
-        return [r for r in rows if r["ticker"] == scope_ticker], True
+        return [r for r in rows if r["ticker"] == scope_ticker], "named"
     named = mentioned_holdings(question, rows)
     if named:
-        return named[:MAX_SEARCH_HOLDINGS], True
+        return named[:MAX_SEARCH_HOLDINGS], "named"
+    if not _MOVE_WORDS.search(question):
+        return [], "question"
     movers = sorted(
         (r for r in rows if r.get("day_change") is not None), key=lambda r: abs(r["day_change"]), reverse=True
     )
-    return movers[:MAX_SEARCH_HOLDINGS], False
+    return movers[:MAX_SEARCH_HOLDINGS], "movers"

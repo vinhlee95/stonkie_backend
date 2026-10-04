@@ -41,6 +41,7 @@ def test_v2_service_modules_do_not_import_fastapi_or_starlette():
         "services/portfolio_chat.py",
         "services/portfolio_chat_context.py",
         "services/portfolio_chat_targets.py",
+        "services/portfolio_snapshot.py",
         "services/financial_analyzer_v2.py",
         "services/analyze_retrieval/retrieval.py",
         "services/analyze_retrieval/ranking.py",

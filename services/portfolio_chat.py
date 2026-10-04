@@ -2,8 +2,8 @@
 
 Context (holdings, performance vs S&P 500, risk) is built server-side from the user's own data; the
 client only sends the question and an optional holding to focus on. News-type questions add Brave
-search results for the holdings involved. Blocking work (LLM, Redis, yfinance, Brave) runs in threads
-so one chat never stalls the event loop.
+search results. Blocking work runs in threads (LLM and search on their own bounded pools) so one
+chat never stalls the event loop, and a per-process cap sheds load instead of queueing forever.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC
 from typing import Any, AsyncGenerator, Literal
 
 from langfuse import observe
@@ -33,22 +32,16 @@ from connectors.conversation_store import (
 )
 from connectors.portfolio import PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
+from services import rate_limit
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
-from services.portfolio import get_portfolio, get_quotes
-from services.portfolio_chat_context import (
-    PortfolioSnapshot,
-    build_answer_prompt,
-    build_sources_block,
-    format_context,
-)
-from services.portfolio_chat_targets import base_symbol, search_targets
-from services.portfolio_performance import EurSeries, load_eur_series, period_returns
-from services.portfolio_risk import compute_risk
+from services.portfolio_chat_context import build_answer_prompt, build_sources_block, format_context
+from services.portfolio_chat_targets import SearchMode, base_symbol, search_targets
+from services.portfolio_snapshot import PortfolioUnavailableError, load_snapshot
 from utils.answer_sanitizer import AnswerSanitizer
 from utils.async_helpers import iterate_in_thread
 from utils.chat_prompt import extract_answer_text, format_conversation
@@ -60,9 +53,14 @@ logger = logging.getLogger(__name__)
 CONVERSATION_SCOPE = "__portfolio__"
 # Routing is a small decision; a fixed fast model keeps it cheap whatever model the user picked.
 CLASSIFIER_MODEL = ModelName.Gemini31FlashLite
-# Blocking LLM calls get their own bounded pool so a burst of chats queues here instead of
-# starving the default executor every other to_thread caller uses.
+# Blocking LLM and search calls get their own bounded pools, so a burst of chats queues there
+# instead of starving the default executor every other to_thread caller uses.
 CHAT_LLM_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="portfolio-chat-llm")
+CHAT_SEARCH_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="portfolio-chat-search")
+# Chats in flight per process; beyond this a request gets a "busy" error instead of stalling the rest.
+MAX_IN_FLIGHT = 16
+# Per user: each chat costs 2+ LLM calls and possibly Brave searches.
+RATE_LIMIT_PER_MINUTE = 20
 
 ChatRoute = Literal["portfolio_only", "needs_search", "unrelated"]
 
@@ -70,56 +68,14 @@ UNRELATED_ANSWER = (
     "This chat is about your portfolio. Ask me about your holdings, today's moves, "
     "performance against the S&P 500, risk and concentration, or news affecting what you own."
 )
+BUSY_ERROR = {"type": "error", "code": "busy", "body": "Portfolio chat is busy, please try again in a moment"}
+UNAVAILABLE_ERROR = {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
 
-
-class PortfolioUnavailableError(Exception):
-    pass
+_in_flight = 0
 
 
 class ScopeNotInPortfolioError(Exception):
     pass
-
-
-async def load_snapshot(
-    user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient, holdings: list | None = None
-) -> PortfolioSnapshot:
-    if holdings is None:
-        holdings = await asyncio.to_thread(portfolio.list_holdings, user_id)
-    try:
-        # Fetched once and shared, so valuation and history don't both hit Yahoo on a cold cache.
-        quotes = await asyncio.to_thread(get_quotes, [h.ticker for h in holdings], yf_client)
-    except Exception as exc:
-        raise PortfolioUnavailableError(user_id) from exc
-    valued, series_result = await asyncio.gather(
-        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client, quotes=quotes, holdings=holdings),
-        asyncio.to_thread(_safe_series, holdings, yf_client, quotes),
-        return_exceptions=True,
-    )
-    if isinstance(valued, BaseException):
-        raise PortfolioUnavailableError(user_id) from valued
-    series, excluded = (None, []) if isinstance(series_result, BaseException) else series_result
-    today = datetime.datetime.now(UTC).date()
-    risk, returns = await asyncio.to_thread(_risk_and_returns, series, valued["holdings"])
-    return PortfolioSnapshot(portfolio=valued, returns=returns, risk=risk, today=today, excluded=excluded)
-
-
-def _risk_and_returns(series: EurSeries | None, rows: list[dict]) -> tuple[dict | None, dict | None]:
-    """pandas work, so it runs off the event loop; (None, None) if it fails."""
-    try:
-        return compute_risk(series, rows), (period_returns(series) if series is not None else None)
-    except Exception:
-        logger.exception("Portfolio chat risk/returns failed")
-        return None, None
-
-
-def _safe_series(holdings: list, yf_client: YFinanceClient, quotes: dict) -> tuple[EurSeries | None, list[str]]:
-    """The EUR series and excluded tickers; (None, []) when loading failed (performance and
-    beta/vol then show as unavailable while concentration still works)."""
-    try:
-        return load_eur_series(holdings, yf_client, quotes)
-    except Exception:
-        logger.exception("Portfolio chat price history failed")
-        return None, []
 
 
 class PortfolioChatStreamService:
@@ -132,14 +88,20 @@ class PortfolioChatStreamService:
         self._portfolio = portfolio
         self._yf_client = yf_client
         self._brave_client = brave_client or BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
+        # Holdings already listed for this request (by resolve_scope), reused by stream.
+        self._holdings: list | None = None
+
+    async def allow_request(self, user_id: str) -> bool:
+        """False when the user is over the per-minute chat limit."""
+        return await asyncio.to_thread(rate_limit.allow, "portfolio_chat", user_id, RATE_LIMIT_PER_MINUTE, 60)
 
     async def resolve_scope(self, user_id: str, scope_ticker: str | None) -> str | None:
         """Normalised focus ticker, or None. Raises ScopeNotInPortfolioError for a ticker the user doesn't hold."""
         if not scope_ticker or not scope_ticker.strip():
             return None
         ticker = scope_ticker.strip().upper()
-        holdings = await asyncio.to_thread(self._portfolio.list_holdings, user_id)
-        if ticker not in {h.ticker for h in holdings}:
+        self._holdings = await asyncio.to_thread(self._portfolio.list_holdings, user_id)
+        if ticker not in {h.ticker for h in self._holdings}:
             raise ScopeNotInPortfolioError(ticker)
         return ticker
 
@@ -177,30 +139,46 @@ Output ONLY JSON:
             logger.exception("Portfolio chat classification failed; answering from portfolio data")
         return "portfolio_only"
 
-    def _search_one(self, question: str, row: dict, named: bool) -> tuple[list[AnalyzeSource], list[AnalyzePassage]]:
-        symbol = base_symbol(row["ticker"])
-        name = row.get("name") or symbol
-        when = f"on {row['trading_date']}" if row.get("trading_date") else "recently"
+    def _retrieve(self, **kwargs) -> tuple[list[AnalyzeSource], list[AnalyzePassage]]:
         try:
-            result = retrieve_for_analyze(
-                question=question if named else f"Why did {name} stock move {when}?",
-                market=resolve_market(row.get("country"), question),
-                request_id=str(uuid.uuid4()),
-                brave_client=self._brave_client,
-                ticker=symbol,
-                company_name=name,
-                query_reformulator=QueryReformulator() if named else None,
-            )
+            result = retrieve_for_analyze(request_id=str(uuid.uuid4()), brave_client=self._brave_client, **kwargs)
         except BraveRetrievalError:
-            logger.warning("Portfolio chat search found nothing for %s", row["ticker"])
+            logger.warning("Portfolio chat search found nothing for %s", kwargs.get("ticker"))
             return [], []
         return result.sources, result.selected_passages
 
-    def _search(
-        self, question: str, targets: list[dict], named: bool
+    def _search_jobs(self, question: str, targets: list[dict], mode: SearchMode) -> list[dict]:
+        if mode == "question":
+            return [dict(question=question, market="GLOBAL")]
+        jobs = []
+        for row in targets:
+            symbol = base_symbol(row["ticker"])
+            name = row.get("name") or symbol
+            when = f"on {row['trading_date']}" if row.get("trading_date") else "recently"
+            named = mode == "named"
+            jobs.append(
+                dict(
+                    question=question if named else f"Why did {name} stock move {when}?",
+                    market=resolve_market(row.get("country"), question),
+                    ticker=symbol,
+                    company_name=name,
+                    query_reformulator=QueryReformulator() if named else None,
+                )
+            )
+        return jobs
+
+    async def _search(
+        self, question: str, targets: list[dict], mode: SearchMode
     ) -> tuple[list[AnalyzeSource], list[AnalyzePassage]]:
-        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
-            results = list(pool.map(lambda row: self._search_one(question, row, named), targets))
+        loop = asyncio.get_running_loop()
+        results = await asyncio.gather(
+            *(
+                loop.run_in_executor(
+                    CHAT_SEARCH_POOL, contextvars.copy_context().run, functools.partial(self._retrieve, **job)
+                )
+                for job in self._search_jobs(question, targets, mode)
+            )
+        )
         sources: list[AnalyzeSource] = []
         passages: list[AnalyzePassage] = []
         seen: set[str] = set()
@@ -228,24 +206,56 @@ Output ONLY JSON:
         conversation_id: str | None,
         is_disconnected,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        global _in_flight
+        if _in_flight >= MAX_IN_FLIGHT:
+            yield BUSY_ERROR
+            return
+        _in_flight += 1
+        try:
+            async for event in self._stream(
+                user_id=user_id,
+                question=question,
+                scope_ticker=scope_ticker,
+                preferred_model=preferred_model,
+                conversation_id=conversation_id,
+                is_disconnected=is_disconnected,
+            ):
+                yield event
+        finally:
+            _in_flight -= 1
+
+    async def _stream(
+        self,
+        *,
+        user_id: str,
+        question: str,
+        scope_ticker: str | None,
+        preferred_model: ModelName,
+        conversation_id: str | None,
+        is_disconnected,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         langfuse = get_langfuse_client()
         if langfuse:
             langfuse.update_current_generation(input=question, metadata={"scope_ticker": scope_ticker})
         ttft_recorded = False
 
         conv_id = conversation_id or generate_conversation_id()
-        history = await asyncio.to_thread(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id)
-        await asyncio.to_thread(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question)
+        history, _ = await asyncio.gather(
+            asyncio.to_thread(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id),
+            asyncio.to_thread(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question),
+        )
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         yield thinking_status("Reading your portfolio…", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
         conversation = format_conversation(history)
-        try:
-            holdings = await asyncio.to_thread(self._portfolio.list_holdings, user_id)
-        except Exception:
-            logger.exception("Portfolio chat could not list holdings")
-            yield {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
-            return
+        holdings = self._holdings
+        if holdings is None:
+            try:
+                holdings = await asyncio.to_thread(self._portfolio.list_holdings, user_id)
+            except Exception:
+                logger.exception("Portfolio chat could not list holdings")
+                yield UNAVAILABLE_ERROR
+                return
         # Routing needs only the question and tickers, so it runs while the snapshot loads.
         classify = asyncio.get_running_loop().run_in_executor(
             CHAT_LLM_POOL,
@@ -255,10 +265,10 @@ Output ONLY JSON:
             ),
         )
         try:
-            snapshot = await load_snapshot(user_id, self._portfolio, self._yf_client, holdings)
+            snapshot = await load_snapshot(user_id, self._portfolio, self._yf_client, holdings=holdings)
         except PortfolioUnavailableError:
             logger.exception("Portfolio chat could not load the portfolio")
-            yield {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
+            yield UNAVAILABLE_ERROR
             return
         rows = snapshot.portfolio["holdings"]
         route = await classify
@@ -273,14 +283,12 @@ Output ONLY JSON:
         external_context = ""
         searched = False
         if route == "needs_search":
-            targets, named = search_targets(question, rows, scope_ticker)
-            if targets:
+            targets, mode = search_targets(question, rows, scope_ticker)
+            if targets or mode == "question":
                 searched = True
-                tickers = ", ".join(base_symbol(r["ticker"]) for r in targets)
-                yield thinking_status(
-                    f"Searching news for {tickers}…", phase=AnalysisPhase.SEARCH, step=2, total_steps=3
-                )
-                sources, passages = await asyncio.to_thread(self._search, question, targets, named)
+                about = ", ".join(base_symbol(r["ticker"]) for r in targets) or "your question"
+                yield thinking_status(f"Searching news for {about}…", phase=AnalysisPhase.SEARCH, step=2, total_steps=3)
+                sources, passages = await self._search(question, targets, mode)
                 external_context = build_sources_block(sources, passages)
         if await is_disconnected():
             return

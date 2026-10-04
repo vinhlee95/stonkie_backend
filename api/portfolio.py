@@ -198,6 +198,8 @@ async def chat(
     yf_client: YFinanceClient = Depends(get_yfinance_client),
 ) -> StreamingResponse:
     service = PortfolioChatStreamService(portfolio, yf_client)
+    if not await service.allow_request(user.id):
+        raise HTTPException(status_code=429, detail="Too many portfolio chat requests, try again in a minute")
     try:
         scope_ticker = await service.resolve_scope(user.id, body.scopeTicker)
     except ScopeNotInPortfolioError as exc:

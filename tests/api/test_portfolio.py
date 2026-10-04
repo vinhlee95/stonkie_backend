@@ -638,6 +638,16 @@ def test_chat_streams_events_for_normalised_scope(client, fake_chat):
     assert call["user_id"]
 
 
+def test_chat_is_rate_limited_per_user(client, fake_chat, monkeypatch):
+    monkeypatch.setattr("services.portfolio_chat.RATE_LIMIT_PER_MINUTE", 1)
+
+    first = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
+    second = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
+    other_user = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth("google-456"))
+
+    assert (first.status_code, second.status_code, other_user.status_code) == (200, 429, 200)
+
+
 def test_chat_forwards_mapped_preferred_model(client, fake_chat):
     client.post("/api/me/portfolio/chat", json={"question": "hi", "preferredModel": "fastest"}, headers=auth())
 

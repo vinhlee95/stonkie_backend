@@ -203,6 +203,18 @@ def get_json_many(keys: list[str]) -> list[Optional[dict]]:
     return values
 
 
+def incr_with_ttl(key: str, ttl_seconds: int) -> Optional[int]:
+    """Increment a counter, starting its TTL on first use. None on Redis failure (callers fail open)."""
+    try:
+        count = redis_client.incr(key)
+        if count == 1:
+            redis_client.expire(key, ttl_seconds)
+        return int(count)
+    except redis.RedisError:
+        logger.warning("Redis incr failed for key %s", key, exc_info=True)
+        return None
+
+
 def set_json(key: str, value: dict, ttl_seconds: int) -> None:
     """Set a JSON value in Redis with TTL. Failures are logged, never raised."""
     try:

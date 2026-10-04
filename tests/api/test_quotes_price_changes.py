@@ -97,6 +97,15 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
 
+    def incr(self, key):
+        value = int(self.store.get(key, ("0", -1))[0]) + 1
+        self.store[key] = (str(value), self.store.get(key, (None, -1))[1])
+        return value
+
+    def expire(self, key, ttl):
+        if key in self.store:
+            self.store[key] = (self.store[key][0], ttl)
+
     def ttl(self, key):
         entry = self.store.get(key)
         return entry[1] if entry else -2

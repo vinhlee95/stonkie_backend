@@ -25,6 +25,7 @@ from connectors.conversation_store import (
 from connectors.market_recap import MarketRecapConnector, MarketRecapDto
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
+from services.analyze_retrieval.prompt_sources import build_sources_block
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 from services.analyze_retrieval.source_policy import Market, is_trusted
@@ -211,39 +212,6 @@ Rules:
     """.strip()
 
 
-def _build_sources_block(
-    retrieval_sources: list[AnalyzeSource],
-    selected_passages: list[AnalyzePassage] | None = None,
-) -> str:
-    if not retrieval_sources:
-        return ""
-    passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
-    for passage in selected_passages or []:
-        passages_by_source_id.setdefault(passage.source_id, []).append(passage)
-    blocks = []
-    for index, source in enumerate(retrieval_sources, start=1):
-        published = source.published_at.isoformat() if source.published_at else "unknown date"
-        content_lines = [
-            f"Passage [{passage.passage_index}]: {passage.content}"
-            for passage in passages_by_source_id.get(source.id, [])
-        ]
-        if not content_lines and source.raw_content:
-            content_lines = [f"Content: {source.raw_content[:1500]}"]
-        blocks.append(
-            "\n".join(
-                [
-                    f"Source [{index}]",
-                    f"Title: {source.title}",
-                    f"Publisher: {source.publisher}",
-                    f"Published: {published}",
-                    f"URL: {source.url}",
-                    *content_lines,
-                ]
-            )
-        )
-    return "\n\n".join(blocks)
-
-
 class RecapAnalyzeStreamService:
     def __init__(self, recap_connector: MarketRecapConnector | None = None) -> None:
         self._recap_connector = recap_connector or MarketRecapConnector()
@@ -381,7 +349,7 @@ Output ONLY JSON:
             source_status = _sources_thinking_status(retrieved_sources)
             if source_status is not None:
                 yield source_status
-            external_context = _build_sources_block(retrieved_sources, selected_passages)
+            external_context = build_sources_block(retrieved_sources, selected_passages)
         else:
             yield thinking_status("Answering from the recap...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=3)
 

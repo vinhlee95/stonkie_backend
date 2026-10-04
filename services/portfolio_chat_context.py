@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
+from services.analyze_retrieval.prompt_sources import build_sources_block as shared_sources_block
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 
 DISCLAIMER = "Not financial advice."
@@ -121,27 +122,8 @@ def _unfenced(text: str) -> str:
 
 
 def build_sources_block(sources: list[AnalyzeSource], passages: list[AnalyzePassage]) -> str:
-    by_source: dict[str, list[AnalyzePassage]] = {}
-    for passage in passages:
-        by_source.setdefault(passage.source_id, []).append(passage)
-    blocks = []
-    for index, source in enumerate(sources, start=1):
-        published = source.published_at.isoformat() if source.published_at else "unknown date"
-        content = [f"Passage [{p.passage_index}]: {_unfenced(p.content)}" for p in by_source.get(source.id, [])]
-        if not content and source.raw_content:
-            content = [f"Content: {_unfenced(source.raw_content[:1500])}"]
-        blocks.append(
-            "\n".join(
-                [
-                    f"Source [{index}]",
-                    f"Title: {_unfenced(source.title)}",
-                    f"Publisher: {_unfenced(source.publisher)}",
-                    f"Published: {published}",
-                    *content,
-                ]
-            )
-        )
-    return "\n\n".join(blocks)
+    """News for the prompt; web text can't touch the fence, and URLs are left out (the answer may not link)."""
+    return shared_sources_block(sources, passages, include_url=False, clean=_unfenced)
 
 
 def build_answer_prompt(

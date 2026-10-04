@@ -5,20 +5,19 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from services import portfolio_chat
+from services import portfolio_chat, portfolio_snapshot
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource, BraveRetrievalError
 from services.portfolio_chat import (
     CLASSIFIER_MODEL,
     CONVERSATION_SCOPE,
     UNRELATED_ANSWER,
     PortfolioChatStreamService,
-    PortfolioUnavailableError,
     ScopeNotInPortfolioError,
-    load_snapshot,
 )
 from services.portfolio_chat_context import PortfolioSnapshot, build_answer_prompt, format_context
 from services.portfolio_chat_targets import mentioned_holdings, search_targets
 from services.portfolio_performance import EurSeries
+from services.portfolio_snapshot import PortfolioUnavailableError, load_snapshot
 from utils.answer_sanitizer import sanitize
 from utils.chat_prompt import format_conversation
 
@@ -202,11 +201,21 @@ def test_format_conversation_keeps_last_six_and_collapses_whitespace():
 
 
 def test_search_targets_scope_then_named_then_biggest_movers():
-    assert search_targets("anything", ROWS, "TSLA") == ([ROWS[1]], True)
-    assert search_targets("why is nokia up", ROWS, None) == ([ROWS[2]], True)
-    targets, named = search_targets("Explain today's move", ROWS, None)
+    assert search_targets("anything", ROWS, "TSLA") == ([ROWS[1]], "named")
+    assert search_targets("why is nokia up", ROWS, None) == ([ROWS[2]], "named")
+    targets, mode = search_targets("Explain today's move", ROWS, None)
     assert [r["ticker"] for r in targets] == ["TSLA", "AAPL"]
-    assert named is False
+    assert mode == "movers"
+    assert search_targets("How does a Fed rate cut affect me?", ROWS, None) == ([], "question")
+
+
+@pytest.mark.parametrize(
+    "question, name",
+    [("Why did Amazon drop?", "Amazon.com, Inc."), ("news on Mercedes", "Mercedes-Benz Group AG")],
+)
+def test_mentioned_holdings_matches_punctuated_company_names(question, name):
+    holding = row("XYZ", 1.0, 1.0, 0.0, 0.0, name=name)
+    assert mentioned_holdings(question, [holding]) == [holding]
 
 
 def _tiny_series() -> EurSeries:
@@ -229,11 +238,11 @@ async def test_load_snapshot_combines_portfolio_returns_risk_and_exclusions():
     quotes = {"AAPL": {"currency": "USD"}}
     holdings = [SimpleNamespace(ticker="AAPL", shares=1.0)]
     with (
-        patch.object(portfolio_chat, "get_quotes", return_value=quotes) as get_quotes,
+        patch.object(portfolio_snapshot, "get_quotes", return_value=quotes) as get_quotes,
         patch.object(
-            portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}
+            portfolio_snapshot, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}
         ) as get_portfolio,
-        patch.object(portfolio_chat, "load_eur_series", return_value=(_tiny_series(), ["NOKIA.HE"])) as load_series,
+        patch.object(portfolio_snapshot, "load_eur_series", return_value=(_tiny_series(), ["NOKIA.HE"])) as load_series,
     ):
         snap = await load_snapshot("user-1", EMPTY_HOLDINGS, "yf", holdings)
 
@@ -250,9 +259,9 @@ async def test_load_snapshot_combines_portfolio_returns_risk_and_exclusions():
 @pytest.mark.asyncio
 async def test_load_snapshot_keeps_concentration_when_price_history_fails():
     with (
-        patch.object(portfolio_chat, "get_quotes", return_value={}),
-        patch.object(portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
-        patch.object(portfolio_chat, "load_eur_series", side_effect=RuntimeError("yahoo down")),
+        patch.object(portfolio_snapshot, "get_quotes", return_value={}),
+        patch.object(portfolio_snapshot, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
+        patch.object(portfolio_snapshot, "load_eur_series", side_effect=RuntimeError("yahoo down")),
     ):
         snap = await load_snapshot("user-1", EMPTY_HOLDINGS, None)
 
@@ -264,23 +273,25 @@ async def test_load_snapshot_keeps_concentration_when_price_history_fails():
 @pytest.mark.asyncio
 async def test_load_snapshot_survives_risk_failure():
     with (
-        patch.object(portfolio_chat, "get_quotes", return_value={}),
-        patch.object(portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
-        patch.object(portfolio_chat, "load_eur_series", return_value=(_tiny_series(), [])),
-        patch.object(portfolio_chat, "compute_risk", side_effect=ValueError("bad maths")),
+        patch.object(portfolio_snapshot, "get_quotes", return_value={}),
+        patch.object(portfolio_snapshot, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
+        patch.object(portfolio_snapshot, "load_eur_series", return_value=(_tiny_series(), [])),
+        patch.object(portfolio_snapshot, "compute_risk", side_effect=ValueError("bad maths")),
     ):
         snap = await load_snapshot("user-1", EMPTY_HOLDINGS, None)
 
-    assert snap.risk is None and snap.returns is None
+    # Returns don't depend on risk, so they survive its failure.
+    assert snap.risk is None
+    assert set(snap.returns["periods"]) == {"1W", "1M", "YTD"}
     assert snap.portfolio["holdings"] == ROWS
 
 
 @pytest.mark.asyncio
 async def test_load_snapshot_raises_when_portfolio_fails():
     with (
-        patch.object(portfolio_chat, "get_quotes", return_value={}),
-        patch.object(portfolio_chat, "get_portfolio", side_effect=RuntimeError("db down")),
-        patch.object(portfolio_chat, "load_eur_series", return_value=(None, [])),
+        patch.object(portfolio_snapshot, "get_quotes", return_value={}),
+        patch.object(portfolio_snapshot, "get_portfolio", side_effect=RuntimeError("db down")),
+        patch.object(portfolio_snapshot, "load_eur_series", return_value=(None, [])),
         pytest.raises(PortfolioUnavailableError),
     ):
         await load_snapshot("user-1", EMPTY_HOLDINGS, None)
@@ -332,7 +343,7 @@ async def _connected():
     return False
 
 
-LOAD_ARGS: list = []
+LOAD_CALL: dict = {}
 
 
 async def collect(
@@ -350,8 +361,9 @@ async def collect(
     rows = snap.portfolio["holdings"] if isinstance(snap, PortfolioSnapshot) else ROWS
     holdings = SimpleNamespace(list_holdings=lambda user_id: [SimpleNamespace(ticker=r["ticker"]) for r in rows])
 
-    async def fake_load(*args):
-        LOAD_ARGS[:] = args
+    async def fake_load(*args, **kwargs):
+        LOAD_CALL.clear()
+        LOAD_CALL.update(kwargs)
         if snap is None:
             return snapshot()
         if isinstance(snap, Exception):
@@ -394,7 +406,7 @@ async def test_portfolio_only_answer_grounded_in_context():
     assert not any(s.startswith("Searching") for s in statuses)
     assert FakeAgent.models == [CLASSIFIER_MODEL, "fastest"]
     # The holdings listed for the classifier are reused for the snapshot.
-    assert [h.ticker for h in LOAD_ARGS[3]] == [r["ticker"] for r in ROWS]
+    assert [h.ticker for h in LOAD_CALL["holdings"]] == [r["ticker"] for r in ROWS]
     prompt = FakeAgent.prompts[-1]
     assert "Total value €10,000" in prompt
     assert "Never tell the user to buy, sell, trim, add or rebalance" in prompt
@@ -616,3 +628,98 @@ async def test_holdings_failure_emits_error_without_llm_calls():
     assert events[-1]["code"] == "portfolio_unavailable"
     assert FakeAgent.prompts == []
     append_assistant.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_macro_question_searches_the_question_itself():
+    calls = []
+
+    def fake_retrieve(**kwargs):
+        calls.append(kwargs)
+        raise BraveRetrievalError("nothing")
+
+    question = "How does a Fed rate cut affect me?"
+    with patch.object(portfolio_chat, "retrieve_for_analyze", side_effect=fake_retrieve):
+        events, _, _ = await collect(question=question, route='{"route":"needs_search"}')
+
+    assert len(calls) == 1
+    assert (calls[0]["question"], calls[0]["market"]) == (question, "GLOBAL")
+    assert "ticker" not in calls[0]
+    assert "Searching news for your question…" in [e["body"] for e in events if e["type"] == "thinking_status"]
+
+
+@pytest.mark.asyncio
+async def test_classifier_crash_still_answers_from_portfolio():
+    class CrashingClassifier(FakeAgent):
+        def generate_content(self, *, prompt: str, use_google_search: bool):
+            if "strict JSON classifier" in prompt:
+                raise RuntimeError("LLM down")
+            yield from super().generate_content(prompt=prompt, use_google_search=use_google_search)
+
+    with patch.object(portfolio_chat, "MultiAgent", CrashingClassifier):
+        FakeAgent.prompts = []
+        holdings = SimpleNamespace(list_holdings=lambda user_id: [])
+
+        async def fake_load(*args, **kwargs):
+            return snapshot()
+
+        with (
+            patch.object(portfolio_chat, "load_snapshot", fake_load),
+            patch.object(portfolio_chat, "get_conversation_history_for_prompt", return_value=[]),
+            patch.object(portfolio_chat, "append_user_message"),
+            patch.object(portfolio_chat, "append_assistant_message"),
+        ):
+            events = [
+                e
+                async for e in PortfolioChatStreamService(holdings, None, brave_client=object()).stream(
+                    user_id="user-1",
+                    question="How am I doing?",
+                    scope_ticker=None,
+                    preferred_model="fastest",
+                    conversation_id="conv-1",
+                    is_disconnected=_connected,
+                )
+            ]
+
+    assert answer_text(events) == "".join(ANSWER)
+
+
+@pytest.mark.asyncio
+async def test_over_capacity_returns_busy_without_work(monkeypatch):
+    monkeypatch.setattr(portfolio_chat, "_in_flight", portfolio_chat.MAX_IN_FLIGHT)
+
+    events, append_user, _ = await collect()
+
+    assert events == [portfolio_chat.BUSY_ERROR]
+    append_user.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_in_flight_count_is_released_after_each_chat():
+    before = portfolio_chat._in_flight
+    await collect()
+    await collect(snap=PortfolioUnavailableError("user-1"))
+    assert portfolio_chat._in_flight == before
+
+
+@pytest.mark.asyncio
+async def test_load_snapshot_quote_failure_is_unavailable():
+    with (
+        patch.object(portfolio_snapshot, "get_quotes", side_effect=RuntimeError("yahoo down")),
+        pytest.raises(PortfolioUnavailableError),
+    ):
+        await load_snapshot("user-1", EMPTY_HOLDINGS, None)
+
+
+@pytest.mark.asyncio
+async def test_load_snapshot_empty_portfolio():
+    empty = {"summary": {**SUMMARY, "holdings_count": 0, "priced_count": 0}, "holdings": []}
+    with (
+        patch.object(portfolio_snapshot, "get_quotes", return_value={}),
+        patch.object(portfolio_snapshot, "get_portfolio", return_value=empty),
+    ):
+        snap = await load_snapshot("user-1", EMPTY_HOLDINGS, None)
+
+    assert snap.returns is None
+    assert snap.excluded == []
+    assert snap.risk["concentration"] == {"top3_weight": None, "largest_sector": None, "largest_country": None}
