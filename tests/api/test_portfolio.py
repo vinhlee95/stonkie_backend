@@ -16,6 +16,7 @@ from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
 from services import price_history
+from services.portfolio_chat import PortfolioChatStreamService
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
 
@@ -557,11 +558,10 @@ def _parse_stream(raw: bytes) -> list[dict]:
     return [json.loads(block) for block in raw.decode().strip().split("\n\n") if block.strip()]
 
 
-class FakeChatService:
-    calls: list[dict] = []
+class FakeChatService(PortfolioChatStreamService):
+    """Real scope check, canned stream."""
 
-    def __init__(self, portfolio, yf_client):
-        pass
+    calls: list[dict] = []
 
     async def stream(self, **kwargs):
         FakeChatService.calls.append(kwargs)
@@ -592,6 +592,22 @@ def test_chat_rejects_scope_outside_portfolio(client, fake_chat):
 
     assert res.status_code == 422
     assert fake_chat.calls == []
+
+
+def test_chat_rejects_another_users_holding(client, fake_chat):
+    post_lot(client, "AAPL", headers=auth("google-456"))
+
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "AAPL"}, headers=auth())
+
+    assert res.status_code == 422
+    assert fake_chat.calls == []
+
+
+def test_chat_blank_scope_means_whole_portfolio(client, fake_chat):
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "  "}, headers=auth())
+
+    assert res.status_code == 200
+    assert fake_chat.calls[0]["scope_ticker"] is None
 
 
 def test_chat_streams_events_for_normalised_scope(client, fake_chat):

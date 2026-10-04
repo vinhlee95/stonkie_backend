@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from services.portfolio_performance import EurSeries
-from services.portfolio_risk import MIN_POINTS, RISK_WINDOW, compute_risk
+from services.portfolio_risk import MIN_POINTS, compute_risk
 
 
 def levels(returns: list[float], start: float = 100.0) -> list[float]:
@@ -39,7 +39,10 @@ def test_beta_and_vol_of_a_leveraged_holding():
 
     assert risk["holdings"]["LEV"]["beta"] == pytest.approx(2.0, abs=0.01)
     assert risk["holdings"]["MKT"]["beta"] == pytest.approx(1.0, abs=0.01)
-    bench_vol = pd.Series(BENCH_RETURNS[-RISK_WINDOW:]).std() * math.sqrt(252) * 100
+    # Last year by date: 2025-01-01 + 300 business days → window from the same date a year before the end.
+    index = series.index
+    window = index[index >= index[-1] - pd.DateOffset(years=1)]
+    bench_vol = series.benchmark.reindex(window).pct_change().dropna().std() * math.sqrt(252) * 100
     assert risk["holdings"]["MKT"]["vol_1y"] == pytest.approx(bench_vol, rel=0.01)
     assert risk["holdings"]["LEV"]["vol_1y"] == pytest.approx(2 * bench_vol, rel=0.01)
 
@@ -66,6 +69,9 @@ def test_portfolio_max_drawdown_over_last_year():
     risk = compute_risk(series, [])
 
     assert risk["portfolio"]["max_drawdown_1y"] == pytest.approx(-25.0)
+    # Flat benchmark: no beta, but volatility is still reported.
+    assert risk["portfolio"]["beta"] is None
+    assert risk["portfolio"]["vol_1y"] is not None
 
 
 def test_short_history_has_no_portfolio_metrics():

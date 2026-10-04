@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import os
 import re
@@ -31,6 +30,7 @@ from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 from services.analyze_retrieval.source_policy import Market, is_trusted
 from services.market_recap.url_utils import source_id_for
 from services.recap_query_reformulator import RecapQueryReformulator
+from utils.json_extract import extract_json_object
 from utils.visual_stream import VisualAnswerStreamSplitter
 
 logger = logging.getLogger(__name__)
@@ -50,16 +50,6 @@ def recap_conversation_scope(recap_id: int) -> str:
 
 def _clean_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
-
-
-def _json_block(text: str) -> dict[str, Any]:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON object found")
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("JSON block is not an object")
-    return parsed
 
 
 def _market_for_recap(recap: MarketRecapDto) -> Market:
@@ -318,7 +308,7 @@ Output ONLY JSON:
                 for chunk in agent.generate_content(prompt=prompt, use_google_search=False)
                 if isinstance(chunk, str)
             )
-            parsed = _json_block(raw)
+            parsed = extract_json_object(raw)
             route = parsed.get("route")
             if route == "recap_related":
                 return RecapRelevanceDecision(route="recap_related", reason=str(parsed.get("reason") or ""))

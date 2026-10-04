@@ -114,6 +114,29 @@ def load_eur_series(holdings: list, yf_client: YFinanceClient) -> tuple[EurSerie
     )
 
 
+def period_returns(series: EurSeries) -> dict:
+    """1W / 1M / YTD return (%) of the back-tested portfolio and the S&P 500 to the last close.
+    A period is left out when the series doesn't reach back to its start."""
+    last = series.index[-1]
+    value = series.portfolio_value()
+    starts = {
+        "1W": last - pd.Timedelta(days=7),
+        "1M": last - pd.DateOffset(months=1),
+        "YTD": pd.Timestamp(year=last.year - 1, month=12, day=31),
+    }
+    periods = {}
+    for label, start in starts.items():
+        base_dates = series.index[series.index <= start]
+        if base_dates.empty:
+            continue
+        base = base_dates[-1]
+        periods[label] = {
+            "portfolio": round(float(value[last] / value[base] - 1) * 100, 2),
+            "benchmark": round(float(series.benchmark[last] / series.benchmark[base] - 1) * 100, 2),
+        }
+    return {"as_of": last.date().isoformat(), "periods": periods}
+
+
 def _fx_symbol(currency: str) -> str:
     return f"{currency}{BASE_CURRENCY}=X"
 

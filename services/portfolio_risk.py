@@ -11,7 +11,7 @@ import pandas as pd
 
 from services.portfolio_performance import EurSeries
 
-RISK_WINDOW = 252
+RISK_WINDOW = pd.DateOffset(years=1)
 MIN_POINTS = 60
 TRADING_DAYS = 252
 
@@ -21,7 +21,8 @@ def compute_risk(series: EurSeries | None, rows: list[dict]) -> dict:
     holdings: dict[str, dict] = {}
     portfolio = {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
     if series is not None:
-        window = series.index[-(RISK_WINDOW + 1) :]
+        # By date, not count: the index is the union of several exchanges' calendars.
+        window = series.index[series.index >= series.index[-1] - RISK_WINDOW]
         for ticker, prices in series.prices.items():
             dates = window[window >= series.first_close[ticker]]
             beta, vol = _beta_and_vol(prices, series.benchmark, dates)

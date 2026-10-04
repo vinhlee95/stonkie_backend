@@ -29,7 +29,7 @@ from services.portfolio import (
     remove_lot,
     update_lot,
 )
-from services.portfolio_chat import PortfolioChatStreamService
+from services.portfolio_chat import PortfolioChatStreamService, ScopeNotInPortfolioError
 from services.portfolio_performance import get_performance
 
 logger = logging.getLogger(__name__)
@@ -197,14 +197,11 @@ async def chat(
     portfolio: PortfolioConnector = Depends(get_portfolio_connector),
     yf_client: YFinanceClient = Depends(get_yfinance_client),
 ) -> StreamingResponse:
-    scope_ticker = None
-    if body.scopeTicker:
-        scope_ticker = body.scopeTicker.strip().upper()
-        holdings = await asyncio.to_thread(portfolio.list_holdings, user.id)
-        if scope_ticker not in {h.ticker for h in holdings}:
-            raise HTTPException(status_code=422, detail=f"{scope_ticker} is not in your portfolio")
-
     service = PortfolioChatStreamService(portfolio, yf_client)
+    try:
+        scope_ticker = await service.resolve_scope(user.id, body.scopeTicker)
+    except ScopeNotInPortfolioError as exc:
+        raise HTTPException(status_code=422, detail=f"{exc} is not in your portfolio")
 
     async def generate():
         try:
