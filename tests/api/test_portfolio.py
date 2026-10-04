@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from ai_models.model_mapper import map_frontend_model_to_enum
 from api.portfolio import get_yfinance_client
 from connectors import cache
 from connectors import company as company_connector_module
@@ -580,7 +581,17 @@ def test_chat_requires_auth(client, fake_chat):
     assert client.post("/api/me/portfolio/chat", json={"question": "hi"}).status_code == 401
 
 
-@pytest.mark.parametrize("body", [{}, {"question": ""}, {"question": "   "}, {"question": "x" * 2001}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"question": ""},
+        {"question": "   "},
+        {"question": "x" * 2001},
+        {"question": "hi", "scopeTicker": "A" * 33},
+        {"question": "hi", "conversationId": "c" * 101},
+    ],
+)
 def test_chat_rejects_missing_question(client, fake_chat, body):
     assert client.post("/api/me/portfolio/chat", json=body, headers=auth()).status_code == 422
 
@@ -625,6 +636,12 @@ def test_chat_streams_events_for_normalised_scope(client, fake_chat):
     call = fake_chat.calls[0]
     assert (call["question"], call["scope_ticker"], call["conversation_id"]) == ("Why is it up?", "AAPL", "conv-1")
     assert call["user_id"]
+
+
+def test_chat_forwards_mapped_preferred_model(client, fake_chat):
+    client.post("/api/me/portfolio/chat", json={"question": "hi", "preferredModel": "fastest"}, headers=auth())
+
+    assert fake_chat.calls[0]["preferred_model"] == map_frontend_model_to_enum("fastest")
 
 
 def test_chat_stream_failure_becomes_error_event(client, monkeypatch):

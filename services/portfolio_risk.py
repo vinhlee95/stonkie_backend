@@ -28,6 +28,9 @@ def compute_risk(series: EurSeries | None, rows: list[dict]) -> dict:
             beta, vol = _beta_and_vol(prices, series.benchmark, dates)
             holdings[ticker] = {"beta": beta, "vol_1y": vol}
         value = series.portfolio_value()
+        # Only dates every holding really traded: back-filled flat prices would understate risk.
+        if series.first_close:
+            window = window[window >= max(series.first_close.values())]
         beta, vol = _beta_and_vol(value, series.benchmark, window)
         if vol is not None:
             in_window = value.reindex(window)

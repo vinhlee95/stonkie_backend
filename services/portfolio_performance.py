@@ -60,12 +60,16 @@ def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFin
     return result
 
 
-def load_eur_series(holdings: list, yf_client: YFinanceClient) -> tuple[EurSeries | None, list[str]]:
+def load_eur_series(
+    holdings: list, yf_client: YFinanceClient, quotes: dict[str, dict] | None = None
+) -> tuple[EurSeries | None, list[str]]:
     """EUR series for `holdings` (anything with .ticker and .shares) plus the sorted tickers left out
-    for lacking a quote currency or history. None when no holding or the benchmark can be priced."""
+    for lacking a quote currency or history. None when no holding or the benchmark can be priced.
+    `quotes` (from get_quotes) can be passed in when the caller already fetched them."""
     if not holdings:
         return None, []
-    quotes = get_quotes([h.ticker for h in holdings], yf_client)
+    if quotes is None:
+        quotes = get_quotes([h.ticker for h in holdings], yf_client)
     positions, excluded = [], []
     for h in holdings:
         currency = (quotes.get(h.ticker) or {}).get("currency")

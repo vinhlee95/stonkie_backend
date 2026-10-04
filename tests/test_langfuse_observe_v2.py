@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.financial_analyzer_v2 import FinancialAnalyzerV2, _extract_answer_text
+from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.search_decision_engine import SearchDecision
+from utils.chat_prompt import extract_answer_text as _extract_answer_text
 
 
 def _make_search_decision():

@@ -20,7 +20,6 @@ from typing import Any, AsyncGenerator, Literal
 
 from langfuse import observe
 from langfuse._client.get_client import get_client as get_langfuse_client
-from starlette.concurrency import iterate_in_threadpool
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -39,7 +38,7 @@ from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
-from services.portfolio import get_portfolio
+from services.portfolio import get_portfolio, get_quotes
 from services.portfolio_chat_context import (
     PortfolioSnapshot,
     build_answer_prompt,
@@ -48,6 +47,8 @@ from services.portfolio_chat_context import (
 )
 from services.portfolio_performance import EurSeries, load_eur_series, period_returns
 from services.portfolio_risk import compute_risk
+from utils.answer_sanitizer import AnswerSanitizer
+from utils.chat_prompt import extract_answer_text, format_conversation, iterate_in_thread
 from utils.json_extract import extract_json_object
 
 logger = logging.getLogger(__name__)
@@ -81,11 +82,19 @@ class ScopeNotInPortfolioError(Exception):
     pass
 
 
-async def load_snapshot(user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient) -> PortfolioSnapshot:
-    holdings = await asyncio.to_thread(portfolio.list_holdings, user_id)
+async def load_snapshot(
+    user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient, holdings: list | None = None
+) -> PortfolioSnapshot:
+    if holdings is None:
+        holdings = await asyncio.to_thread(portfolio.list_holdings, user_id)
+    try:
+        # Fetched once and shared, so valuation and history don't both hit Yahoo on a cold cache.
+        quotes = await asyncio.to_thread(get_quotes, [h.ticker for h in holdings], yf_client)
+    except Exception as exc:
+        raise PortfolioUnavailableError(user_id) from exc
     valued, series_result = await asyncio.gather(
-        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client),
-        asyncio.to_thread(_safe_series, holdings, yf_client),
+        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client, quotes=quotes),
+        asyncio.to_thread(_safe_series, holdings, yf_client, quotes),
         return_exceptions=True,
     )
     if isinstance(valued, BaseException):
@@ -101,11 +110,11 @@ async def load_snapshot(user_id: str, portfolio: PortfolioConnector, yf_client: 
     return PortfolioSnapshot(portfolio=valued, returns=returns, risk=risk, today=today, excluded=excluded)
 
 
-def _safe_series(holdings: list, yf_client: YFinanceClient) -> tuple[EurSeries | None, list[str]]:
+def _safe_series(holdings: list, yf_client: YFinanceClient, quotes: dict) -> tuple[EurSeries | None, list[str]]:
     """The EUR series and excluded tickers; (None, []) when loading failed (performance and
     beta/vol then show as unavailable while concentration still works)."""
     try:
-        return load_eur_series(holdings, yf_client)
+        return load_eur_series(holdings, yf_client, quotes)
     except Exception:
         logger.exception("Portfolio chat price history failed")
         return None, []
@@ -123,14 +132,19 @@ def mentioned_holdings(question: str, rows: list[dict]) -> list[dict]:
     def found(term: str, text: str, flags: int = 0) -> bool:
         return re.search(rf"(?<![\w.]){re.escape(term)}(?!\w)", text, flags) is not None
 
-    # Join intra-word punctuation so "Coca-Cola" in the question matches the "CocaCola" brand.
-    joined = re.sub(r"(?<=\w)[-'’](?=\w)", "", question)
+    def found_brand(brand: str) -> bool:
+        # Optional possessive: "Nokia's" names Nokia.
+        pattern = rf"(?<![\w.]){re.escape(brand)}(?:['’]s)?(?!\w)"
+        return re.search(pattern, joined, re.IGNORECASE) is not None
+
+    # Join hyphenated words so "Coca-Cola" in the question matches the "CocaCola" brand.
+    joined = re.sub(r"(?<=\w)-(?=\w)", "", question)
     matches = []
     for row in rows:
         tickers = {row["ticker"], _base_symbol(row["ticker"])}
-        by_ticker = any(found(t, question) if len(t) > 2 else f"${t}" in question for t in tickers)
+        by_ticker = any(found(t, question) if len(t) > 2 else found(f"${t}", question) for t in tickers)
         brand = re.sub(r"\W", "", (row.get("name") or "").split(" ")[0])
-        by_name = len(brand) >= 4 and brand.lower() not in GENERIC_NAME_WORDS and found(brand, joined, re.IGNORECASE)
+        by_name = len(brand) >= 4 and brand.lower() not in GENERIC_NAME_WORDS and found_brand(brand)
         if by_ticker or by_name:
             matches.append(row)
     return matches
@@ -147,20 +161,6 @@ def search_targets(question: str, rows: list[dict], scope_ticker: str | None) ->
         (r for r in rows if r.get("day_change") is not None), key=lambda r: abs(r["day_change"]), reverse=True
     )
     return movers[:MAX_SEARCH_HOLDINGS], False
-
-
-def _format_conversation(messages: list[dict[str, str]] | None) -> str:
-    lines = []
-    for msg in (messages or [])[-6:]:
-        role = (msg.get("role") or "").upper()
-        content = re.sub(r"\s+", " ", msg.get("content") or "").strip()
-        if role and content:
-            lines.append(f"{role}: {content}")
-    return "Recent conversation:\n" + "\n".join(lines) if lines else ""
-
-
-def _extract_answer_text(chunks: list) -> str:
-    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
 
 
 class PortfolioChatStreamService:
@@ -259,7 +259,7 @@ Output ONLY JSON:
         name="portfolio_chat.stream",
         as_type="generation",
         capture_input=False,
-        transform_to_string=_extract_answer_text,
+        transform_to_string=extract_answer_text,
     )
     async def stream(
         self,
@@ -282,18 +282,27 @@ Output ONLY JSON:
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         yield thinking_status("Reading your portfolio…", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
+        conversation = format_conversation(history)
         try:
-            snapshot = await load_snapshot(user_id, self._portfolio, self._yf_client)
+            holdings = await asyncio.to_thread(self._portfolio.list_holdings, user_id)
+        except Exception:
+            logger.exception("Portfolio chat could not list holdings")
+            yield {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
+            return
+        # Routing needs only the question and tickers, so it runs while the snapshot loads.
+        classify = asyncio.create_task(
+            asyncio.to_thread(
+                self._classify, question=question, tickers=[h.ticker for h in holdings], conversation=conversation
+            )
+        )
+        try:
+            snapshot = await load_snapshot(user_id, self._portfolio, self._yf_client, holdings)
         except PortfolioUnavailableError:
             logger.exception("Portfolio chat could not load the portfolio")
             yield {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
             return
         rows = snapshot.portfolio["holdings"]
-        conversation = _format_conversation(history)
-
-        route = await asyncio.to_thread(
-            self._classify, question=question, tickers=[r["ticker"] for r in rows], conversation=conversation
-        )
+        route = await classify
         if langfuse:
             langfuse.update_current_generation(metadata={"scope_ticker": scope_ticker, "route": route})
         if route == "unrelated":
@@ -326,19 +335,28 @@ Output ONLY JSON:
             external_context=external_context,
         )
         yield thinking_status("Writing your answer…", phase=AnalysisPhase.ANALYZE, step=3, total_steps=3)
-        # Plain answer events only: no visual (HTML/SVG) blocks in a prompt that mixes private data with web text.
+        # Plain, sanitized answer events only: the prompt mixes private data with web text, so no
+        # visual (HTML/SVG) blocks, links, images or URLs that could carry data out.
         output: list[str] = []
+        sanitizer = AnswerSanitizer()
         agent = MultiAgent(model_name=preferred_model)
-        async for chunk in iterate_in_threadpool(agent.generate_content(prompt=prompt, use_google_search=False)):
+        async for chunk in iterate_in_thread(agent.generate_content(prompt=prompt, use_google_search=False)):
             if await is_disconnected():
                 return
-            if not isinstance(chunk, str) or not chunk:
+            if not isinstance(chunk, str):
                 continue
-            output.append(chunk)
+            text = sanitizer.feed(chunk)
+            if not text:
+                continue
+            output.append(text)
             if not ttft_recorded and langfuse:
                 langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
                 ttft_recorded = True
-            yield {"type": "answer", "body": chunk}
+            yield {"type": "answer", "body": text}
+        tail = sanitizer.flush()
+        if tail:
+            output.append(tail)
+            yield {"type": "answer", "body": tail}
 
         if sources:
             yield build_sources_event(sources)

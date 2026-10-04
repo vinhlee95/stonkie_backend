@@ -59,6 +59,8 @@ def test_late_listing_without_enough_real_closes_gets_no_metrics():
 
     assert risk["holdings"]["NEW"] == {"beta": None, "vol_1y": None}
     assert risk["holdings"]["OLD"]["beta"] is not None
+    # Portfolio metrics only use dates every holding traded, which is too short here.
+    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
 
 
 def test_portfolio_max_drawdown_over_last_year():

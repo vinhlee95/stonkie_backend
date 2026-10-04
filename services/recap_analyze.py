@@ -30,6 +30,7 @@ from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 from services.analyze_retrieval.source_policy import Market, is_trusted
 from services.market_recap.url_utils import source_id_for
 from services.recap_query_reformulator import RecapQueryReformulator
+from utils.chat_prompt import extract_answer_text, format_conversation
 from utils.json_extract import extract_json_object
 from utils.visual_stream import VisualAnswerStreamSplitter
 
@@ -123,20 +124,6 @@ def _build_recap_context(recap: MarketRecapDto) -> str:
             f"({source.get('publisher')}, {published}) {source.get('url')}"
         )
     return "\n".join(lines)
-
-
-def _format_conversation(messages: list[dict[str, str]] | None) -> str:
-    if not messages:
-        return ""
-    lines = []
-    for msg in messages[-6:]:
-        role = (msg.get("role") or "").upper()
-        content = _clean_whitespace(msg.get("content") or "")
-        if role and content:
-            lines.append(f"{role}: {content}")
-    if not lines:
-        return ""
-    return "Recent conversation:\n" + "\n".join(lines)
 
 
 def _asks_after_recap(question: str) -> bool:
@@ -257,10 +244,6 @@ def _build_sources_block(
     return "\n\n".join(blocks)
 
 
-def _extract_answer_text(chunks: list) -> str:
-    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
-
-
 class RecapAnalyzeStreamService:
     def __init__(self, recap_connector: MarketRecapConnector | None = None) -> None:
         self._recap_connector = recap_connector or MarketRecapConnector()
@@ -324,7 +307,7 @@ Output ONLY JSON:
         name="recap_analyze.stream",
         as_type="generation",
         capture_input=False,
-        transform_to_string=_extract_answer_text,
+        transform_to_string=extract_answer_text,
     )
     async def stream(
         self,
@@ -350,7 +333,7 @@ Output ONLY JSON:
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         recap_context = _build_recap_context(recap)
-        conversation_context = _format_conversation(conversation_messages)
+        conversation_context = format_conversation(conversation_messages)
         yield thinking_status("Reading the recap context...", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
         decision = self._classify_relevance(
             question=question,
