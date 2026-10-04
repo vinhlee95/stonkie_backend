@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -550,3 +551,74 @@ def test_performance_empty_portfolio(client):
     body = client.get("/api/me/portfolio/performance", headers=auth()).json()
 
     assert body == {"base_currency": "EUR", "points": [], "excluded": []}
+
+
+def _parse_stream(raw: bytes) -> list[dict]:
+    return [json.loads(block) for block in raw.decode().strip().split("\n\n") if block.strip()]
+
+
+class FakeChatService:
+    calls: list[dict] = []
+
+    def __init__(self, portfolio, yf_client):
+        pass
+
+    async def stream(self, **kwargs):
+        FakeChatService.calls.append(kwargs)
+        yield {"type": "conversation", "body": {"conversationId": "conv-1"}}
+        yield {"type": "answer", "body": "Hi"}
+
+
+@pytest.fixture()
+def fake_chat(monkeypatch):
+    FakeChatService.calls = []
+    monkeypatch.setattr("api.portfolio.PortfolioChatStreamService", FakeChatService)
+    return FakeChatService
+
+
+def test_chat_requires_auth(client, fake_chat):
+    assert client.post("/api/me/portfolio/chat", json={"question": "hi"}).status_code == 401
+
+
+@pytest.mark.parametrize("body", [{}, {"question": ""}, {"question": "   "}, {"question": "x" * 2001}])
+def test_chat_rejects_missing_question(client, fake_chat, body):
+    assert client.post("/api/me/portfolio/chat", json=body, headers=auth()).status_code == 422
+
+
+def test_chat_rejects_scope_outside_portfolio(client, fake_chat):
+    post_lot(client, "AAPL")
+
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "NOKIA.HE"}, headers=auth())
+
+    assert res.status_code == 422
+    assert fake_chat.calls == []
+
+
+def test_chat_streams_events_for_normalised_scope(client, fake_chat):
+    post_lot(client, "AAPL")
+
+    res = client.post(
+        "/api/me/portfolio/chat",
+        json={"question": "  Why is it up?  ", "scopeTicker": " aapl ", "conversationId": "conv-1"},
+        headers=auth(),
+    )
+
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/event-stream")
+    assert [e["type"] for e in _parse_stream(res.content)] == ["conversation", "answer"]
+    call = fake_chat.calls[0]
+    assert (call["question"], call["scope_ticker"], call["conversation_id"]) == ("Why is it up?", "AAPL", "conv-1")
+    assert call["user_id"]
+
+
+def test_chat_stream_failure_becomes_error_event(client, monkeypatch):
+    class Boom(FakeChatService):
+        async def stream(self, **kwargs):
+            yield {"type": "conversation", "body": {"conversationId": "c"}}
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("api.portfolio.PortfolioChatStreamService", Boom)
+
+    events = _parse_stream(client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth()).content)
+
+    assert events[-1] == {"type": "error", "code": "internal", "body": "Something went wrong"}

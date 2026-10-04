@@ -25,12 +25,46 @@ class _Position:
     divisor: int
 
 
+@dataclass(frozen=True)
+class EurSeries:
+    """Daily EUR series for the priced holdings and the benchmark, aligned on one session index."""
+
+    index: pd.DatetimeIndex
+    # EUR value of one share on each date.
+    prices: dict[str, pd.Series]
+    shares: dict[str, float]
+    benchmark: pd.Series
+    # First real close per ticker; earlier dates in `prices` are back-filled, not traded.
+    first_close: dict[str, pd.Timestamp]
+
+    def portfolio_value(self) -> pd.Series:
+        return sum(self.prices[t] * self.shares[t] for t in self.prices)
+
+
 def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient) -> dict:
     holdings = portfolio.list_holdings(user_id)
     result = {"base_currency": BASE_CURRENCY, "points": [], "excluded": []}
     if not holdings:
         return result
 
+    series, excluded = load_eur_series(holdings, yf_client)
+    result["excluded"] = excluded
+    if series is None:
+        return result
+
+    portfolio_value = series.portfolio_value()
+    result["points"] = [
+        {"date": day.date().isoformat(), "portfolio_value": round(pv, 2), "benchmark_value": round(bv, 2)}
+        for day, pv, bv in zip(series.index, portfolio_value, series.benchmark)
+    ]
+    return result
+
+
+def load_eur_series(holdings: list, yf_client: YFinanceClient) -> tuple[EurSeries | None, list[str]]:
+    """EUR series for `holdings` (anything with .ticker and .shares) plus the sorted tickers left out
+    for lacking a quote currency or history. None when no holding or the benchmark can be priced."""
+    if not holdings:
+        return None, []
     quotes = get_quotes([h.ticker for h in holdings], yf_client)
     positions, excluded = [], []
     for h in holdings:
@@ -52,10 +86,9 @@ def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFin
         return symbol in histories and (currency == BASE_CURRENCY or fx_symbols[currency] in histories)
 
     priced = [p for p in positions if has_history(p.currency, p.ticker)]
-    excluded += [p.ticker for p in positions if p not in priced]
-    result["excluded"] = sorted(excluded)
+    excluded = sorted(excluded + [p.ticker for p in positions if p not in priced])
     if not priced or not has_history(BENCHMARK_CURRENCY, BENCHMARK_SYMBOL):
-        return result
+        return None, excluded
 
     # Session dates of any holding or the benchmark; FX has its own calendar, so it is only sampled.
     series = {symbol: _to_series(closes) for symbol, closes in histories.items()}
@@ -69,13 +102,16 @@ def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFin
     def fx(currency: str) -> pd.Series | float:
         return 1.0 if currency == BASE_CURRENCY else aligned(fx_symbols[currency])
 
-    portfolio_value = sum(aligned(p.ticker) / p.divisor * p.shares * fx(p.currency) for p in priced)
-    benchmark_value = aligned(BENCHMARK_SYMBOL) * fx(BENCHMARK_CURRENCY)
-    result["points"] = [
-        {"date": day.date().isoformat(), "portfolio_value": round(pv, 2), "benchmark_value": round(bv, 2)}
-        for day, pv, bv in zip(index, portfolio_value, benchmark_value)
-    ]
-    return result
+    return (
+        EurSeries(
+            index=index,
+            prices={p.ticker: aligned(p.ticker) / p.divisor * fx(p.currency) for p in priced},
+            shares={p.ticker: p.shares for p in priced},
+            benchmark=aligned(BENCHMARK_SYMBOL) * fx(BENCHMARK_CURRENCY),
+            first_close={p.ticker: series[p.ticker].index[0] for p in priced},
+        ),
+        excluded,
+    )
 
 
 def _fx_symbol(currency: str) -> str:

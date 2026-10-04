@@ -1,11 +1,16 @@
+import asyncio
+import json
+import logging
 import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import StreamingResponse
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from ai_models.model_mapper import map_frontend_model_to_enum
 from api.deps import get_current_user
 from connectors.portfolio import LotDto, PortfolioConnector
 from connectors.user import UserDto
@@ -24,7 +29,10 @@ from services.portfolio import (
     remove_lot,
     update_lot,
 )
+from services.portfolio_chat import PortfolioChatStreamService
 from services.portfolio_performance import get_performance
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/me/portfolio", tags=["portfolio"])
 
@@ -77,6 +85,13 @@ class LotPatch(BaseModel):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
+
+
+class ChatIn(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+    scopeTicker: str | None = Field(default=None, max_length=32)
+    conversationId: str | None = Field(default=None, max_length=100)
+    preferredModel: str = Field(default="fastest", max_length=50)
 
 
 def _lot_out(lot: LotDto) -> dict:
@@ -172,3 +187,40 @@ def delete_holding(
     if not remove_holding(user_id=user.id, ticker=_normalise_ticker(ticker), portfolio=portfolio):
         raise HTTPException(status_code=404, detail="Holding not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/chat")
+async def chat(
+    body: ChatIn,
+    request: Request,
+    user: UserDto = Depends(get_current_user),
+    portfolio: PortfolioConnector = Depends(get_portfolio_connector),
+    yf_client: YFinanceClient = Depends(get_yfinance_client),
+) -> StreamingResponse:
+    scope_ticker = None
+    if body.scopeTicker:
+        scope_ticker = body.scopeTicker.strip().upper()
+        holdings = await asyncio.to_thread(portfolio.list_holdings, user.id)
+        if scope_ticker not in {h.ticker for h in holdings}:
+            raise HTTPException(status_code=422, detail=f"{scope_ticker} is not in your portfolio")
+
+    service = PortfolioChatStreamService(portfolio, yf_client)
+
+    async def generate():
+        try:
+            async for event in service.stream(
+                user_id=user.id,
+                question=body.question,
+                scope_ticker=scope_ticker,
+                preferred_model=map_frontend_model_to_enum(body.preferredModel),
+                conversation_id=body.conversationId,
+                is_disconnected=request.is_disconnected,
+            ):
+                yield json.dumps(event) + "\n\n"
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Portfolio chat stream failed")
+            yield json.dumps({"type": "error", "code": "internal", "body": "Something went wrong"}) + "\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "private, no-store"})
