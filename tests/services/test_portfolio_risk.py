@@ -60,7 +60,7 @@ def test_late_listing_without_enough_real_closes_gets_no_metrics():
     assert risk["holdings"]["NEW"] == {"beta": None, "vol_1y": None}
     assert risk["holdings"]["OLD"]["beta"] is not None
     # Portfolio metrics only use dates every holding traded, which is too short here.
-    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
+    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None, "since": None}
 
 
 def test_portfolio_max_drawdown_over_last_year():
@@ -81,7 +81,7 @@ def test_short_history_has_no_portfolio_metrics():
 
     risk = compute_risk(series, [])
 
-    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
+    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None, "since": None}
     assert risk["holdings"]["A"] == {"beta": None, "vol_1y": None}
 
 
@@ -97,7 +97,7 @@ def test_no_series_still_reports_concentration():
     risk = compute_risk(None, rows)
 
     assert risk["holdings"] == {}
-    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
+    assert risk["portfolio"] == {"beta": None, "vol_1y": None, "max_drawdown_1y": None, "since": None}
     assert risk["concentration"] == {
         "top3_weight": 95.0,
         "largest_sector": {"name": "Technology", "weight": 80.0},
@@ -111,3 +111,19 @@ def test_empty_concentration():
         "largest_sector": None,
         "largest_country": None,
     }
+
+
+def test_portfolio_risk_only_uses_dates_every_holding_traded():
+    n = len(BENCH_RETURNS) + 1
+    late = n - 100
+    # Before its listing NEW is back-filled flat; afterwards it crashes 30% then recovers.
+    new_path = [100.0] * late + [100.0 - 30.0 * (i < 50) * i / 49 for i in range(100)]
+    series = make_series({"NEW": new_path, "OLD": [100.0] * n}, levels(BENCH_RETURNS), first_close={"NEW": late})
+
+    risk = compute_risk(series, [])
+
+    common = series.index[late:]
+    value = (series.prices["NEW"] + series.prices["OLD"]).reindex(common)
+    expected_vol = value.pct_change().dropna().std() * math.sqrt(252) * 100
+    assert risk["portfolio"]["vol_1y"] == pytest.approx(expected_vol, rel=1e-3)
+    assert risk["portfolio"]["since"] == common[0].date().isoformat()

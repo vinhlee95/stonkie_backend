@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -97,8 +98,8 @@ def format_context(snapshot: PortfolioSnapshot) -> str:
         if p["vol_1y"] is not None:
             beta = f"beta {p['beta']:.2f}, " if p["beta"] is not None else ""
             lines.append(
-                f"- Portfolio {beta}volatility {p['vol_1y']:.1f}%, max drawdown {p['max_drawdown_1y']:.1f}%."
-                + excluded_note
+                f"- Portfolio {beta}volatility {p['vol_1y']:.1f}% (annualised), max drawdown {p['max_drawdown_1y']:.1f}%, "
+                f"measured since {p['since']}." + excluded_note
             )
         else:
             lines.append("- Portfolio beta/volatility/drawdown: unavailable (not enough price history)")
@@ -111,6 +112,14 @@ def format_context(snapshot: PortfolioSnapshot) -> str:
     return "\n".join(lines).strip()
 
 
+_FENCE_TAG = re.compile(r"<\s*/?\s*news_results[^>]*>", re.IGNORECASE)
+
+
+def _unfenced(text: str) -> str:
+    """Web text can't close (or reopen) the untrusted-news fence."""
+    return _FENCE_TAG.sub("", text or "")
+
+
 def build_sources_block(sources: list[AnalyzeSource], passages: list[AnalyzePassage]) -> str:
     by_source: dict[str, list[AnalyzePassage]] = {}
     for passage in passages:
@@ -118,15 +127,15 @@ def build_sources_block(sources: list[AnalyzeSource], passages: list[AnalyzePass
     blocks = []
     for index, source in enumerate(sources, start=1):
         published = source.published_at.isoformat() if source.published_at else "unknown date"
-        content = [f"Passage [{p.passage_index}]: {p.content}" for p in by_source.get(source.id, [])]
+        content = [f"Passage [{p.passage_index}]: {_unfenced(p.content)}" for p in by_source.get(source.id, [])]
         if not content and source.raw_content:
-            content = [f"Content: {source.raw_content[:1500]}"]
+            content = [f"Content: {_unfenced(source.raw_content[:1500])}"]
         blocks.append(
             "\n".join(
                 [
                     f"Source [{index}]",
-                    f"Title: {source.title}",
-                    f"Publisher: {source.publisher}",
+                    f"Title: {_unfenced(source.title)}",
+                    f"Publisher: {_unfenced(source.publisher)}",
                     f"Published: {published}",
                     *content,
                 ]

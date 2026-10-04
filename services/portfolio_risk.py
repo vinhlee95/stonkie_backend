@@ -19,7 +19,8 @@ TRADING_DAYS = 252
 def compute_risk(series: EurSeries | None, rows: list[dict]) -> dict:
     """`rows` are valued holdings as returned by services.portfolio.get_portfolio (weight in %)."""
     holdings: dict[str, dict] = {}
-    portfolio = {"beta": None, "vol_1y": None, "max_drawdown_1y": None}
+    # `since`: first date of the window the portfolio metrics cover (shorter than 1y after a recent listing).
+    portfolio = {"beta": None, "vol_1y": None, "max_drawdown_1y": None, "since": None}
     if series is not None:
         # By date, not count: the index is the union of several exchanges' calendars.
         window = series.index[series.index >= series.index[-1] - RISK_WINDOW]
@@ -35,7 +36,12 @@ def compute_risk(series: EurSeries | None, rows: list[dict]) -> dict:
         if vol is not None:
             in_window = value.reindex(window)
             drawdown = (in_window / in_window.cummax() - 1).min() * 100
-            portfolio = {"beta": beta, "vol_1y": vol, "max_drawdown_1y": round(float(drawdown), 2)}
+            portfolio = {
+                "beta": beta,
+                "vol_1y": vol,
+                "max_drawdown_1y": round(float(drawdown), 2),
+                "since": window[0].date().isoformat(),
+            }
     return {"holdings": holdings, "portfolio": portfolio, "concentration": _concentration(rows)}
 
 

@@ -9,10 +9,11 @@ so one chat never stalls the event loop.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import datetime
+import functools
 import logging
 import os
-import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
@@ -45,26 +46,23 @@ from services.portfolio_chat_context import (
     build_sources_block,
     format_context,
 )
+from services.portfolio_chat_targets import base_symbol, search_targets
 from services.portfolio_performance import EurSeries, load_eur_series, period_returns
 from services.portfolio_risk import compute_risk
 from utils.answer_sanitizer import AnswerSanitizer
-from utils.chat_prompt import extract_answer_text, format_conversation, iterate_in_thread
+from utils.async_helpers import iterate_in_thread
+from utils.chat_prompt import extract_answer_text, format_conversation
 from utils.json_extract import extract_json_object
 
 logger = logging.getLogger(__name__)
 
 # Conversation-store namespace; can never collide with a ticker (tickers are [A-Z0-9.-=^]).
 CONVERSATION_SCOPE = "__portfolio__"
-# Holdings searched per question: the focus holding(s), or the biggest movers.
-MAX_SEARCH_HOLDINGS = 2
 # Routing is a small decision; a fixed fast model keeps it cheap whatever model the user picked.
 CLASSIFIER_MODEL = ModelName.Gemini31FlashLite
-# First words of company names that are ordinary words ("General Motors"), so not a mention.
-GENERIC_NAME_WORDS = {
-    "advanced", "alpha", "american", "applied", "bank", "british", "canadian", "china", "digital",
-    "eastern", "energy", "first", "general", "global", "international", "national", "new", "northern",
-    "public", "royal", "southern", "the", "united", "western",
-}  # fmt: skip
+# Blocking LLM calls get their own bounded pool so a burst of chats queues here instead of
+# starving the default executor every other to_thread caller uses.
+CHAT_LLM_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="portfolio-chat-llm")
 
 ChatRoute = Literal["portfolio_only", "needs_search", "unrelated"]
 
@@ -93,7 +91,7 @@ async def load_snapshot(
     except Exception as exc:
         raise PortfolioUnavailableError(user_id) from exc
     valued, series_result = await asyncio.gather(
-        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client, quotes=quotes),
+        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client, quotes=quotes, holdings=holdings),
         asyncio.to_thread(_safe_series, holdings, yf_client, quotes),
         return_exceptions=True,
     )
@@ -101,13 +99,17 @@ async def load_snapshot(
         raise PortfolioUnavailableError(user_id) from valued
     series, excluded = (None, []) if isinstance(series_result, BaseException) else series_result
     today = datetime.datetime.now(UTC).date()
+    risk, returns = await asyncio.to_thread(_risk_and_returns, series, valued["holdings"])
+    return PortfolioSnapshot(portfolio=valued, returns=returns, risk=risk, today=today, excluded=excluded)
+
+
+def _risk_and_returns(series: EurSeries | None, rows: list[dict]) -> tuple[dict | None, dict | None]:
+    """pandas work, so it runs off the event loop; (None, None) if it fails."""
     try:
-        risk = compute_risk(series, valued["holdings"])
-        returns = period_returns(series) if series is not None else None
+        return compute_risk(series, rows), (period_returns(series) if series is not None else None)
     except Exception:
         logger.exception("Portfolio chat risk/returns failed")
-        risk, returns = None, None
-    return PortfolioSnapshot(portfolio=valued, returns=returns, risk=risk, today=today, excluded=excluded)
+        return None, None
 
 
 def _safe_series(holdings: list, yf_client: YFinanceClient, quotes: dict) -> tuple[EurSeries | None, list[str]]:
@@ -120,49 +122,6 @@ def _safe_series(holdings: list, yf_client: YFinanceClient, quotes: dict) -> tup
         return None, []
 
 
-def _base_symbol(ticker: str) -> str:
-    return ticker.split(".")[0]
-
-
-def mentioned_holdings(question: str, rows: list[dict]) -> list[dict]:
-    """Holdings named in the question: by ticker (case-sensitive, with or without exchange suffix;
-    1-2 letter tickers only as "$A") or by a distinctive first word of the company name
-    ("Tesla, Inc." → "tesla", "Coca-Cola" → "cocacola"; case-insensitive)."""
-
-    def found(term: str, text: str, flags: int = 0) -> bool:
-        return re.search(rf"(?<![\w.]){re.escape(term)}(?!\w)", text, flags) is not None
-
-    def found_brand(brand: str) -> bool:
-        # Optional possessive: "Nokia's" names Nokia.
-        pattern = rf"(?<![\w.]){re.escape(brand)}(?:['’]s)?(?!\w)"
-        return re.search(pattern, joined, re.IGNORECASE) is not None
-
-    # Join hyphenated words so "Coca-Cola" in the question matches the "CocaCola" brand.
-    joined = re.sub(r"(?<=\w)-(?=\w)", "", question)
-    matches = []
-    for row in rows:
-        tickers = {row["ticker"], _base_symbol(row["ticker"])}
-        by_ticker = any(found(t, question) if len(t) > 2 else found(f"${t}", question) for t in tickers)
-        brand = re.sub(r"\W", "", (row.get("name") or "").split(" ")[0])
-        by_name = len(brand) >= 4 and brand.lower() not in GENERIC_NAME_WORDS and found_brand(brand)
-        if by_ticker or by_name:
-            matches.append(row)
-    return matches
-
-
-def search_targets(question: str, rows: list[dict], scope_ticker: str | None) -> tuple[list[dict], bool]:
-    """Holdings to search news for, and whether they came from the question/scope (vs the biggest movers)."""
-    if scope_ticker:
-        return [r for r in rows if r["ticker"] == scope_ticker], True
-    named = mentioned_holdings(question, rows)
-    if named:
-        return named[:MAX_SEARCH_HOLDINGS], True
-    movers = sorted(
-        (r for r in rows if r.get("day_change") is not None), key=lambda r: abs(r["day_change"]), reverse=True
-    )
-    return movers[:MAX_SEARCH_HOLDINGS], False
-
-
 class PortfolioChatStreamService:
     def __init__(
         self,
@@ -172,7 +131,7 @@ class PortfolioChatStreamService:
     ) -> None:
         self._portfolio = portfolio
         self._yf_client = yf_client
-        self._brave_client = brave_client
+        self._brave_client = brave_client or BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
 
     async def resolve_scope(self, user_id: str, scope_ticker: str | None) -> str | None:
         """Normalised focus ticker, or None. Raises ScopeNotInPortfolioError for a ticker the user doesn't hold."""
@@ -219,7 +178,7 @@ Output ONLY JSON:
         return "portfolio_only"
 
     def _search_one(self, question: str, row: dict, named: bool) -> tuple[list[AnalyzeSource], list[AnalyzePassage]]:
-        symbol = _base_symbol(row["ticker"])
+        symbol = base_symbol(row["ticker"])
         name = row.get("name") or symbol
         when = f"on {row['trading_date']}" if row.get("trading_date") else "recently"
         try:
@@ -240,8 +199,6 @@ Output ONLY JSON:
     def _search(
         self, question: str, targets: list[dict], named: bool
     ) -> tuple[list[AnalyzeSource], list[AnalyzePassage]]:
-        if self._brave_client is None:
-            self._brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
         with ThreadPoolExecutor(max_workers=len(targets)) as pool:
             results = list(pool.map(lambda row: self._search_one(question, row, named), targets))
         sources: list[AnalyzeSource] = []
@@ -290,10 +247,12 @@ Output ONLY JSON:
             yield {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
             return
         # Routing needs only the question and tickers, so it runs while the snapshot loads.
-        classify = asyncio.create_task(
-            asyncio.to_thread(
+        classify = asyncio.get_running_loop().run_in_executor(
+            CHAT_LLM_POOL,
+            contextvars.copy_context().run,
+            functools.partial(
                 self._classify, question=question, tickers=[h.ticker for h in holdings], conversation=conversation
-            )
+            ),
         )
         try:
             snapshot = await load_snapshot(user_id, self._portfolio, self._yf_client, holdings)
@@ -317,7 +276,7 @@ Output ONLY JSON:
             targets, named = search_targets(question, rows, scope_ticker)
             if targets:
                 searched = True
-                tickers = ", ".join(_base_symbol(r["ticker"]) for r in targets)
+                tickers = ", ".join(base_symbol(r["ticker"]) for r in targets)
                 yield thinking_status(
                     f"Searching news for {tickers}…", phase=AnalysisPhase.SEARCH, step=2, total_steps=3
                 )
@@ -340,7 +299,9 @@ Output ONLY JSON:
         output: list[str] = []
         sanitizer = AnswerSanitizer()
         agent = MultiAgent(model_name=preferred_model)
-        async for chunk in iterate_in_thread(agent.generate_content(prompt=prompt, use_google_search=False)):
+        async for chunk in iterate_in_thread(
+            agent.generate_content(prompt=prompt, use_google_search=False), CHAT_LLM_POOL
+        ):
             if await is_disconnected():
                 return
             if not isinstance(chunk, str):

@@ -117,10 +117,12 @@ def get_portfolio(
     fx: FxConnector | None = None,
     companies: CompanyConnector | None = None,
     quotes: dict[str, dict] | None = None,
+    holdings: list[HoldingDto] | None = None,
 ) -> dict:
-    """`quotes` (from get_quotes) can be passed in when the caller already fetched them."""
+    """`quotes` (from get_quotes) and `holdings` can be passed in when the caller already has them."""
     fx = fx or FxConnector(yf_client)
-    holdings = portfolio.list_holdings(user_id)
+    if holdings is None:
+        holdings = portfolio.list_holdings(user_id)
     tickers = [h.ticker for h in holdings]
     if quotes is None:
         quotes = get_quotes(tickers, yf_client)
