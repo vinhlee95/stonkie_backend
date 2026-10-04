@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -13,6 +14,7 @@ from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
+from services import price_history
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
 
@@ -65,6 +67,7 @@ def client(test_engine, db_session, monkeypatch):
 def test_requires_auth(client):
     lot_url = f"/api/me/portfolio/lots/{uuid.uuid4()}"
     assert client.get("/api/me/portfolio").status_code == 401
+    assert client.get("/api/me/portfolio/performance").status_code == 401
     assert client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}).status_code == 401
     assert client.patch(lot_url, json={"shares": 1}).status_code == 401
     assert client.delete(lot_url).status_code == 401
@@ -511,3 +514,39 @@ def test_purchase_date_error_names_the_allowed_window(client):
 
     assert response.status_code == 422
     assert "tomorrow (UTC)" in response.text
+
+
+def test_performance_series_for_users_holdings(client, monkeypatch):
+    monkeypatch.setattr(price_history, "_utcnow", lambda: datetime(2026, 10, 2, 12, tzinfo=UTC))
+    post_lot(client, "AAPL", shares=2)
+    post_lot(client, "NOKIA.HE", shares=10)
+    post_lot(client, "AAPL", shares=99, headers=auth("someone-else"))
+    days = pd.to_datetime(["2026-09-30", "2026-10-01"])
+    fake = FakeYFinanceClient(
+        HISTORIES,
+        live_quotes={"AAPL": live(1.0, 1.0, "USD"), "NOKIA.HE": live(1.0, 1.0, "EUR")},
+        close_histories={
+            "AAPL": pd.Series([100.0, 110.0], index=days),
+            "NOKIA.HE": pd.Series([4.0, 5.0], index=days),
+            "^GSPC": pd.Series([5000.0, 5100.0], index=days),
+            "USDEUR=X": pd.Series([0.9, 0.8], index=days),
+        },
+    )
+    app.dependency_overrides[get_yfinance_client] = lambda: fake
+
+    body = client.get("/api/me/portfolio/performance", headers=auth()).json()
+
+    assert body == {
+        "base_currency": "EUR",
+        "points": [
+            {"date": "2026-09-30", "portfolio_value": 220.0, "benchmark_value": 4500.0},
+            {"date": "2026-10-01", "portfolio_value": 226.0, "benchmark_value": 4080.0},
+        ],
+        "excluded": [],
+    }
+
+
+def test_performance_empty_portfolio(client):
+    body = client.get("/api/me/portfolio/performance", headers=auth()).json()
+
+    assert body == {"base_currency": "EUR", "points": [], "excluded": []}
