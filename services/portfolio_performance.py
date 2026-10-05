@@ -120,7 +120,8 @@ def load_eur_series(
 
 def period_returns(series: EurSeries) -> dict:
     """1W / 1M / YTD return (%) of the back-tested portfolio and the S&P 500 to the last close.
-    A period is left out when the series doesn't reach back to its start."""
+    A period is left out when it starts before the series does, or before any holding's first real
+    close (earlier values are back-filled, so a recent listing would fake a return)."""
     last = series.index[-1]
     value = series.portfolio_value()
     starts = {
@@ -134,6 +135,8 @@ def period_returns(series: EurSeries) -> dict:
         if base_dates.empty:
             continue
         base = base_dates[-1]
+        if series.first_close and base < max(series.first_close.values()):
+            continue
         periods[label] = {
             "portfolio": round(float(value[last] / value[base] - 1) * 100, 2),
             "benchmark": round(float(series.benchmark[last] / series.benchmark[base] - 1) * 100, 2),

@@ -1,3 +1,4 @@
+import threading
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -333,6 +334,7 @@ ANSWER = ["TSLA fell on delivery news.", "\n\nNot financial advice."]
 class FakeAgent:
     prompts: list[str] = []
     models: list = []
+    threads: list[str] = []
     route = "portfolio_only"
     answer = ANSWER
     # Set once the consumer asks for the second answer chunk, i.e. after the first was handled.
@@ -343,7 +345,11 @@ class FakeAgent:
         FakeAgent.models.append(model_name)
 
     def generate_content(self, *, prompt: str, use_google_search: bool):
+        raise AssertionError("portfolio prompts must go through untraced generate_private_content")
+
+    def generate_private_content(self, *, prompt: str):
         FakeAgent.prompts.append(prompt)
+        FakeAgent.threads.append(threading.current_thread().name)
         if "strict JSON classifier" in prompt:
             yield self.route
             return
@@ -374,6 +380,7 @@ async def collect(
 ):
     FakeAgent.prompts = []
     FakeAgent.models = []
+    FakeAgent.threads = []
     FakeAgent.route = route
     FakeAgent.first_chunk_consumed = False
     rows = snap.portfolio["holdings"] if isinstance(snap, PortfolioSnapshot) else ROWS
@@ -423,6 +430,9 @@ async def test_portfolio_only_answer_grounded_in_context():
     assert statuses[0] == "Reading your portfolio…"
     assert not any(s.startswith("Searching") for s in statuses)
     assert FakeAgent.models == [CLASSIFIER_MODEL, "fastest"]
+    # Classifier and answer each run on their own bounded pool, never on the event loop thread.
+    assert FakeAgent.threads[0].startswith("portfolio-chat-classify")
+    assert FakeAgent.threads[1].startswith("portfolio-chat-llm")
     # The holdings listed for the classifier are reused for the snapshot.
     assert [h.ticker for h in LOAD_CALL["holdings"]] == [r["ticker"] for r in ROWS]
     prompt = FakeAgent.prompts[-1]
@@ -486,7 +496,7 @@ async def test_answer_is_sanitized_before_streaming_and_storing(monkeypatch):
     events, _, append_assistant = await collect()
 
     text = answer_text(events)
-    assert text == sanitize("".join(FakeAgent.answer))
+    assert text == sanitize("".join(FakeAgent.answer)) + "\n\nNot financial advice."
     assert "[" not in text and "://" not in text
     assert not any(e["type"].startswith("answer_visual") for e in events)
     append_assistant.assert_called_once_with("user-1", CONVERSATION_SCOPE, "conv-1", text)
@@ -683,10 +693,10 @@ async def test_macro_question_searches_the_question_itself():
 @pytest.mark.asyncio
 async def test_classifier_crash_still_answers_from_portfolio():
     class CrashingClassifier(FakeAgent):
-        def generate_content(self, *, prompt: str, use_google_search: bool):
+        def generate_private_content(self, *, prompt: str):
             if "strict JSON classifier" in prompt:
                 raise RuntimeError("LLM down")
-            yield from super().generate_content(prompt=prompt, use_google_search=use_google_search)
+            yield from super().generate_private_content(prompt=prompt)
 
     with patch.object(portfolio_chat, "MultiAgent", CrashingClassifier):
         FakeAgent.prompts = []
@@ -796,15 +806,15 @@ async def test_history_is_read_before_the_question_is_appended():
 
 @pytest.mark.asyncio
 async def test_slow_classifier_times_out_to_portfolio_answer(monkeypatch):
-    import time as _time
+    release = threading.Event()
 
     class SlowClassifier(FakeAgent):
-        def generate_content(self, *, prompt: str, use_google_search: bool):
+        def generate_private_content(self, *, prompt: str):
             if "strict JSON classifier" in prompt:
-                _time.sleep(0.5)
+                release.wait(5)  # stalled provider, released when the test ends
                 yield '{"route":"unrelated"}'
                 return
-            yield from super().generate_content(prompt=prompt, use_google_search=use_google_search)
+            yield from super().generate_private_content(prompt=prompt)
 
     monkeypatch.setattr(portfolio_chat, "CLASSIFIER_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(portfolio_chat, "MultiAgent", SlowClassifier)
@@ -827,5 +837,55 @@ async def test_slow_classifier_times_out_to_portfolio_answer(monkeypatch):
             )
         ]
 
+    release.set()
     assert UNRELATED_ANSWER not in answer_text(events)
     assert answer_text(events) == "".join(ANSWER)
+
+
+@pytest.mark.asyncio
+async def test_disclaimer_is_added_when_the_model_skips_it(monkeypatch):
+    monkeypatch.setattr(FakeAgent, "answer", ["Apple drove most of today's gain."])
+
+    events, _, append_assistant = await collect()
+
+    text = answer_text(events)
+    assert text == "Apple drove most of today's gain.\n\nNot financial advice."
+    append_assistant.assert_called_once_with("user-1", CONVERSATION_SCOPE, "conv-1", text)
+
+
+@pytest.mark.asyncio
+async def test_disclaimer_not_duplicated():
+    events, _, _ = await collect()
+
+    assert answer_text(events).count("Not financial advice.") == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_still_answers_without_history():
+    def down(*args):
+        raise ConnectionError("redis down")
+
+    FakeAgent.prompts = []
+    FakeAgent.route = '{"route":"portfolio_only"}'
+    holdings = SimpleNamespace(list_holdings=lambda user_id: [])
+    with (
+        patch.object(portfolio_chat, "MultiAgent", FakeAgent),
+        patch.object(portfolio_chat, "load_snapshot", return_value=snapshot()),
+        patch.object(portfolio_chat, "get_conversation_history_for_prompt", side_effect=down),
+        patch.object(portfolio_chat, "append_user_message", side_effect=down),
+        patch.object(portfolio_chat, "append_assistant_message", side_effect=down),
+    ):
+        events = [
+            e
+            async for e in PortfolioChatStreamService(holdings, None, brave_client=object()).stream(
+                user_id="user-1",
+                question="How am I doing?",
+                scope_ticker=None,
+                preferred_model="fastest",
+                conversation_id="conv-1",
+                is_disconnected=_connected,
+            )
+        ]
+
+    assert answer_text(events) == "".join(ANSWER)
+    assert events[-1]["type"] == "model_used"

@@ -40,12 +40,12 @@ from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import QueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
-from services.portfolio_chat_context import build_answer_prompt, build_sources_block, format_context
+from services.portfolio_chat_context import DISCLAIMER, build_answer_prompt, build_sources_block, format_context
 from services.portfolio_chat_targets import SearchMode, base_symbol, search_targets
 from services.portfolio_snapshot import PortfolioUnavailableError, load_snapshot
 from utils.answer_sanitizer import AnswerSanitizer
 from utils.async_helpers import iterate_in_thread
-from utils.chat_prompt import extract_answer_text, format_conversation
+from utils.chat_prompt import format_conversation
 from utils.json_extract import extract_json_object
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,9 @@ CLASSIFIER_TIMEOUT_SECONDS = 10
 # Blocking LLM and search calls get their own bounded pools, so a burst of chats queues there
 # instead of starving the default executor every other to_thread caller uses.
 CHAT_LLM_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="portfolio-chat-llm")
+# Classification has its own pool: a stalled provider call that outlives its timeout keeps a worker
+# busy, and must not leave answer streams queued behind it.
+CHAT_CLASSIFIER_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="portfolio-chat-classify")
 CHAT_SEARCH_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="portfolio-chat-search")
 # Chats in flight per process; beyond this a request gets a "busy" error instead of stalling the rest.
 MAX_IN_FLIGHT = 16
@@ -80,6 +83,15 @@ _in_flight = 0
 
 class ScopeNotInPortfolioError(Exception):
     pass
+
+
+async def _best_effort(fn, *args):
+    """Conversation history is optional context: a Redis outage must not stop the chat."""
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except Exception:
+        logger.warning("Portfolio chat conversation store call %s failed", getattr(fn, "__name__", fn), exc_info=True)
+        return None
 
 
 class PortfolioChatStreamService:
@@ -109,7 +121,8 @@ class PortfolioChatStreamService:
             raise ScopeNotInPortfolioError(ticker)
         return ticker
 
-    @observe(name="portfolio_chat_classify")
+    # Inputs include conversation history with portfolio figures: trace the decision, not the inputs.
+    @observe(name="portfolio_chat_classify", capture_input=False)
     def _classify(self, *, question: str, tickers: list[str], conversation: str) -> ChatRoute:
         prompt = f"""
 You are a strict JSON classifier for a chat about the user's stock portfolio.
@@ -131,11 +144,7 @@ Output ONLY JSON:
         """.strip()
         try:
             agent = MultiAgent(model_name=CLASSIFIER_MODEL)
-            raw = "".join(
-                chunk
-                for chunk in agent.generate_content(prompt=prompt, use_google_search=False)
-                if isinstance(chunk, str)
-            )
+            raw = "".join(chunk for chunk in agent.generate_private_content(prompt=prompt) if isinstance(chunk, str))
             route = extract_json_object(raw).get("route")
             if route in ("portfolio_only", "needs_search", "unrelated"):
                 return route
@@ -199,8 +208,9 @@ Output ONLY JSON:
     @observe(
         name="portfolio_chat.stream",
         as_type="generation",
+        # Private: answers quote the user's holdings and values. Route/scope go in metadata instead.
         capture_input=False,
-        transform_to_string=extract_answer_text,
+        capture_output=False,
     )
     async def stream(
         self,
@@ -247,13 +257,13 @@ Output ONLY JSON:
     ) -> AsyncGenerator[dict[str, Any], None]:
         langfuse = get_langfuse_client()
         if langfuse:
-            langfuse.update_current_generation(input=question, metadata={"scope_ticker": scope_ticker})
+            langfuse.update_current_generation(metadata={"scope_ticker": scope_ticker})
         ttft_recorded = False
 
         conv_id = conversation_id or generate_conversation_id()
         # Read before appending, so the history never already contains the current question.
-        history = await asyncio.to_thread(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id)
-        await asyncio.to_thread(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question)
+        history = await _best_effort(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id) or []
+        await _best_effort(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question)
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         yield thinking_status("Reading your portfolio…", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
@@ -268,7 +278,7 @@ Output ONLY JSON:
                 return
         # Routing needs only the question and tickers, so it runs while the snapshot loads.
         classify = asyncio.get_running_loop().run_in_executor(
-            CHAT_LLM_POOL,
+            CHAT_CLASSIFIER_POOL,
             contextvars.copy_context().run,
             functools.partial(
                 self._classify, question=question, tickers=[h.ticker for h in holdings], conversation=conversation
@@ -290,7 +300,7 @@ Output ONLY JSON:
             langfuse.update_current_generation(metadata={"scope_ticker": scope_ticker, "route": route})
         if route == "unrelated":
             yield {"type": "answer", "body": UNRELATED_ANSWER}
-            await asyncio.to_thread(append_assistant_message, user_id, CONVERSATION_SCOPE, conv_id, UNRELATED_ANSWER)
+            await _best_effort(append_assistant_message, user_id, CONVERSATION_SCOPE, conv_id, UNRELATED_ANSWER)
             return
 
         sources: list[AnalyzeSource] = []
@@ -323,7 +333,7 @@ Output ONLY JSON:
         agent = MultiAgent(model_name=preferred_model)
         # aclosing: returning on disconnect closes the LLM stream now, not at garbage collection.
         async with contextlib.aclosing(
-            iterate_in_thread(agent.generate_content(prompt=prompt, use_google_search=False), CHAT_LLM_POOL)
+            iterate_in_thread(agent.generate_private_content(prompt=prompt), CHAT_LLM_POOL)
         ) as chunks:
             async for chunk in chunks:
                 if await is_disconnected():
@@ -342,9 +352,13 @@ Output ONLY JSON:
         if tail:
             output.append(tail)
             yield {"type": "answer", "body": tail}
+        # The prompt asks for the disclaimer; enforce it in case the model skips it or is cut off.
+        if not "".join(output).rstrip().endswith(DISCLAIMER):
+            ending = f"\n\n{DISCLAIMER}"
+            output.append(ending)
+            yield {"type": "answer", "body": ending}
 
         if sources:
             yield build_sources_event(sources)
         yield {"type": "model_used", "body": agent.model_name}
-        if output:
-            await asyncio.to_thread(append_assistant_message, user_id, CONVERSATION_SCOPE, conv_id, "".join(output))
+        await _best_effort(append_assistant_message, user_id, CONVERSATION_SCOPE, conv_id, "".join(output))

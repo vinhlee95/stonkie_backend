@@ -209,3 +209,18 @@ def test_period_returns_1w_1m_ytd():
 def test_period_returns_leaves_out_periods_the_history_does_not_reach():
     assert set(period_returns(eur_series([100.0, 101.0, 102.0, 103.0], "2026-03-02"))["periods"]) == set()
     assert set(period_returns(eur_series([100.0] * 10, "2026-03-02"))["periods"]) == {"1W"}
+
+
+def test_period_returns_skips_periods_before_a_late_listing():
+    series = eur_series([float(v) for v in range(100, 144)], "2025-12-29")
+    late = series.index[-4]  # listed three sessions before the last close
+    series = EurSeries(
+        index=series.index,
+        prices={**series.prices, "NEW": pd.Series(50.0, index=series.index)},
+        shares={**series.shares, "NEW": 1.0},
+        benchmark=series.benchmark,
+        first_close={**series.first_close, "NEW": late},
+    )
+
+    # 1W, 1M and YTD all start before NEW's first real close: none can be computed honestly.
+    assert period_returns(series)["periods"] == {}
