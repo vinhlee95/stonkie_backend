@@ -16,8 +16,17 @@ async def iterate_in_thread(iterable: Iterable[T], executor: Executor | None = N
     # Same context for every step, so tracing (langfuse) inside the iterator keeps its parent span.
     context = contextvars.copy_context()
     iterator: Iterator[T] = iter(iterable)
-    while True:
-        item = await loop.run_in_executor(executor, context.run, next, iterator, _DONE)
-        if item is _DONE:
-            return
-        yield item
+    try:
+        while True:
+            item = await loop.run_in_executor(executor, context.run, next, iterator, _DONE)
+            if item is _DONE:
+                return
+            yield item
+    finally:
+        # Stopping early (disconnect) releases the upstream stream instead of waiting for GC.
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            try:
+                close()
+            except ValueError:  # still running in the pool after a cancel; GC closes it later
+                pass

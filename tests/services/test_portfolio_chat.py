@@ -6,7 +6,12 @@ import pandas as pd
 import pytest
 
 from services import portfolio_chat, portfolio_snapshot
-from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource, BraveRetrievalError
+from services.analyze_retrieval.schemas import (
+    AnalyzePassage,
+    AnalyzeRetrievalResult,
+    AnalyzeSource,
+    BraveRetrievalError,
+)
 from services.portfolio_chat import (
     CLASSIFIER_MODEL,
     CONVERSATION_SCOPE,
@@ -207,6 +212,19 @@ def test_search_targets_scope_then_named_then_biggest_movers():
     assert [r["ticker"] for r in targets] == ["TSLA", "AAPL"]
     assert mode == "movers"
     assert search_targets("How does a Fed rate cut affect me?", ROWS, None) == ([], "question")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How risky is my portfolio?",
+        "How do rising interest rates affect my portfolio?",
+        "What risks do China tariffs pose to me?",
+        "How would my holdings perform in a recession?",
+    ],
+)
+def test_unnamed_macro_and_risk_questions_search_the_question(question):
+    assert search_targets(question, ROWS, None) == ([], "question")
 
 
 @pytest.mark.parametrize(
@@ -499,6 +517,18 @@ async def test_disconnect_before_answer_skips_llm():
     append_assistant.assert_not_called()
 
 
+def _passage(source_id, content):
+    return AnalyzePassage(
+        source_id=source_id,
+        url="https://x.test",
+        title="t",
+        publisher="p",
+        is_trusted=True,
+        passage_index=1,
+        content=content,
+    )
+
+
 def _source(source_id):
     return AnalyzeSource(
         id=source_id,
@@ -585,7 +615,7 @@ async def test_two_holding_search_merges_and_dedupes_sources():
         own = _source(f"only-{kwargs['ticker']}")
         return AnalyzeRetrievalResult(
             sources=[_source("shared"), own],
-            selected_passages=[],
+            selected_passages=[_passage("shared", f"shared via {kwargs['ticker']}")],
             query=kwargs["question"],
             market=kwargs["market"],
             request_id=kwargs["request_id"],
@@ -597,6 +627,8 @@ async def test_two_holding_search_merges_and_dedupes_sources():
     ids = [s["source_id"] for s in next(e["body"] for e in events if e["type"] == "sources")]
     assert sorted(ids) == ["only-AAPL", "only-TSLA", "shared"]
     assert FakeAgent.prompts[-1].count("Source [") == 3
+    # The shared source keeps one retrieval's passages, not both.
+    assert FakeAgent.prompts[-1].count("shared via") == 1
 
 
 @pytest.mark.asyncio
@@ -723,3 +755,77 @@ async def test_load_snapshot_empty_portfolio():
     assert snap.returns is None
     assert snap.excluded == []
     assert snap.risk["concentration"] == {"top3_weight": None, "largest_sector": None, "largest_country": None}
+
+
+@pytest.mark.asyncio
+async def test_unexpected_failure_becomes_error_event_and_frees_slot():
+    before = portfolio_chat._in_flight
+
+    events, _, append_assistant = await collect(snap=RuntimeError("bug"))
+
+    assert events[-1] == portfolio_chat.INTERNAL_ERROR
+    assert portfolio_chat._in_flight == before
+    append_assistant.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_history_is_read_before_the_question_is_appended():
+    order = []
+    with (
+        patch.object(portfolio_chat, "MultiAgent", FakeAgent),
+        patch.object(portfolio_chat, "load_snapshot", return_value=snapshot()),
+        patch.object(
+            portfolio_chat, "get_conversation_history_for_prompt", side_effect=lambda *a: order.append("read") or []
+        ),
+        patch.object(portfolio_chat, "append_user_message", side_effect=lambda *a: order.append("append")),
+        patch.object(portfolio_chat, "append_assistant_message"),
+    ):
+        holdings = SimpleNamespace(list_holdings=lambda user_id: [])
+        async for _ in PortfolioChatStreamService(holdings, None, brave_client=object()).stream(
+            user_id="user-1",
+            question="hi",
+            scope_ticker=None,
+            preferred_model="fastest",
+            conversation_id="conv-1",
+            is_disconnected=_connected,
+        ):
+            pass
+
+    assert order == ["read", "append"]
+
+
+@pytest.mark.asyncio
+async def test_slow_classifier_times_out_to_portfolio_answer(monkeypatch):
+    import time as _time
+
+    class SlowClassifier(FakeAgent):
+        def generate_content(self, *, prompt: str, use_google_search: bool):
+            if "strict JSON classifier" in prompt:
+                _time.sleep(0.5)
+                yield '{"route":"unrelated"}'
+                return
+            yield from super().generate_content(prompt=prompt, use_google_search=use_google_search)
+
+    monkeypatch.setattr(portfolio_chat, "CLASSIFIER_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(portfolio_chat, "MultiAgent", SlowClassifier)
+    holdings = SimpleNamespace(list_holdings=lambda user_id: [])
+    with (
+        patch.object(portfolio_chat, "load_snapshot", return_value=snapshot()),
+        patch.object(portfolio_chat, "get_conversation_history_for_prompt", return_value=[]),
+        patch.object(portfolio_chat, "append_user_message"),
+        patch.object(portfolio_chat, "append_assistant_message"),
+    ):
+        events = [
+            e
+            async for e in PortfolioChatStreamService(holdings, None, brave_client=object()).stream(
+                user_id="user-1",
+                question="How am I doing?",
+                scope_ticker=None,
+                preferred_model="fastest",
+                conversation_id="conv-1",
+                is_disconnected=_connected,
+            )
+        ]
+
+    assert UNRELATED_ANSWER not in answer_text(events)
+    assert answer_text(events) == "".join(ANSWER)

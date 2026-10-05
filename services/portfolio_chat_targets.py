@@ -54,7 +54,9 @@ SearchMode = Literal["named", "movers", "question"]
 
 # Questions about price moves; anything else unnamed (macro, rates, sectors) is searched as asked.
 _MOVE_WORDS = re.compile(
-    r"\b(mov|up\b|down\b|drop|fell|fall|ris|rose|gain|los|jump|slid|rall|plung|surg|today|perform)", re.IGNORECASE
+    r"\b(mov(e|es|ed|ing)|up|down|drop(s|ped)?|fell|fall(s|ing)?|rose|gain(s|ed)?|lost|loss(es)?|jump(s|ed)?"
+    r"|slid|rall(y|ied)|plung(e|ed)|surg(e|ed)|tank(ed)?|today|this week)\b",
+    re.IGNORECASE,
 )
 
 

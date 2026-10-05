@@ -640,6 +640,7 @@ def test_chat_streams_events_for_normalised_scope(client, fake_chat):
 
 def test_chat_is_rate_limited_per_user(client, fake_chat, monkeypatch):
     monkeypatch.setattr("services.portfolio_chat.RATE_LIMIT_PER_MINUTE", 1)
+    monkeypatch.setattr("services.rate_limit._now", lambda: 1_800_000_000.0)  # same window throughout
 
     first = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
     second = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())

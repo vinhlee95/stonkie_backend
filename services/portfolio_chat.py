@@ -9,6 +9,7 @@ chat never stalls the event loop, and a per-process cap sheds load instead of qu
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import datetime
 import functools
@@ -53,6 +54,8 @@ logger = logging.getLogger(__name__)
 CONVERSATION_SCOPE = "__portfolio__"
 # Routing is a small decision; a fixed fast model keeps it cheap whatever model the user picked.
 CLASSIFIER_MODEL = ModelName.Gemini31FlashLite
+# A slow provider must not hold the answer (and an in-flight slot) hostage to routing.
+CLASSIFIER_TIMEOUT_SECONDS = 10
 # Blocking LLM and search calls get their own bounded pools, so a burst of chats queues there
 # instead of starving the default executor every other to_thread caller uses.
 CHAT_LLM_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="portfolio-chat-llm")
@@ -69,6 +72,7 @@ UNRELATED_ANSWER = (
     "performance against the S&P 500, risk and concentration, or news affecting what you own."
 )
 BUSY_ERROR = {"type": "error", "code": "busy", "body": "Portfolio chat is busy, please try again in a moment"}
+INTERNAL_ERROR = {"type": "error", "code": "internal", "body": "Something went wrong"}
 UNAVAILABLE_ERROR = {"type": "error", "code": "portfolio_unavailable", "body": "Couldn't load your portfolio"}
 
 _in_flight = 0
@@ -183,11 +187,13 @@ Output ONLY JSON:
         passages: list[AnalyzePassage] = []
         seen: set[str] = set()
         for found_sources, found_passages in results:
+            # A source found for two holdings keeps only the first retrieval's passages.
+            new_ids = {s.id for s in found_sources} - seen
             for source in found_sources:
-                if source.id not in seen:
+                if source.id in new_ids:
                     seen.add(source.id)
                     sources.append(source)
-            passages += found_passages
+            passages += [p for p in found_passages if p.source_id in new_ids]
         return sources, passages
 
     @observe(
@@ -221,6 +227,11 @@ Output ONLY JSON:
                 is_disconnected=is_disconnected,
             ):
                 yield event
+        except Exception:
+            # Caught here, inside @observe: langfuse's wrapper swallows exceptions raised by async
+            # generators, so the router would never see them and the client would get a silent cut-off.
+            logger.exception("Portfolio chat stream failed")
+            yield INTERNAL_ERROR
         finally:
             _in_flight -= 1
 
@@ -240,10 +251,9 @@ Output ONLY JSON:
         ttft_recorded = False
 
         conv_id = conversation_id or generate_conversation_id()
-        history, _ = await asyncio.gather(
-            asyncio.to_thread(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id),
-            asyncio.to_thread(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question),
-        )
+        # Read before appending, so the history never already contains the current question.
+        history = await asyncio.to_thread(get_conversation_history_for_prompt, user_id, CONVERSATION_SCOPE, conv_id)
+        await asyncio.to_thread(append_user_message, user_id, CONVERSATION_SCOPE, conv_id, question)
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         yield thinking_status("Reading your portfolio…", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
@@ -271,7 +281,11 @@ Output ONLY JSON:
             yield UNAVAILABLE_ERROR
             return
         rows = snapshot.portfolio["holdings"]
-        route = await classify
+        try:
+            route = await asyncio.wait_for(classify, CLASSIFIER_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.warning("Portfolio chat classifier timed out; answering from portfolio data")
+            route = "portfolio_only"
         if langfuse:
             langfuse.update_current_generation(metadata={"scope_ticker": scope_ticker, "route": route})
         if route == "unrelated":
@@ -307,21 +321,23 @@ Output ONLY JSON:
         output: list[str] = []
         sanitizer = AnswerSanitizer()
         agent = MultiAgent(model_name=preferred_model)
-        async for chunk in iterate_in_thread(
-            agent.generate_content(prompt=prompt, use_google_search=False), CHAT_LLM_POOL
-        ):
-            if await is_disconnected():
-                return
-            if not isinstance(chunk, str):
-                continue
-            text = sanitizer.feed(chunk)
-            if not text:
-                continue
-            output.append(text)
-            if not ttft_recorded and langfuse:
-                langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
-                ttft_recorded = True
-            yield {"type": "answer", "body": text}
+        # aclosing: returning on disconnect closes the LLM stream now, not at garbage collection.
+        async with contextlib.aclosing(
+            iterate_in_thread(agent.generate_content(prompt=prompt, use_google_search=False), CHAT_LLM_POOL)
+        ) as chunks:
+            async for chunk in chunks:
+                if await is_disconnected():
+                    return
+                if not isinstance(chunk, str):
+                    continue
+                text = sanitizer.feed(chunk)
+                if not text:
+                    continue
+                output.append(text)
+                if not ttft_recorded and langfuse:
+                    langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
+                    ttft_recorded = True
+                yield {"type": "answer", "body": text}
         tail = sanitizer.flush()
         if tail:
             output.append(tail)

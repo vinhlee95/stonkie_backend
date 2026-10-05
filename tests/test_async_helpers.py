@@ -1,3 +1,4 @@
+import contextlib
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 
@@ -45,3 +46,20 @@ async def test_breaking_early_leaves_the_pool_usable():
         async for _ in iterate_in_thread(iter(range(100)), pool):
             break
         assert await collect(iter("ab"), pool) == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_breaking_early_closes_the_underlying_generator():
+    closed = []
+
+    def stream():
+        try:
+            yield from range(100)
+        finally:
+            closed.append(True)
+
+    async with contextlib.aclosing(iterate_in_thread(stream())) as items:
+        async for _ in items:
+            break
+
+    assert closed == [True]

