@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import os
 import re
@@ -26,11 +25,14 @@ from connectors.conversation_store import (
 from connectors.market_recap import MarketRecapConnector, MarketRecapDto
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
+from services.analyze_retrieval.prompt_sources import build_sources_block
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
 from services.analyze_retrieval.source_policy import Market, is_trusted
 from services.market_recap.url_utils import source_id_for
 from services.recap_query_reformulator import RecapQueryReformulator
+from utils.chat_prompt import extract_answer_text, format_conversation
+from utils.json_extract import extract_json_object
 from utils.visual_stream import VisualAnswerStreamSplitter
 
 logger = logging.getLogger(__name__)
@@ -50,16 +52,6 @@ def recap_conversation_scope(recap_id: int) -> str:
 
 def _clean_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
-
-
-def _json_block(text: str) -> dict[str, Any]:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON object found")
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("JSON block is not an object")
-    return parsed
 
 
 def _market_for_recap(recap: MarketRecapDto) -> Market:
@@ -133,20 +125,6 @@ def _build_recap_context(recap: MarketRecapDto) -> str:
             f"({source.get('publisher')}, {published}) {source.get('url')}"
         )
     return "\n".join(lines)
-
-
-def _format_conversation(messages: list[dict[str, str]] | None) -> str:
-    if not messages:
-        return ""
-    lines = []
-    for msg in messages[-6:]:
-        role = (msg.get("role") or "").upper()
-        content = _clean_whitespace(msg.get("content") or "")
-        if role and content:
-            lines.append(f"{role}: {content}")
-    if not lines:
-        return ""
-    return "Recent conversation:\n" + "\n".join(lines)
 
 
 def _asks_after_recap(question: str) -> bool:
@@ -234,43 +212,6 @@ Rules:
     """.strip()
 
 
-def _build_sources_block(
-    retrieval_sources: list[AnalyzeSource],
-    selected_passages: list[AnalyzePassage] | None = None,
-) -> str:
-    if not retrieval_sources:
-        return ""
-    passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
-    for passage in selected_passages or []:
-        passages_by_source_id.setdefault(passage.source_id, []).append(passage)
-    blocks = []
-    for index, source in enumerate(retrieval_sources, start=1):
-        published = source.published_at.isoformat() if source.published_at else "unknown date"
-        content_lines = [
-            f"Passage [{passage.passage_index}]: {passage.content}"
-            for passage in passages_by_source_id.get(source.id, [])
-        ]
-        if not content_lines and source.raw_content:
-            content_lines = [f"Content: {source.raw_content[:1500]}"]
-        blocks.append(
-            "\n".join(
-                [
-                    f"Source [{index}]",
-                    f"Title: {source.title}",
-                    f"Publisher: {source.publisher}",
-                    f"Published: {published}",
-                    f"URL: {source.url}",
-                    *content_lines,
-                ]
-            )
-        )
-    return "\n\n".join(blocks)
-
-
-def _extract_answer_text(chunks: list) -> str:
-    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
-
-
 class RecapAnalyzeStreamService:
     def __init__(self, recap_connector: MarketRecapConnector | None = None) -> None:
         self._recap_connector = recap_connector or MarketRecapConnector()
@@ -318,7 +259,7 @@ Output ONLY JSON:
                 for chunk in agent.generate_content(prompt=prompt, use_google_search=False)
                 if isinstance(chunk, str)
             )
-            parsed = _json_block(raw)
+            parsed = extract_json_object(raw)
             route = parsed.get("route")
             if route == "recap_related":
                 return RecapRelevanceDecision(route="recap_related", reason=str(parsed.get("reason") or ""))
@@ -334,7 +275,7 @@ Output ONLY JSON:
         name="recap_analyze.stream",
         as_type="generation",
         capture_input=False,
-        transform_to_string=_extract_answer_text,
+        transform_to_string=extract_answer_text,
     )
     async def stream(
         self,
@@ -360,7 +301,7 @@ Output ONLY JSON:
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
 
         recap_context = _build_recap_context(recap)
-        conversation_context = _format_conversation(conversation_messages)
+        conversation_context = format_conversation(conversation_messages)
         yield thinking_status("Reading the recap context...", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
         decision = self._classify_relevance(
             question=question,
@@ -408,7 +349,7 @@ Output ONLY JSON:
             source_status = _sources_thinking_status(retrieved_sources)
             if source_status is not None:
                 yield source_status
-            external_context = _build_sources_block(retrieved_sources, selected_passages)
+            external_context = build_sources_block(retrieved_sources, selected_passages)
         else:
             yield thinking_status("Answering from the recap...", phase=AnalysisPhase.ANALYZE, step=2, total_steps=3)
 

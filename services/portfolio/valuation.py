@@ -11,9 +11,10 @@ from connectors.company import CompanyConnector
 from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
-from services.holding_metadata import get_holdings_metadata
-from services.live_quote import get_live_quotes
-from services.price_change import PriceFetchError, get_price_change, get_price_changes
+from services.portfolio.errors import HoldingLimitError, LotLimitError, QuoteUnavailableError, UnknownTickerError
+from services.portfolio.holding_metadata import get_holdings_metadata
+from services.portfolio.live_quote import get_live_quotes
+from services.shared.price_change import PriceFetchError, get_price_change, get_price_changes
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +25,6 @@ MAX_HOLDINGS_PER_USER = 50
 MAX_LOTS_PER_HOLDING = 100
 # Yahoo quotes London listings in pence ("GBp"); normalise to pounds.
 MINOR_UNIT_CURRENCIES = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
-
-
-class UnknownTickerError(Exception):
-    pass
-
-
-class HoldingLimitError(Exception):
-    pass
-
-
-class LotLimitError(Exception):
-    pass
-
-
-class QuoteUnavailableError(Exception):
-    """Yahoo could not be reached, so the ticker could not be validated; retryable."""
 
 
 def resolve_quote(ticker: str, yf_client: YFinanceClient) -> dict:
@@ -114,13 +99,17 @@ def get_portfolio(
     user_id: str,
     portfolio: PortfolioConnector,
     yf_client: YFinanceClient,
-    fx: FxConnector | None = None,
-    companies: CompanyConnector | None = None,
+    fx: FxConnector,
+    companies: CompanyConnector,
+    quotes: dict[str, dict] | None = None,
+    holdings: list[HoldingDto] | None = None,
 ) -> dict:
-    fx = fx or FxConnector(yf_client)
-    holdings = portfolio.list_holdings(user_id)
+    """`quotes` (from get_quotes) and `holdings` can be passed in when the caller already has them."""
+    if holdings is None:
+        holdings = portfolio.list_holdings(user_id)
     tickers = [h.ticker for h in holdings]
-    quotes = get_quotes(tickers, yf_client)
+    if quotes is None:
+        quotes = get_quotes(tickers, yf_client)
     metadata = get_holdings_metadata(tickers, yf_client, companies)
 
     fx_rates: dict[str, float | None] = {}

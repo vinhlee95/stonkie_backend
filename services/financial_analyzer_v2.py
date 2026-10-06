@@ -25,13 +25,10 @@ from services.question_analyzer.handlers_v2 import (
 )
 from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecisionEngine
+from utils.chat_prompt import extract_answer_text
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_answer_text(chunks: list) -> str:
-    return "".join(c.get("body", "") for c in chunks if isinstance(c, dict) and c.get("type") == "answer")
 
 
 class FinancialAnalyzerV2:
@@ -145,7 +142,7 @@ class FinancialAnalyzerV2:
         name="financial_analyzer_v2.analyze_question",
         as_type="generation",
         capture_input=False,
-        transform_to_string=_extract_answer_text,
+        transform_to_string=extract_answer_text,
     )
     async def analyze_question(
         self,

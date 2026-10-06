@@ -97,6 +97,15 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
 
+    def incr(self, key):
+        value = int(self.store.get(key, ("0", -1))[0]) + 1
+        self.store[key] = (str(value), self.store.get(key, (None, -1))[1])
+        return value
+
+    def expire(self, key, ttl):
+        if key in self.store:
+            self.store[key] = (self.store[key][0], ttl)
+
     def ttl(self, key):
         entry = self.store.get(key)
         return entry[1] if entry else -2
@@ -273,7 +282,7 @@ def test_failed_ticker_omitted(make_client):
 
 def _freeze_now(monkeypatch, local_dt: datetime) -> None:
     frozen = local_dt.astimezone(UTC)
-    monkeypatch.setattr("services.price_change._utcnow", lambda: frozen)
+    monkeypatch.setattr("services.shared.price_change._utcnow", lambda: frozen)
 
 
 @pytest.mark.parametrize("tz", [NY_TZ, BERLIN_TZ], ids=["us", "eu"])

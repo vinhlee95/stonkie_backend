@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from connectors.yfinance_client import LiveQuoteDto
-from services import price_history
-from services.portfolio_performance import get_performance
+from services.portfolio import price_history
+from services.portfolio.performance import EurSeries, get_performance, load_eur_series, period_returns
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 
@@ -151,3 +151,76 @@ def test_empty_portfolio_makes_no_yahoo_calls():
 
     assert result == {"base_currency": "EUR", "points": [], "excluded": []}
     assert fake.batch_calls == [] and fake.live_calls == []
+
+
+def test_load_eur_series_exposes_eur_prices_shares_and_first_real_close():
+    histories = {**HISTORIES, "NEW.HE": closes({"2026-09-30": 10.0})}
+    fake = FakeYFinanceClient({}, live_quotes={**LIVE, "NEW.HE": live("EUR")}, close_histories=histories)
+    holdings = FakePortfolio({"AAPL": 2, "VOD.L": 100, "NEW.HE": 3}).holdings
+
+    series, excluded = load_eur_series(holdings, fake)
+
+    assert excluded == []
+    assert series.shares == {"AAPL": 2, "VOD.L": 100, "NEW.HE": 3}
+    # Per-share EUR: 120 USD x 0.8; 200p / 100 x 1.2 GBP→EUR.
+    assert series.prices["AAPL"]["2026-09-30"] == pytest.approx(96.0)
+    assert series.prices["VOD.L"]["2026-09-30"] == pytest.approx(2.4)
+    assert series.first_close["NEW.HE"] == pd.Timestamp("2026-09-30")
+    assert series.first_close["AAPL"] == pd.Timestamp("2026-09-28")
+    assert series.benchmark["2026-09-30"] == pytest.approx(5200 * 0.8)
+
+
+def test_load_eur_series_without_benchmark_is_none_but_reports_exclusions():
+    histories = {k: v for k, v in HISTORIES.items() if k != "^GSPC"}
+    fake = FakeYFinanceClient({}, live_quotes={**LIVE, "NOCCY": live(None)}, close_histories=histories)
+
+    series, excluded = load_eur_series(FakePortfolio({"NOKIA.HE": 1, "NOCCY": 1}).holdings, fake)
+
+    assert series is None
+    assert excluded == ["NOCCY"]
+
+
+def eur_series(values: list[float], start: str, benchmark: list[float] | None = None) -> EurSeries:
+    index = pd.bdate_range(start, periods=len(values))
+    value = pd.Series(values, index=index, dtype=float)
+    return EurSeries(
+        index=index,
+        prices={"A": value},
+        shares={"A": 1.0},
+        benchmark=pd.Series(benchmark or [100.0] * len(values), index=index, dtype=float),
+        first_close={"A": index[0]},
+    )
+
+
+def test_period_returns_1w_1m_ytd():
+    series = eur_series([float(v) for v in range(100, 144)], "2025-12-29")
+    value = series.prices["A"]
+
+    returns = period_returns(series)
+
+    last = value.iloc[-1]
+    assert returns["as_of"] == series.index[-1].date().isoformat()
+    week_base = value[value.index <= series.index[-1] - pd.Timedelta(days=7)].iloc[-1]
+    assert returns["periods"]["1W"]["portfolio"] == pytest.approx(round((last / week_base - 1) * 100, 2))
+    assert returns["periods"]["YTD"]["portfolio"] == pytest.approx(round((last / value["2025-12-31"] - 1) * 100, 2))
+    assert returns["periods"]["1M"]["benchmark"] == 0.0
+
+
+def test_period_returns_leaves_out_periods_the_history_does_not_reach():
+    assert set(period_returns(eur_series([100.0, 101.0, 102.0, 103.0], "2026-03-02"))["periods"]) == set()
+    assert set(period_returns(eur_series([100.0] * 10, "2026-03-02"))["periods"]) == {"1W"}
+
+
+def test_period_returns_skips_periods_before_a_late_listing():
+    series = eur_series([float(v) for v in range(100, 144)], "2025-12-29")
+    late = series.index[-4]  # listed three sessions before the last close
+    series = EurSeries(
+        index=series.index,
+        prices={**series.prices, "NEW": pd.Series(50.0, index=series.index)},
+        shares={**series.shares, "NEW": 1.0},
+        benchmark=series.benchmark,
+        first_close={**series.first_close, "NEW": late},
+    )
+
+    # 1W, 1M and YTD all start before NEW's first real close: none can be computed honestly.
+    assert period_returns(series)["periods"] == {}

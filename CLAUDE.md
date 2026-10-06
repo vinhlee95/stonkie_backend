@@ -12,6 +12,11 @@ See root `../CLAUDE.md` for shared conventions.
 
 **All I/O lives in `connectors/`** — both 3rd-party APIs (Brave, yfinance) AND the database. A connector owns its sessions/SDK and exposes a repository: per-entity `connectors/<entity>.py` with a `<Entity>Connector` class holding `SessionLocal` + the ORM model, read+write methods (`get_*`, `upsert`, `delete_*`), returning **DTOs** (frozen dataclasses). No ORM rows or `Session` objects escape the connector.
 
+**One router → one service, helpers private** (enforced by `tests/architecture/test_service_layering.py`; canonical: `api/portfolio.py` + `services/portfolio/`):
+- `api/<feature>.py` imports only `from services.<feature> import <Feature>Service, …` (plus `*Dto` types). No connector/client imports, construction or `Depends` providers, no service submodule imports.
+- `services/<feature>/service.py` holds the single `<Feature>Service`; it alone constructs connectors (`x or XConnector()`) and passes them to helper modules in the same package. Helpers are private to the package and never construct connectors. Grow by adding helpers in the package, never sibling `services/<feature>_*.py` files.
+- No service-to-service calls: a feature package imports only itself, `services/shared/` and shared libs (`analyze_retrieval`, `analysis_progress`). Logic two features need goes to `services/shared/`.
+
 **Services import/inject connectors and consume DTOs** — never `import SessionLocal`, never write raw SQLAlchemy (`insert`/`select`/`db.query`) in `services/`. Inject the connector as a param/ctor arg (`x or XConnector()`) so tests pass a fake.
 
 - Canonical repository: `connectors/etf_fundamental.py`. Canonical consumer: `services/recap_analyze.py` (injects `MarketRecapConnector`, uses `MarketRecapDto`).

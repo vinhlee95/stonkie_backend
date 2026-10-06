@@ -32,7 +32,7 @@ from models.ticker_recap import TickerRecap
 from scripts.run_market_recap import compute_latest_completed_trading_day
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.schemas import PlannedQuery, RetrievalResult
-from services.price_change import get_price_changes
+from services.shared.price_change import get_price_changes
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("spike_ticker_recap")

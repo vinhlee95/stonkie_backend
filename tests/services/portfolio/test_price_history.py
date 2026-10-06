@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-from services import price_history
-from services.price_history import NO_HISTORY_TTL_SECONDS, PRICE_HISTORY_TTL_SECONDS, get_close_histories
+from services.portfolio import price_history
+from services.portfolio.price_history import NO_HISTORY_TTL_SECONDS, PRICE_HISTORY_TTL_SECONDS, get_close_histories
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 

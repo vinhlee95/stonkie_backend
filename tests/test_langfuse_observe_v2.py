@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.financial_analyzer_v2 import FinancialAnalyzerV2, _extract_answer_text
+from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.search_decision_engine import SearchDecision
+from utils.chat_prompt import extract_answer_text
 
 
 def _make_search_decision():
@@ -54,7 +55,7 @@ def _make_analyzer(classification="company-general", handler_chunks=None):
     return analyzer
 
 
-# --- _extract_answer_text unit tests ---
+# --- extract_answer_text unit tests ---
 
 
 def test_extract_answer_text_filters_only_answer_chunks():
@@ -65,16 +66,16 @@ def test_extract_answer_text_filters_only_answer_chunks():
         {"type": "sources", "body": [{"url": "https://example.com"}]},
         {"type": "model_used", "body": "gemini-2.5-flash"},
     ]
-    assert _extract_answer_text(chunks) == "Tesla was founded by Elon Musk."
+    assert extract_answer_text(chunks) == "Tesla was founded by Elon Musk."
 
 
 def test_extract_answer_text_handles_empty():
-    assert _extract_answer_text([]) == ""
-    assert _extract_answer_text([{"type": "thinking_status", "body": "..."}]) == ""
+    assert extract_answer_text([]) == ""
+    assert extract_answer_text([{"type": "thinking_status", "body": "..."}]) == ""
 
 
 def test_extract_answer_text_handles_non_dict_items():
-    assert _extract_answer_text(["raw string", 42, {"type": "answer", "body": "ok"}]) == "ok"
+    assert extract_answer_text(["raw string", 42, {"type": "answer", "body": "ok"}]) == "ok"
 
 
 # --- Langfuse input ---

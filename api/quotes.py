@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from connectors.yfinance_client import YFinanceClient
-from services.price_change import get_price_changes
+from services.shared.price_change import get_price_changes
 
 router = APIRouter()
 

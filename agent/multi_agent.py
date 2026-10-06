@@ -50,6 +50,12 @@ class MultiAgent:
         """
         return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search)
 
+    @observe(name="generate_content", as_type="generation", capture_input=False, capture_output=False)
+    def generate_private_content(self, prompt: str) -> Iterable[Union[str, dict]]:
+        """generate_content for prompts holding a user's private data (e.g. their portfolio):
+        traced for timing and model only, never the prompt or the answer."""
+        return self.client.stream_chat(prompt=prompt, use_google_search=False)
+
     def generate_content_with_pdf_context(
         self, prompt: str, pdf_content: bytes, filename: str = "document.pdf", pdf_engine: str = "pdf-text"
     ) -> Iterable[str]:

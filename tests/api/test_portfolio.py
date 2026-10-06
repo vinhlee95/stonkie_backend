@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -7,14 +8,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from api.portfolio import get_yfinance_client
+from ai_models.model_mapper import map_frontend_model_to_enum
+from api.portfolio import get_portfolio_service
 from connectors import cache
 from connectors import company as company_connector_module
 from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
-from services import price_history
+from services.portfolio import PortfolioService, price_history
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
 
@@ -31,6 +33,10 @@ INFOS = {
     "NOKIA.HE": {"quoteType": "EQUITY", "sector": "Technology", "country": "Finland"},
 }
 CURRENCIES = {"AAPL": "USD", "NOKIA.HE": "EUR", "VOD.L": "GBp", "BP.L": "GBp"}
+
+
+def _service(yf_client) -> PortfolioService:
+    return PortfolioService(yf_client=yf_client)
 
 
 def auth(sub: str = "google-123") -> dict:
@@ -58,10 +64,10 @@ def client(test_engine, db_session, monkeypatch):
     monkeypatch.setattr(portfolio_connector_module, "SessionLocal", session_local)
     monkeypatch.setattr(company_connector_module, "SessionLocal", session_local)
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, infos=INFOS)
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
     with TestClient(app) as test_client:
         yield test_client
-    app.dependency_overrides.pop(get_yfinance_client, None)
+    app.dependency_overrides.pop(get_portfolio_service, None)
 
 
 def test_requires_auth(client):
@@ -119,7 +125,9 @@ def test_add_values_holdings_in_eur(client):
 
 
 def test_new_ticker_while_yahoo_down_is_retryable(client):
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    )
 
     response = client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
@@ -127,7 +135,7 @@ def test_new_ticker_while_yahoo_down_is_retryable(client):
 
 
 def test_holdings_limit(client, monkeypatch):
-    monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_HOLDINGS_PER_USER", 1)
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     over = client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
@@ -139,7 +147,7 @@ def test_holdings_limit(client, monkeypatch):
 
 def test_holdings_limit_enforced_on_insert(client, monkeypatch):
     # Simulates a concurrent POST: the service pre-check sees no holdings, so the connector must refuse.
-    monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_HOLDINGS_PER_USER", 1)
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "held_tickers", lambda self, user_id: set())
 
@@ -168,7 +176,9 @@ def test_holding_without_fx_rate_is_excluded_from_totals(client):
     client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 100, "price": 2}, headers=auth())
     client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 100, "price": 6000}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(histories, currencies=CURRENCIES)
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient(histories, currencies=CURRENCIES)
+    )
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
     nokia, vod = body["holdings"]
@@ -183,7 +193,7 @@ def test_holding_without_fx_rate_is_excluded_from_totals(client):
 def test_holding_with_unknown_currency_is_not_valued(client):
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     cache.redis_client.store.clear()  # drop the quote PUT cached with a currency
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(HISTORIES, currencies={})
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(FakeYFinanceClient(HISTORIES, currencies={}))
 
     row = client.get("/api/me/portfolio", headers=auth()).json()["holdings"][0]
 
@@ -193,7 +203,7 @@ def test_holding_with_unknown_currency_is_not_valued(client):
 
 def test_unknown_ticker_rejected(client):
     fake = FakeYFinanceClient({"NOPE": make_history([], tz=NY_TZ)})
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     response = client.post("/api/me/portfolio/holdings/NOPE/lots", json={"shares": 1, "price": 1}, headers=auth())
 
@@ -240,7 +250,9 @@ def test_users_are_isolated(client):
 def test_unpriced_holding_is_listed_but_excluded_from_totals(client):
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     cache.redis_client.store.clear()  # drop the quote PUT cached, so GET sees the outage
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    )
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
 
@@ -255,7 +267,7 @@ def test_fx_rate_fetched_once_per_currency(client, monkeypatch):
     client.post("/api/me/portfolio/holdings/BP.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     monkeypatch.setattr("connectors.fx.cache.get_json", lambda key: None)  # force FX cache misses
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES)
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
 
@@ -278,7 +290,7 @@ def test_live_quotes_value_holdings_and_missing_live_falls_back_to_daily_close(c
     client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 100, "price": 2}, headers=auth())
     live_quotes = {"AAPL": live(220.0, 210.0, "USD"), "USDEUR=X": live(0.9, 0.9, "EUR")}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
     aapl, nokia = body["holdings"]
@@ -304,7 +316,7 @@ def test_summary_as_of_is_newest_live_quote(client):
     client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
     live_quotes = {"AAPL": live(220.0, 210.0, "USD", minute=45), "NOKIA.HE": live(4.5, 4.0, "EUR", minute=5)}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     s = client.get("/api/me/portfolio", headers=auth()).json()["summary"]
 
@@ -316,7 +328,7 @@ def test_live_minor_unit_quote_normalised(client):
     client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 100, "price": 6000}, headers=auth())
     live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": live(1.15, 1.15, "EUR")}
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, live_quotes=live_quotes)
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     row = client.get("/api/me/portfolio", headers=auth()).json()["holdings"][0]
 
@@ -340,8 +352,8 @@ def test_live_row_without_fx_still_counts_for_as_of(client):
     client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
     live_quotes = {"VOD.L": live(7300.0, 7200.0, "GBp"), "GBPEUR=X": RuntimeError("fx down")}
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(
-        histories, currencies=CURRENCIES, live_quotes=live_quotes
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient(histories, currencies=CURRENCIES, live_quotes=live_quotes)
     )
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
@@ -354,7 +366,9 @@ def test_live_row_without_fx_still_counts_for_as_of(client):
 def test_delayed_row_without_fx_still_counted(client):
     client.post("/api/me/portfolio/holdings/VOD.L/lots", json={"shares": 1, "price": 1}, headers=auth())
     histories = {**HISTORIES, "GBPEUR=X": RuntimeError("fx down")}
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient(histories, currencies=CURRENCIES)
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient(histories, currencies=CURRENCIES)
+    )
 
     body = client.get("/api/me/portfolio", headers=auth()).json()
 
@@ -405,7 +419,9 @@ def test_minor_unit_lots_are_valued_in_major_currency(client):
 
 def test_add_lot_to_held_ticker_while_yahoo_down(client):
     post_lot(client, "AAPL", shares=10, price=100)
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    )
 
     response = post_lot(client, "AAPL", shares=5, price=100)
 
@@ -413,7 +429,7 @@ def test_add_lot_to_held_ticker_while_yahoo_down(client):
 
 
 def test_lot_limit(client, monkeypatch):
-    monkeypatch.setattr("services.portfolio.MAX_LOTS_PER_HOLDING", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_LOTS_PER_HOLDING", 1)
     post_lot(client, "AAPL")
 
     assert post_lot(client, "AAPL").status_code == 409
@@ -504,7 +520,9 @@ def test_lotless_legacy_holding_is_not_revalidated_on_first_lot(client, test_eng
     with test_engine.begin() as connection:
         connection.execute(text("DELETE FROM portfolio_lots"))
     cache.redis_client.store.clear()  # drop the quote the first POST cached, so a lookup would hit Yahoo
-    app.dependency_overrides[get_yfinance_client] = lambda: FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(
+        FakeYFinanceClient({"AAPL": RuntimeError("down")})
+    )
 
     assert post_lot(client, "AAPL").status_code == 201
 
@@ -532,7 +550,7 @@ def test_performance_series_for_users_holdings(client, monkeypatch):
             "USDEUR=X": pd.Series([0.9, 0.8], index=days),
         },
     )
-    app.dependency_overrides[get_yfinance_client] = lambda: fake
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
 
     body = client.get("/api/me/portfolio/performance", headers=auth()).json()
 
@@ -550,3 +568,117 @@ def test_performance_empty_portfolio(client):
     body = client.get("/api/me/portfolio/performance", headers=auth()).json()
 
     assert body == {"base_currency": "EUR", "points": [], "excluded": []}
+
+
+def _parse_stream(raw: bytes) -> list[dict]:
+    return [json.loads(block) for block in raw.decode().strip().split("\n\n") if block.strip()]
+
+
+class FakeChat:
+    """Real rate limit and scope check; canned answer stream."""
+
+    calls: list[dict] = []
+
+    @staticmethod
+    async def stream_chat(self, **kwargs):
+        FakeChat.calls.append(kwargs)
+        yield {"type": "conversation", "body": {"conversationId": "conv-1"}}
+        yield {"type": "answer", "body": "Hi"}
+
+
+@pytest.fixture()
+def fake_chat(monkeypatch):
+    FakeChat.calls = []
+    monkeypatch.setattr(PortfolioService, "stream_chat", FakeChat.stream_chat)
+    return FakeChat
+
+
+def test_chat_requires_auth(client, fake_chat):
+    assert client.post("/api/me/portfolio/chat", json={"question": "hi"}).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"question": ""},
+        {"question": "   "},
+        {"question": "x" * 2001},
+        {"question": "hi", "scopeTicker": "A" * 33},
+        {"question": "hi", "conversationId": "c" * 101},
+    ],
+)
+def test_chat_rejects_missing_question(client, fake_chat, body):
+    assert client.post("/api/me/portfolio/chat", json=body, headers=auth()).status_code == 422
+
+
+def test_chat_rejects_scope_outside_portfolio(client, fake_chat):
+    post_lot(client, "AAPL")
+
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "NOKIA.HE"}, headers=auth())
+
+    assert res.status_code == 422
+    assert fake_chat.calls == []
+
+
+def test_chat_rejects_another_users_holding(client, fake_chat):
+    post_lot(client, "AAPL", headers=auth("google-456"))
+
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "AAPL"}, headers=auth())
+
+    assert res.status_code == 422
+    assert fake_chat.calls == []
+
+
+def test_chat_blank_scope_means_whole_portfolio(client, fake_chat):
+    res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "  "}, headers=auth())
+
+    assert res.status_code == 200
+    assert fake_chat.calls[0]["scope"].ticker is None
+
+
+def test_chat_streams_events_for_normalised_scope(client, fake_chat):
+    post_lot(client, "AAPL")
+
+    res = client.post(
+        "/api/me/portfolio/chat",
+        json={"question": "  Why is it up?  ", "scopeTicker": " aapl ", "conversationId": "conv-1"},
+        headers=auth(),
+    )
+
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/event-stream")
+    assert [e["type"] for e in _parse_stream(res.content)] == ["conversation", "answer"]
+    call = fake_chat.calls[0]
+    assert (call["question"], call["scope"].ticker, call["conversation_id"]) == ("Why is it up?", "AAPL", "conv-1")
+    assert [h.ticker for h in call["scope"].holdings] == ["AAPL"]
+    assert call["user_id"]
+
+
+def test_chat_is_rate_limited_per_user(client, fake_chat, monkeypatch):
+    monkeypatch.setattr("services.portfolio.chat.RATE_LIMIT_PER_MINUTE", 1)
+    monkeypatch.setattr("services.portfolio.rate_limit._now", lambda: 1_800_000_000.0)  # same window throughout
+
+    first = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
+    second = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
+    other_user = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth("google-456"))
+
+    assert (first.status_code, second.status_code, other_user.status_code) == (200, 429, 200)
+
+
+def test_chat_forwards_mapped_preferred_model(client, fake_chat):
+    client.post("/api/me/portfolio/chat", json={"question": "hi", "preferredModel": "fastest"}, headers=auth())
+
+    assert fake_chat.calls[0]["preferred_model"] == map_frontend_model_to_enum("fastest")
+
+
+def test_chat_stream_failure_becomes_error_event(client, monkeypatch):
+    async def boom(self, **kwargs):
+        yield {"type": "conversation", "body": {"conversationId": "c"}}
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(PortfolioService, "stream_chat", boom)
+
+    events = _parse_stream(client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth()).content)
+
+    assert events[-1] == {"type": "error", "code": "internal", "body": "Something went wrong"}
