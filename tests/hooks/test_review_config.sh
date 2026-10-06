@@ -23,7 +23,7 @@ done
 for a in $ANGLES; do
   p=".github/instructions/review-$a.instructions.md"
   check "$p has checklist" test "$(grep -c '^ *- ' "$p" 2>/dev/null || echo 0)" -ge 3
-  g=".claude/agents/review-$a.md"
+  g=".claude/agents/backend-review-$a.md"
   check "$g refers to guidelines" grep -q '.github/instructions/review-guidelines.instructions.md' "$g"
   check "$g refers to its angle file" grep -q ".github/instructions/review-$a.instructions.md" "$g"
   check "$g has no shell (tools: Read, Grep, Glob)" grep -qx 'tools: Read, Grep, Glob' "$g"
