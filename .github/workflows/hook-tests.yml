@@ -10,6 +10,7 @@ on:
       - ".github/instructions/**"
       - ".claude/agents/**"
       - ".claude/skills/multi-review/**"
+      - ".claude/skills/smoke-test/**"
   push:
     branches: [main]
     paths:
@@ -20,6 +21,7 @@ on:
       - ".github/instructions/**"
       - ".claude/agents/**"
       - ".claude/skills/multi-review/**"
+      - ".claude/skills/smoke-test/**"
 
 jobs:
   hook-tests:
@@ -44,3 +46,8 @@ jobs:
           GITHUB_TOKEN: ""
           GH_TOKEN: ""
         run: bash tests/hooks/test_review_config.sh
+      - name: Run require-smoke-test hook tests
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          bash tests/hooks/test_require_smoke_test.sh

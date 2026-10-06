@@ -17,4 +17,5 @@ scripts/*.pdf
 .claude/worktrees/
 .claude/plans/
 .claude/review-state/
+.claude/smoke-state/
 tmp/

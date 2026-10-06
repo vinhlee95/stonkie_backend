@@ -22,6 +22,10 @@ See root `../CLAUDE.md` for shared conventions.
 - Canonical repository: `connectors/etf_fundamental.py`. Canonical consumer: `services/recap_analyze.py` (injects `MarketRecapConnector`, uses `MarketRecapDto`).
 - **Outlier — do NOT copy:** `market_recap` writes via a service-layer `persistence.py` with an injected `db: Session`. That violates this rule; the connector pattern (e.g. `connectors/ticker_recap.py`) is correct.
 
+## Smoke-test gate
+
+A Stop/SubagentStop hook (`.claude/hooks/require-smoke-test.sh`) won't let an agent finish while runtime code (any non-test `.py` outside `tests/`, `scripts/`, `alembic/`) differs from the default branch without a passing smoke run for the **current** code. Use the `smoke-test` skill: `.claude/skills/smoke-test/smoke.sh status | start | check METHOD PATH | stop`. Evidence lands in `.claude/smoke-state/<fingerprint>.json` (+ `latest.json`); never hand-write it. When a subagent claims runtime work is done, verify with `smoke.sh status` and read the evidence before accepting it.
+
 ## Gotchas
 
 ### `agent.generate_content()` returns mixed types
