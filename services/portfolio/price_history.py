@@ -1,11 +1,11 @@
-"""5y of completed-session daily closes per Yahoo symbol, cached in Redis."""
+"""5y of completed-session daily closes per Yahoo symbol: Redis cache entry format and bar filtering.
+PortfolioService does the I/O."""
 
 import logging
 import math
-from datetime import UTC, date, datetime
+from datetime import date
 
-from connectors import cache
-from connectors.yfinance_client import YFinanceClient
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -18,57 +18,11 @@ PRICE_HISTORY_TTL_SECONDS = 24 * 3600
 NO_HISTORY_TTL_SECONDS = 300
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def get_close_histories(symbols: list[str], yf_client: YFinanceClient) -> dict[str, dict[str, float]]:
-    """Daily closes per symbol as {ISO date: close}, oldest first. Cache misses are fetched in one
-    batched download. Symbols without usable history (or a failed download) are omitted."""
-    symbols = list(dict.fromkeys(symbols))
-    # Bars are dated in exchange-local time; anything dated today (UTC) or later may still be trading.
-    today = _utcnow().date()
-    histories: dict[str, dict[str, float]] = {}
-    misses = []
-    for symbol, cached in zip(symbols, cache.get_json_many([_cache_key(s, today) for s in symbols])):
-        closes = _from_cache(symbol, cached)
-        if closes is None:
-            misses.append(symbol)
-        elif closes:
-            histories[symbol] = closes
-    if not misses:
-        return histories
-
-    try:
-        batch = yf_client.get_close_history_batch(misses)
-    except Exception:
-        logger.warning("Failed to fetch price history for %s", misses, exc_info=True)
-        return histories
-
-    failed = set(batch.failed)
-    for symbol in misses:
-        if symbol in failed:
-            continue  # transient: retried on the next request
-        series = batch.closes.get(symbol)
-        closes = {}
-        if series is not None:
-            closes = {
-                ts.date().isoformat(): float(v) for ts, v in series.items() if ts.date() < today and _is_positive(v)
-            }
-        if not closes:
-            logger.info("No price history for %s", symbol)
-            cache.set_json(_cache_key(symbol, today), {"closes": {}}, NO_HISTORY_TTL_SECONDS)
-            continue
-        histories[symbol] = closes
-        cache.set_json(_cache_key(symbol, today), {"closes": closes}, PRICE_HISTORY_TTL_SECONDS)
-    return histories
-
-
-def _cache_key(symbol: str, today: date) -> str:
+def cache_key(symbol: str, today: date) -> str:
     return f"price_history:{symbol}:5y:{today.isoformat()}"
 
 
-def _from_cache(symbol: str, cached: dict | None) -> dict[str, float] | None:
+def from_cache(symbol: str, cached: dict | None) -> dict[str, float] | None:
     """Cached closes, {} for a symbol known to have none, or None on a miss / invalid entry."""
     if cached is None:
         return None
@@ -84,6 +38,14 @@ def _from_cache(symbol: str, cached: dict | None) -> dict[str, float] | None:
         logger.warning("Invalid cached price history for %s", symbol)
         return None
     return closes
+
+
+def completed_closes(series: pd.Series | None, today: date) -> dict[str, float]:
+    """{ISO date: close} for valid bars dated before `today` (UTC). Bars are dated in exchange-local
+    time; anything dated today or later may still be trading."""
+    if series is None:
+        return {}
+    return {ts.date().isoformat(): float(v) for ts, v in series.items() if ts.date() < today and _is_positive(v)}
 
 
 def _is_positive(value) -> bool:

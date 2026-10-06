@@ -16,7 +16,8 @@ from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
-from services.portfolio import PortfolioService, price_history
+from services.portfolio import PortfolioService
+from services.portfolio import service as portfolio_service
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
 
@@ -535,7 +536,7 @@ def test_purchase_date_error_names_the_allowed_window(client):
 
 
 def test_performance_series_for_users_holdings(client, monkeypatch):
-    monkeypatch.setattr(price_history, "_utcnow", lambda: datetime(2026, 10, 2, 12, tzinfo=UTC))
+    monkeypatch.setattr(portfolio_service, "_utcnow", lambda: datetime(2026, 10, 2, 12, tzinfo=UTC))
     post_lot(client, "AAPL", shares=2)
     post_lot(client, "NOKIA.HE", shares=10)
     post_lot(client, "AAPL", shares=99, headers=auth("someone-else"))
@@ -657,7 +658,9 @@ def test_chat_streams_events_for_normalised_scope(client, fake_chat):
 
 def test_chat_is_rate_limited_per_user(client, fake_chat, monkeypatch):
     monkeypatch.setattr("services.portfolio.chat.RATE_LIMIT_PER_MINUTE", 1)
-    monkeypatch.setattr("services.portfolio.rate_limit._now", lambda: 1_800_000_000.0)  # same window throughout
+    monkeypatch.setattr(
+        portfolio_service, "_utcnow", lambda: datetime.fromtimestamp(1_800_000_000, UTC)
+    )  # same window throughout
 
     first = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
     second = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())

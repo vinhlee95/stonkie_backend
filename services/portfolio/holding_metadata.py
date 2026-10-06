@@ -1,15 +1,13 @@
 """Per-holding classification (sector, country, asset type) for portfolio allocation.
 
-Sources, in order: Redis cache, stored company fundamentals, Yahoo `Ticker.info`.
+Sources, in order: Redis cache, stored company fundamentals, Yahoo `Ticker.info`. PortfolioService
+reads them; this module turns each into a HoldingMetadata.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict
 
-from connectors import cache
-from connectors.company import CompanyClassificationDto, CompanyConnector
-from connectors.yfinance_client import YFinanceClient
+from connectors.company import CompanyClassificationDto
 
 logger = logging.getLogger(__name__)
 
@@ -31,57 +29,27 @@ class HoldingMetadata(TypedDict):
     asset_type: str
 
 
-def get_holdings_metadata(
-    tickers: list[str], yf_client: YFinanceClient, companies: CompanyConnector
-) -> dict[str, HoldingMetadata]:
-    """Metadata for every ticker; unknown fields are "Other". Never raises."""
-    result: dict[str, HoldingMetadata] = {}
-    misses = []
-    for ticker, cached in zip(tickers, cache.get_json_many([_cache_key(t) for t in tickers])):
-        if cached is not None and set(cached) >= set(HoldingMetadata.__annotations__):
-            result[ticker] = HoldingMetadata(
-                sector=cached["sector"], country=cached["country"], asset_type=cached["asset_type"]
-            )
-        else:
-            misses.append(ticker)
-    if not misses:
-        return result
-
-    stored = _stored_classifications(misses, companies)
-    fetch = []
-    for ticker in misses:
-        row = stored.get(ticker)
-        if row and row.sector and row.country:
-            # Only companies (not funds) get fundamentals rows.
-            _store(result, ticker, _metadata(row.sector, row.country, "Stock"), METADATA_TTL_SECONDS)
-        else:
-            fetch.append(ticker)
-
-    if fetch:
-        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(fetch))) as pool:
-            fetched = pool.map(lambda t: _from_yahoo(t, yf_client), fetch)
-        for ticker, meta in zip(fetch, fetched):
-            if meta is None:
-                _store(result, ticker, _metadata("", "", ""), FAILED_TTL_SECONDS)
-            else:
-                _store(result, ticker, meta, METADATA_TTL_SECONDS)
-    return result
+def cache_key(ticker: str) -> str:
+    return f"holding_meta:{ticker}"
 
 
-def _stored_classifications(tickers: list[str], companies: CompanyConnector) -> dict[str, CompanyClassificationDto]:
-    try:
-        return companies.get_classifications(tickers)
-    except Exception:
-        logger.warning("Failed to read stored classifications", exc_info=True)
-        return {}
-
-
-def _from_yahoo(ticker: str, yf_client: YFinanceClient) -> HoldingMetadata | None:
-    try:
-        info = yf_client.get_info(ticker)
-    except Exception:
-        logger.warning("Failed to fetch metadata for %s", ticker, exc_info=True)
+def from_cache(cached: dict | None) -> HoldingMetadata | None:
+    """The cached metadata, or None on a miss / partial entry."""
+    if cached is None or not set(cached) >= set(HoldingMetadata.__annotations__):
         return None
+    return HoldingMetadata(sector=cached["sector"], country=cached["country"], asset_type=cached["asset_type"])
+
+
+def from_stored(row: CompanyClassificationDto | None) -> HoldingMetadata | None:
+    """Metadata from a stored fundamentals row; None when it lacks a sector or country."""
+    if not (row and row.sector and row.country):
+        return None
+    # Only companies (not funds) get fundamentals rows.
+    return _metadata(row.sector, row.country, "Stock")
+
+
+def from_info(ticker: str, info: dict) -> HoldingMetadata | None:
+    """Metadata from Yahoo `Ticker.info`; None when Yahoo answered without a quote type."""
     quote_type = str(info.get("quoteType") or "").upper()
     if not quote_type:
         # Yahoo sometimes answers {} instead of raising when flaky; don't cache that for a week.
@@ -91,6 +59,10 @@ def _from_yahoo(ticker: str, yf_client: YFinanceClient) -> HoldingMetadata | Non
     # Funds span sectors; Yahoo's occasional ETF "sector" is its largest holding's, not the fund's.
     sector = ETF_SECTOR if asset_type == "ETF" else info.get("sector") or ""
     return _metadata(sector, info.get("country") or "", asset_type)
+
+
+def unknown() -> HoldingMetadata:
+    return _metadata("", "", "")
 
 
 def _metadata(sector: str, country: str, asset_type: str) -> HoldingMetadata:
@@ -105,12 +77,3 @@ def _normalise(label: str) -> str:
     """Alpha Vantage upper-cases sectors ("CONSUMER CYCLICAL"); Yahoo title-cases them."""
     label = label.strip()
     return label.title() if label.isupper() else label
-
-
-def _store(result: dict[str, HoldingMetadata], ticker: str, meta: HoldingMetadata, ttl_seconds: int) -> None:
-    result[ticker] = meta
-    cache.set_json(_cache_key(ticker), dict(meta), ttl_seconds)
-
-
-def _cache_key(ticker: str) -> str:
-    return f"holding_meta:{ticker}"

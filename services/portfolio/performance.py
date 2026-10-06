@@ -2,23 +2,21 @@
 
 Lot purchase dates are not used yet, so the series back-tests the *current* holdings: today's
 shares priced at each day's close and FX rate. Both lines are value levels; clients rebase them per range.
+PortfolioService fetches quotes and close histories; this module turns them into EUR series.
 """
 
 from dataclasses import dataclass
 
 import pandas as pd
 
-from connectors.portfolio import PortfolioConnector
-from connectors.yfinance_client import YFinanceClient
-from services.portfolio.price_history import get_close_histories
-from services.portfolio.valuation import BASE_CURRENCY, MINOR_UNIT_CURRENCIES, get_quotes
+from services.portfolio.valuation import BASE_CURRENCY, MINOR_UNIT_CURRENCIES
 
 BENCHMARK_SYMBOL = "^GSPC"
 BENCHMARK_CURRENCY = "USD"
 
 
 @dataclass(frozen=True)
-class _Position:
+class Position:
     ticker: str
     shares: float
     currency: str
@@ -41,17 +39,11 @@ class EurSeries:
         return sum(self.prices[t] * self.shares[t] for t in self.prices)
 
 
-def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient) -> dict:
-    holdings = portfolio.list_holdings(user_id)
-    result = {"base_currency": BASE_CURRENCY, "points": [], "excluded": []}
-    if not holdings:
-        return result
-
-    series, excluded = load_eur_series(holdings, yf_client)
-    result["excluded"] = excluded
+def performance_result(series: EurSeries | None, excluded: list[str]) -> dict:
+    """The performance chart payload; no points when nothing could be priced."""
+    result = {"base_currency": BASE_CURRENCY, "points": [], "excluded": excluded}
     if series is None:
         return result
-
     portfolio_value = series.portfolio_value()
     result["points"] = [
         {"date": day.date().isoformat(), "portfolio_value": round(pv, 2), "benchmark_value": round(bv, 2)}
@@ -60,17 +52,10 @@ def get_performance(user_id: str, portfolio: PortfolioConnector, yf_client: YFin
     return result
 
 
-def load_eur_series(
-    holdings: list, yf_client: YFinanceClient, quotes: dict[str, dict] | None = None
-) -> tuple[EurSeries | None, list[str]]:
-    """EUR series for `holdings` (anything with .ticker and .shares) plus the sorted tickers left out
-    for lacking a quote currency or history. None when no holding or the benchmark can be priced.
-    `quotes` (from get_quotes) can be passed in when the caller already fetched them."""
-    if not holdings:
-        return None, []
-    if quotes is None:
-        quotes = get_quotes([h.ticker for h in holdings], yf_client)
-    positions, excluded = [], []
+def positions_for(holdings: list, quotes: dict[str, dict]) -> tuple[list[Position], list[str]]:
+    """Positions for `holdings` (anything with .ticker and .shares) plus the tickers left out for
+    lacking a quote currency. `quotes` as from PortfolioService quotes."""
+    result, excluded = [], []
     for h in holdings:
         currency = (quotes.get(h.ticker) or {}).get("currency")
         if not currency:
@@ -78,13 +63,21 @@ def load_eur_series(
             excluded.append(h.ticker)
             continue
         currency, divisor = MINOR_UNIT_CURRENCIES.get(currency, (currency, 1))
-        positions.append(_Position(h.ticker, h.shares, currency, divisor))
+        result.append(Position(h.ticker, h.shares, currency, divisor))
+    return result, excluded
 
-    currencies = {p.currency for p in positions} | {BENCHMARK_CURRENCY}
-    fx_symbols = {c: _fx_symbol(c) for c in currencies if c != BASE_CURRENCY}
-    histories = get_close_histories(
-        [p.ticker for p in positions] + [BENCHMARK_SYMBOL] + list(fx_symbols.values()), yf_client
-    )
+
+def history_symbols(positions: list[Position]) -> list[str]:
+    """Every symbol build_eur_series needs close histories for: holdings, benchmark and FX pairs."""
+    return [p.ticker for p in positions] + [BENCHMARK_SYMBOL] + list(_fx_symbols(positions).values())
+
+
+def build_eur_series(
+    positions: list[Position], excluded: list[str], histories: dict[str, dict[str, float]]
+) -> tuple[EurSeries | None, list[str]]:
+    """EUR series for `positions` plus the sorted tickers left out (`excluded` and those lacking
+    history). None when no position or the benchmark can be priced."""
+    fx_symbols = _fx_symbols(positions)
 
     def has_history(currency: str, symbol: str) -> bool:
         return symbol in histories and (currency == BASE_CURRENCY or fx_symbols[currency] in histories)
@@ -144,8 +137,9 @@ def period_returns(series: EurSeries) -> dict:
     return {"as_of": last.date().isoformat(), "periods": periods}
 
 
-def _fx_symbol(currency: str) -> str:
-    return f"{currency}{BASE_CURRENCY}=X"
+def _fx_symbols(positions: list[Position]) -> dict[str, str]:
+    currencies = {p.currency for p in positions} | {BENCHMARK_CURRENCY}
+    return {c: f"{c}{BASE_CURRENCY}=X" for c in currencies if c != BASE_CURRENCY}
 
 
 def _to_series(closes: dict[str, float]) -> pd.Series:

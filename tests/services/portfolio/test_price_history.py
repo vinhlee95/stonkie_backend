@@ -4,8 +4,9 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-from services.portfolio import price_history
-from services.portfolio.price_history import NO_HISTORY_TTL_SECONDS, PRICE_HISTORY_TTL_SECONDS, get_close_histories
+from services.portfolio import PortfolioService
+from services.portfolio import service as portfolio_service
+from services.portfolio.price_history import NO_HISTORY_TTL_SECONDS, PRICE_HISTORY_TTL_SECONDS
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 
@@ -19,6 +20,12 @@ AAPL = closes({"2026-09-30": 250.0, "2026-10-01": 255.0})
 GSPC = closes({"2026-09-30": 6600.0, "2026-10-01": 6650.0})
 
 
+def get_close_histories(symbols, yf_client):
+    return PortfolioService(portfolio=object(), yf_client=yf_client, fx=object(), companies=object())._close_histories(
+        symbols
+    )
+
+
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
     fake = FakeRedis()
@@ -28,7 +35,7 @@ def fake_redis(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fixed_now(monkeypatch):
-    monkeypatch.setattr(price_history, "_utcnow", lambda: datetime(2026, 10, 2, 15, 0, tzinfo=UTC))
+    monkeypatch.setattr(portfolio_service, "_utcnow", lambda: datetime(2026, 10, 2, 15, 0, tzinfo=UTC))
 
 
 def test_fetches_misses_in_one_batch_and_caches_each_symbol(fake_redis):
@@ -112,7 +119,7 @@ def test_new_utc_day_refetches_so_all_symbols_share_one_cutoff(monkeypatch):
     fake = FakeYFinanceClient({}, close_histories={"AAPL": closes({"2026-10-01": 255.0, "2026-10-02": 258.0})})
     assert get_close_histories(["AAPL"], fake) == {"AAPL": {"2026-10-01": 255.0}}
 
-    monkeypatch.setattr(price_history, "_utcnow", lambda: datetime(2026, 10, 3, 0, 30, tzinfo=UTC))
+    monkeypatch.setattr(portfolio_service, "_utcnow", lambda: datetime(2026, 10, 3, 0, 30, tzinfo=UTC))
 
     assert get_close_histories(["AAPL"], fake) == {"AAPL": {"2026-10-01": 255.0, "2026-10-02": 258.0}}
     assert len(fake.batch_calls) == 2

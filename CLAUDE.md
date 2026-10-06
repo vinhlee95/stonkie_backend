@@ -2,6 +2,16 @@
 
 See root `../CLAUDE.md` for shared conventions.
 
+## Scope Discipline (always)
+
+Stay inside the task the user asked for. Applies equally to review feedback (Copilot, `/multi-review`, CI autofix events).
+
+- Fix only what the task / comment needs in the files it touches. Problems found elsewhere (other feature packages, unrelated modules) → flag via spawn_task chip or mention in chat; never fix in the current branch/PR.
+- If a review comment can only be satisfied by out-of-scope work (e.g. refactoring another package), don't do it: reply on the thread explaining it's tracked separately, then resolve.
+- Never duplicate work already handed to another session/background task.
+- Optional improvements (medium/low findings, extra tests, refactors) → list them and ask; don't fold them in unasked.
+- Unsure whether something is in scope → ask before editing.
+
 ## Critical: Virtual Environment
 
 **ALWAYS activate venv before ANY Python command:** `source venv/bin/activate`
@@ -14,7 +24,7 @@ See root `../CLAUDE.md` for shared conventions.
 
 **One router → one service, helpers private** (enforced by `tests/architecture/test_service_layering.py`; canonical: `api/portfolio.py` + `services/portfolio/`):
 - `api/<feature>.py` imports only `from services.<feature> import <Feature>Service, …` (plus `*Dto` types). No connector/client imports, construction or `Depends` providers, no service submodule imports.
-- `services/<feature>/service.py` holds the single `<Feature>Service`; it alone constructs connectors (`x or XConnector()`) and passes them to helper modules in the same package. Helpers are private to the package and never construct connectors. Grow by adding helpers in the package, never sibling `services/<feature>_*.py` files.
+- `services/<feature>/service.py` holds the single `<Feature>Service`; it alone imports, constructs (`x or XConnector()`) and calls connectors/clients (incl. Redis `cache`, LLM agents, langfuse). Helper modules in the package are **pure functions**: they take DTOs/plain data, never a connector/client argument, and import only `*Dto` types from `connectors`. Helpers are private to the package. Grow by adding helpers in the package, never sibling `services/<feature>_*.py` files.
 - No service-to-service calls: a feature package imports only itself, `services/shared/` and shared libs (`analyze_retrieval`, `analysis_progress`). Logic two features need goes to `services/shared/`.
 
 **Services import/inject connectors and consume DTOs** — never `import SessionLocal`, never write raw SQLAlchemy (`insert`/`select`/`db.query`) in `services/`. Inject the connector as a param/ctor arg (`x or XConnector()`) so tests pass a fake.
