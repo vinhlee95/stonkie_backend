@@ -12,6 +12,8 @@ See root `../CLAUDE.md` for shared conventions.
 
 **All I/O lives in `connectors/`** — both 3rd-party APIs (Brave, yfinance) AND the database. A connector owns its sessions/SDK and exposes a repository: per-entity `connectors/<entity>.py` with a `<Entity>Connector` class holding `SessionLocal` + the ORM model, read+write methods (`get_*`, `upsert`, `delete_*`), returning **DTOs** (frozen dataclasses). No ORM rows or `Session` objects escape the connector.
 
+**Routers (`api/`) call service methods only** — never import, construct or `Depends`-inject connectors/clients, and never pass them into services. Expose a service provider (`Depends(get_portfolio_service)`) instead; routers may import only `*Dto` types from `connectors`. Enforced by `tests/architecture/test_router_layering.py`.
+
 **Services import/inject connectors and consume DTOs** — never `import SessionLocal`, never write raw SQLAlchemy (`insert`/`select`/`db.query`) in `services/`. Inject the connector as a param/ctor arg (`x or XConnector()`) so tests pass a fake.
 
 - Canonical repository: `connectors/etf_fundamental.py`. Canonical consumer: `services/recap_analyze.py` (injects `MarketRecapConnector`, uses `MarketRecapDto`).
