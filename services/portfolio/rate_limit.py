@@ -1,15 +1,10 @@
-"""Fixed-window per-user rate limits backed by Redis. Fails open when Redis is down."""
-
-import time
-
-from connectors import cache
+"""Fixed-window per-user rate limits. PortfolioService keeps the counters in Redis and fails open."""
 
 
-def _now() -> float:
-    return time.time()
+def window_key(scope: str, user_id: str, now: float, window_seconds: int) -> str:
+    return f"rate:{scope}:{user_id}:{int(now) // window_seconds}"
 
 
-def allow(scope: str, user_id: str, limit: int, window_seconds: int) -> bool:
-    window = int(_now()) // window_seconds
-    count = cache.incr_with_ttl(f"rate:{scope}:{user_id}:{window}", window_seconds)
+def within_limit(count: int | None, limit: int) -> bool:
+    """`count` is None when the counter store is down: fail open."""
     return count is None or count <= limit

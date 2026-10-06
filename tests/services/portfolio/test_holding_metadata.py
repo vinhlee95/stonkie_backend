@@ -4,7 +4,8 @@ import pytest
 import redis
 
 from connectors.company import CompanyClassificationDto
-from services.portfolio.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS, get_holdings_metadata
+from services.portfolio import PortfolioService
+from services.portfolio.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 
@@ -25,6 +26,12 @@ def fake_redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr("connectors.cache.redis_client", fake)
     return fake
+
+
+def get_holdings_metadata(tickers, yf_client, companies):
+    return PortfolioService(
+        portfolio=object(), yf_client=yf_client, fx=object(), companies=companies
+    )._holdings_metadata(tickers)
 
 
 def meta(sector, country, asset_type):

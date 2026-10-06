@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 
 from connectors.yfinance_client import LiveQuoteDto
-from services.portfolio import price_history
-from services.portfolio.performance import EurSeries, get_performance, load_eur_series, period_returns
+from services.portfolio import PortfolioService
+from services.portfolio import service as portfolio_service
+from services.portfolio.performance import EurSeries, period_returns
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 
@@ -52,12 +53,16 @@ def fake_redis(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fixed_now(monkeypatch):
-    monkeypatch.setattr(price_history, "_utcnow", lambda: datetime(2026, 10, 2, 12, 0, tzinfo=UTC))
+    monkeypatch.setattr(portfolio_service, "_utcnow", lambda: datetime(2026, 10, 2, 12, 0, tzinfo=UTC))
+
+
+def service(yf_client, portfolio=None) -> PortfolioService:
+    return PortfolioService(portfolio=portfolio or object(), yf_client=yf_client, fx=object(), companies=object())
 
 
 def run(holdings: dict[str, float], histories=HISTORIES, live_quotes=LIVE) -> tuple[dict, FakeYFinanceClient]:
     fake = FakeYFinanceClient({}, live_quotes=live_quotes, close_histories=histories)
-    return get_performance("user-1", FakePortfolio(holdings), fake), fake
+    return service(fake, FakePortfolio(holdings)).get_performance("user-1"), fake
 
 
 def by_date(result: dict) -> dict[str, tuple[float, float]]:
@@ -153,12 +158,12 @@ def test_empty_portfolio_makes_no_yahoo_calls():
     assert fake.batch_calls == [] and fake.live_calls == []
 
 
-def test_load_eur_series_exposes_eur_prices_shares_and_first_real_close():
+def test_eur_series_exposes_eur_prices_shares_and_first_real_close():
     histories = {**HISTORIES, "NEW.HE": closes({"2026-09-30": 10.0})}
     fake = FakeYFinanceClient({}, live_quotes={**LIVE, "NEW.HE": live("EUR")}, close_histories=histories)
     holdings = FakePortfolio({"AAPL": 2, "VOD.L": 100, "NEW.HE": 3}).holdings
 
-    series, excluded = load_eur_series(holdings, fake)
+    series, excluded = service(fake)._eur_series(holdings)
 
     assert excluded == []
     assert series.shares == {"AAPL": 2, "VOD.L": 100, "NEW.HE": 3}
@@ -170,11 +175,11 @@ def test_load_eur_series_exposes_eur_prices_shares_and_first_real_close():
     assert series.benchmark["2026-09-30"] == pytest.approx(5200 * 0.8)
 
 
-def test_load_eur_series_without_benchmark_is_none_but_reports_exclusions():
+def test_eur_series_without_benchmark_is_none_but_reports_exclusions():
     histories = {k: v for k, v in HISTORIES.items() if k != "^GSPC"}
     fake = FakeYFinanceClient({}, live_quotes={**LIVE, "NOCCY": live(None)}, close_histories=histories)
 
-    series, excluded = load_eur_series(FakePortfolio({"NOKIA.HE": 1, "NOCCY": 1}).holdings, fake)
+    series, excluded = service(fake)._eur_series(FakePortfolio({"NOKIA.HE": 1, "NOCCY": 1}).holdings)
 
     assert series is None
     assert excluded == ["NOCCY"]

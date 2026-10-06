@@ -1,22 +1,10 @@
-"""Portfolio valuation: holdings + live quotes + FX, all reported in EUR.
+"""Portfolio valuation: holdings + quotes + FX, all reported in EUR. PortfolioService fetches the inputs.
 
 Holdings without a live quote fall back to the last completed daily close and are flagged delayed.
 """
 
-import logging
-from collections.abc import Callable
-from datetime import date
-
-from connectors.company import CompanyConnector
-from connectors.fx import FxConnector
-from connectors.portfolio import HoldingDto, HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
-from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
-from services.portfolio.errors import HoldingLimitError, LotLimitError, QuoteUnavailableError, UnknownTickerError
-from services.portfolio.holding_metadata import get_holdings_metadata
-from services.portfolio.live_quote import get_live_quotes
-from services.shared.price_change import PriceFetchError, get_price_change, get_price_changes
-
-logger = logging.getLogger(__name__)
+from connectors.portfolio import HoldingDto, LotDto
+from connectors.yfinance_client import LiveQuoteDto
 
 BASE_CURRENCY = "EUR"
 # Bounds GET cost: valuation fetches one quote per holding (mirrors the /api/quotes 50-ticker cap).
@@ -25,65 +13,6 @@ MAX_HOLDINGS_PER_USER = 50
 MAX_LOTS_PER_HOLDING = 100
 # Yahoo quotes London listings in pence ("GBp"); normalise to pounds.
 MINOR_UNIT_CURRENCIES = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
-
-
-def resolve_quote(ticker: str, yf_client: YFinanceClient) -> dict:
-    """Latest quote for a ticker. Raises UnknownTickerError when Yahoo has no usable price and
-    QuoteUnavailableError when the fetch itself fails."""
-    try:
-        quote = get_price_change(ticker, yf_client)
-    except PriceFetchError:
-        raise QuoteUnavailableError(ticker) from None
-    if quote is None:
-        raise UnknownTickerError(ticker)
-    return quote
-
-
-def add_lot(
-    *,
-    user_id: str,
-    ticker: str,
-    name: str | None,
-    shares: float,
-    price: float,
-    purchased_on: date | None,
-    portfolio: PortfolioConnector,
-    yf_client: YFinanceClient,
-) -> LotDto:
-    existing = portfolio.held_tickers(user_id)
-    if ticker not in existing:
-        # Fail fast before hitting Yahoo; the connector re-checks atomically on insert.
-        if len(existing) >= MAX_HOLDINGS_PER_USER:
-            raise HoldingLimitError(ticker)
-        # Only new tickers are validated, so adding to a held position still works while Yahoo is down.
-        resolve_quote(ticker, yf_client)
-    try:
-        return portfolio.add_lot(
-            user_id=user_id,
-            ticker=ticker,
-            name=name,
-            shares=shares,
-            price=price,
-            purchased_on=purchased_on,
-            max_holdings=MAX_HOLDINGS_PER_USER,
-            max_lots=MAX_LOTS_PER_HOLDING,
-        )
-    except HoldingLimitExceeded:
-        raise HoldingLimitError(ticker) from None
-    except LotLimitExceeded:
-        raise LotLimitError(ticker) from None
-
-
-def update_lot(*, user_id: str, lot_id, changes: dict, portfolio: PortfolioConnector) -> LotDto | None:
-    return portfolio.update_lot(user_id=user_id, lot_id=lot_id, changes=changes)
-
-
-def remove_lot(*, user_id: str, lot_id, portfolio: PortfolioConnector) -> bool:
-    return portfolio.delete_lot(user_id=user_id, lot_id=lot_id)
-
-
-def remove_holding(*, user_id: str, ticker: str, portfolio: PortfolioConnector) -> bool:
-    return portfolio.delete_holding(user_id=user_id, ticker=ticker)
 
 
 def lot_to_dict(lot: LotDto) -> dict:
@@ -95,31 +24,24 @@ def lot_to_dict(lot: LotDto) -> dict:
     }
 
 
-def get_portfolio(
-    user_id: str,
-    portfolio: PortfolioConnector,
-    yf_client: YFinanceClient,
-    fx: FxConnector,
-    companies: CompanyConnector,
-    quotes: dict[str, dict] | None = None,
-    holdings: list[HoldingDto] | None = None,
+def fx_currencies(holdings: list[HoldingDto], quotes: dict[str, dict]) -> set[str]:
+    """Major currencies the holdings are quoted in, i.e. the FX rates value_portfolio needs."""
+    currencies = set()
+    for h in holdings:
+        currency = (quotes.get(h.ticker) or {}).get("currency")
+        if currency:
+            currencies.add(MINOR_UNIT_CURRENCIES.get(currency, (currency, 1))[0])
+    return currencies
+
+
+def value_portfolio(
+    holdings: list[HoldingDto],
+    quotes: dict[str, dict],
+    metadata: dict[str, dict],
+    fx_rates: dict[str, float | None],
 ) -> dict:
-    """`quotes` (from get_quotes) and `holdings` can be passed in when the caller already has them."""
-    if holdings is None:
-        holdings = portfolio.list_holdings(user_id)
-    tickers = [h.ticker for h in holdings]
-    if quotes is None:
-        quotes = get_quotes(tickers, yf_client)
-    metadata = get_holdings_metadata(tickers, yf_client, companies)
-
-    fx_rates: dict[str, float | None] = {}
-
-    def fx_for(currency: str) -> float | None:
-        if currency not in fx_rates:
-            fx_rates[currency] = fx.get_live_rate(currency, BASE_CURRENCY)
-        return fx_rates[currency]
-
-    rows = [{**_value_holding(h, quotes.get(h.ticker), fx_for), **metadata[h.ticker]} for h in holdings]
+    """`fx_rates` maps each of fx_currencies() to its EUR rate (None when unavailable)."""
+    rows = [{**_value_holding(h, quotes.get(h.ticker), fx_rates), **metadata[h.ticker]} for h in holdings]
     priced = [r for r in rows if r["value"] is not None]
 
     total_value = sum(r["value"] for r in priced)
@@ -151,19 +73,12 @@ def get_portfolio(
     }
 
 
-def get_quotes(tickers: list[str], yf_client: YFinanceClient) -> dict[str, dict]:
-    """Live quote per ticker; tickers without one fall back to the last completed daily close."""
-    if not tickers:
-        return {}
-    quotes = {t: _live_to_quote(q) for t, q in get_live_quotes(tickers, yf_client).items()}
-    missing = [t for t in tickers if t not in quotes]
-    if missing:
-        for ticker, quote in get_price_changes(missing, yf_client).items():
-            quotes[ticker] = {**quote, "as_of": None, "delayed": True}
-    return quotes
+def delayed_quote(quote: dict) -> dict:
+    """A last-completed-daily-close quote, used when a ticker has no live quote."""
+    return {**quote, "as_of": None, "delayed": True}
 
 
-def _live_to_quote(q: LiveQuoteDto) -> dict:
+def live_to_quote(q: LiveQuoteDto) -> dict:
     return {
         "close": q.price,
         "prev_close": q.prev_close,
@@ -175,7 +90,7 @@ def _live_to_quote(q: LiveQuoteDto) -> dict:
     }
 
 
-def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], float | None]) -> dict:
+def _value_holding(h: HoldingDto, quote: dict | None, fx_rates: dict[str, float | None]) -> dict:
     row = {
         "ticker": h.ticker,
         "name": h.name,
@@ -221,7 +136,7 @@ def _value_holding(h: HoldingDto, quote: dict | None, fx_for: Callable[[str], fl
     # Row avg_cost stays as stored (in quote_currency) so clients can round-trip it via PUT.
     row.update(currency=currency, quote_currency=quote["currency"], price=price)
 
-    fx = fx_for(currency)
+    fx = fx_rates.get(currency)
     if fx is None:
         return row
     # Cost basis converted at the current FX: return reflects price move + currency move since purchase is not tracked.

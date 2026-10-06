@@ -3,7 +3,8 @@ from datetime import UTC, date, datetime
 import pytest
 
 from connectors.yfinance_client import LiveQuoteDto
-from services.portfolio.live_quote import LIVE_QUOTE_TTL_SECONDS, get_live_quotes
+from services.portfolio import PortfolioService
+from services.portfolio.live_quote import LIVE_QUOTE_TTL_SECONDS
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 AAPL = LiveQuoteDto(
@@ -27,6 +28,12 @@ def fake_redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr("connectors.cache.redis_client", fake)
     return fake
+
+
+def get_live_quotes(tickers, yf_client):
+    return PortfolioService(portfolio=object(), yf_client=yf_client, fx=object(), companies=object())._live_quotes(
+        tickers
+    )
 
 
 def test_fetches_live_quote_for_each_ticker():

@@ -7,7 +7,9 @@
     * nothing outside the package imports its submodules (only the package root);
     * its modules import other services only from `services.shared` or the shared libraries below,
       never another feature's service or helpers (no service-to-service calls);
-    * only `service.py` constructs connectors/clients; helpers receive them as arguments.
+    * only `service.py` touches connectors/clients: it constructs them, calls them and passes the
+      results (DTOs, plain data) to helpers. Helpers are pure: they import no connector (only `*Dto`
+      types), LLM agent or tracing client, and never take a connector/client as an argument.
 """
 
 import ast
@@ -17,6 +19,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Shared libraries feature packages may use besides services/shared/.
 SHARED_LIBRARIES = ("services.analyze_retrieval", "services.analysis_progress", "services.shared")
+
+# Top-level packages that do I/O; only a feature package's service.py may import them.
+IO_PACKAGES = ("agent", "langfuse")
+
+# Feature helpers that predate the "only service.py touches I/O" rule. Shrink this list; never grow it.
+KNOWN_HELPER_OUTLIERS = {"services/deep_analysis/tools.py"}
 
 # Routers that predate the rule. Shrink this list; never grow it.
 KNOWN_ROUTER_OUTLIERS = {
@@ -129,6 +137,41 @@ def test_only_service_py_constructs_connectors():
                     if node.func.id.endswith(("Connector", "Client")):
                         offenders.append(f"{_rel(path)}:{node.lineno} constructs {node.func.id}")
         assert offenders == [], offenders
+
+
+def _helper_io_imports(path: Path) -> list[str]:
+    problems = []
+    for node in ast.walk(_tree(path)):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            root = node.module.split(".")[0]
+            if root == "connectors":
+                problems += [f"imports {node.module}.{a.name}" for a in node.names if not a.name.endswith("Dto")]
+            elif root in IO_PACKAGES:
+                problems.append(f"imports {node.module}")
+        elif isinstance(node, ast.Import):
+            problems += [
+                f"imports {a.name}" for a in node.names if a.name.split(".")[0] in ("connectors", *IO_PACKAGES)
+            ]
+    return problems
+
+
+def test_only_service_py_imports_connectors_and_clients():
+    offenders = [
+        f"{_rel(path)} {problem}"
+        for package in _feature_packages()
+        for path in package.glob("*.py")
+        if path.name != "service.py" and _rel(path) not in KNOWN_HELPER_OUTLIERS
+        for problem in _helper_io_imports(path)
+    ]
+    assert offenders == [], offenders
+
+
+def test_known_helper_outliers_still_need_the_exemption():
+    # Drop an entry once its helper follows the rule.
+    for rel in KNOWN_HELPER_OUTLIERS:
+        assert _helper_io_imports(
+            PROJECT_ROOT / rel
+        ), f"{rel} now follows the rule; remove it from KNOWN_HELPER_OUTLIERS"
 
 
 def test_feature_package_has_one_service_class():
