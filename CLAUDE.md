@@ -24,7 +24,7 @@ See root `../CLAUDE.md` for shared conventions.
 
 ## Smoke-test gate
 
-A Stop/SubagentStop hook (`.claude/hooks/require-smoke-test.sh`) won't let an agent finish while runtime code (any non-test `.py` outside `tests/`, `scripts/`, `alembic/`) differs from the default branch without a passing smoke run for the **current** code. Use the `smoke-test` skill: `.claude/skills/smoke-test/smoke.sh status | start | check METHOD PATH | stop`. Evidence lands in `.claude/smoke-state/<fingerprint>.json` (+ `latest.json`); never hand-write it. When a subagent claims runtime work is done, verify with `smoke.sh status` and read the evidence before accepting it.
+A Stop/SubagentStop hook (`.claude/hooks/require-smoke-test.sh`) won't let an agent finish while runtime code differs from the default branch until every endpoint whose handler reaches the changed functions (call-graph analysis in `.claude/hooks/smoke_routes.py`) has a passing smoke check against the **current** code. Changes no endpoint reaches need nothing. Use the `smoke-test` skill: `.claude/skills/smoke-test/smoke.sh status | start | check METHOD PATH | stop`. Evidence lands in `.claude/smoke-state/<fingerprint>.json` (+ `latest.json`); never hand-write it. When a subagent claims runtime work is done, verify with `smoke.sh status` and read the evidence before accepting it.
 
 ## Gotchas
 

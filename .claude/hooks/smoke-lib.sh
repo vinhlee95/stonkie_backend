@@ -6,7 +6,8 @@
 # API serves: everything except tests, scripts, migrations and Claude config. Changes are
 # measured against the merge-base with the default branch and include uncommitted and
 # untracked files. The fingerprint hashes the *content* of those files, so committing does
-# not invalidate a smoke run but editing runtime code does.
+# not invalidate a smoke run but editing runtime code does. Which endpoints must be checked is
+# decided by smoke_routes.py (call graph from route handlers to the changed functions).
 
 SMOKE_RUNTIME_INCLUDE='(\.py$|^requirements\.txt$)'
 SMOKE_RUNTIME_EXCLUDE='^(tests|scripts|alembic|docs|\.claude|\.github|venv)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$'
@@ -59,4 +60,11 @@ smoke_verdict() {
     elif all(.checks[]; .pass == true) then "pass"
     else "failing" end
   ' "$state" 2>/dev/null || echo malformed
+}
+
+# smoke_routes <repo> <changed-files> [state-file] -> JSON from smoke_routes.py: the routes whose
+# handlers reach the changed code, which of them a passing check covers, and whether enough are.
+smoke_routes() {
+  printf '%s\n' "$2" | python3 "$(dirname "${BASH_SOURCE[0]}")/smoke_routes.py" \
+    --repo "$1" --base "$(smoke_base "$1")" --exclude "$SMOKE_RUNTIME_EXCLUDE" --state "${3:-}"
 }

@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Boot the dev server from the current code and curl the endpoints a change affects, recording machine-generated evidence in .claude/smoke-state/. REQUIRED before finishing any work that touches runtime code (api/, services/, connectors/, models/, main.py, ...) — a Stop/SubagentStop hook blocks the agent until a passing run (or a justified waiver) exists for the current code.
+description: Boot the dev server from the current code and curl the endpoints a change affects, recording machine-generated evidence in .claude/smoke-state/. REQUIRED before finishing any work that changes code an API endpoint reaches — a Stop/SubagentStop hook blocks the agent until every affected endpoint (found by call-graph analysis) has a passing check, or a justified waiver exists.
 when_to_use:
   - After changing an API endpoint, or a service/connector/model an endpoint uses
   - When the require-smoke-test hook blocks you from finishing
@@ -24,13 +24,32 @@ S=.claude/skills/smoke-test/smoke.sh
 $S status
 ```
 
-Prints the changed runtime files, the **fingerprint** of that code, routes that likely reach the
-change (import-graph heuristic — confirm by reading the router), and anything already recorded.
-Choose checks that actually execute the changed code path:
+Prints the **fingerprint** of the changed code, the changed functions, and the endpoints whose
+handlers reach them, each with the call path that links it to your change:
 
-- every changed/added route: the happy path, plus the main error path you touched (404, 401, 422)
-- a changed service/connector: each endpoint that calls it (at least one per router)
-- auth-protected routes (`Depends(get_current_user)`): use `--auth`; also one call without it → 401
+```
+changed functions: services.company:get_key_stats_for_ticker
+endpoints that reach them ([x] = has a passing check):
+  [ ] GET /api/companies/{ticker}/key-stats
+        via main:get_key_stats -> services.company:get_key_stats_for_ticker
+```
+
+**Those endpoints are what the hook requires** — each needs at least one passing check (when more
+than `SMOKE_MAX_REQUIRED_ROUTES`, default 6, are affected, any 6 of them). Checks on other
+endpoints are recorded but don't count, so don't curl unrelated routes. If no endpoint reaches the
+change (comment/import-only edits, Celery task bodies behind `.delay()`, unused code), no smoke
+test is required.
+
+How the list is built (`.claude/hooks/smoke_routes.py`): diff lines → enclosing function/method;
+then a reference graph from every route handler, following imports, `Depends(...)` providers,
+module-level singletons and method calls by name. It is static analysis: code reached only
+dynamically (getattr, registries) won't show up, so still use judgment and add checks for paths
+you know the change affects.
+
+For each required endpoint:
+- fill `{params}` with real values and exercise the path through your change: the happy path,
+  plus the error path you touched (404, 401, 422) where it matters
+- auth-protected routes (`Depends(get_current_user)`): use `--auth`
 
 ## 2. Boot the server from the current code
 

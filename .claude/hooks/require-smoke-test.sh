@@ -42,39 +42,53 @@ fp=$(smoke_fingerprint "$top" "$changed")
 state="$(smoke_state_dir "$top")/$fp.json"
 verdict=$(smoke_verdict "$state")
 
-case "$verdict" in
-  pass) exit 0 ;;
-  waived)
-    reason=$(jq -r '.waiver.reason' "$state")
-    jq -n --arg m "Smoke test waived for $fp: $reason" '{systemMessage: $m}'
-    exit 0 ;;
-esac
+if [ "$verdict" = waived ]; then
+  reason=$(jq -r '.waiver.reason' "$state")
+  jq -n --arg m "Smoke test waived for $fp: $reason" '{systemMessage: $m}'
+  exit 0
+fi
 
-n=$(printf '%s\n' "$changed" | wc -l | tr -d ' ')
-listing=$(printf '%s\n' "$changed" | head -15 | sed 's/^/  - /')
-[ "$n" -gt 15 ] && listing="$listing"$'\n'"  ... and $((n - 15)) more"
-
-case "$verdict" in
-  missing|empty) why="No smoke results are recorded for the current code (fingerprint $fp)." ;;
-  failing)
-    failed=$(jq -r '.checks[] | select(.pass != true) | "  - \(.method) \(.path): got \(.http_status) (expected \(.expect))"' "$state")
-    why="Smoke checks are failing for the current code (fingerprint $fp):"$'\n'"$failed" ;;
-  *) why="Smoke state $state is malformed. Re-run the smoke checks." ;;
-esac
+# Which endpoints reach the changed code? Fall back to "any passing check" if the analysis fails.
+analysis_err=$(mktemp)
+analysis=$(smoke_routes "$top" "$changed" "$state" 2>"$analysis_err") || analysis=""
+analysis_error=$(head -c 400 "$analysis_err"); rm -f "$analysis_err"
+if [ -n "$analysis" ]; then
+  n_routes=$(printf '%s' "$analysis" | jq '.routes | length')
+  [ "$n_routes" -eq 0 ] && exit 0  # the change reaches no HTTP route: nothing to curl
+  covered_ok=$(printf '%s' "$analysis" | jq -r '.ok')
+  [ "$verdict" = pass ] && [ "$covered_ok" = true ] && exit 0
+else
+  [ "$verdict" = pass ] && exit 0
+fi
 
 S=.claude/skills/smoke-test/smoke.sh
-block "Smoke test required before finishing. You changed runtime code that the API serves:
-$listing
+case "$verdict" in
+  failing)
+    failed=$(jq -r '.checks[] | select(.pass != true) | "  - \(.method) \(.path): got \(.http_status) (expected \(.expect))"' "$state")
+    why="Smoke checks are failing for the current code (fingerprint $fp):"$'\n'"$failed"$'\n'"Fix the code; do not weaken an expectation to make it pass. Every recorded check must pass." ;;
+  malformed) why="Smoke state $state is malformed. Re-run the smoke checks." ;;
+  *) why="" ;;
+esac
 
-$why
+if [ -n "$analysis" ]; then
+  routes=$(printf '%s' "$analysis" | jq -r --arg S "$S" '
+    "These endpoints reach the code you changed. Each needs a passing check (need \(.required), have \(.covered)):",
+    (.routes[] | "  [\(if .covered then "x" else " " end)] \(.method) \(.path)   (\(.via[0]) -> ... -> \(.via[-1]))")')
+else
+  routes="Route analysis failed ($analysis_error), so any passing check counts. Check the endpoints that call the changed code."
+fi
+
+block "Smoke test required before finishing (fingerprint $fp).
+${why:+$why
+
+}$routes
 
 Follow the smoke-test skill (.claude/skills/smoke-test/SKILL.md):
-  1. $S status          # affected routes + what is recorded so far
-  2. $S start           # boots the dev server from the current code
-  3. $S check GET /api/... --expect 200 [--auth] [--data '{...}'] [--contains TEXT]
-     (one check per affected endpoint: happy path, plus an error path where it matters)
+  1. $S status     # affected endpoints, why each is affected, what is covered
+  2. $S start      # boots the dev server from the current code
+  3. $S check METHOD /real/path [--expect CODE] [--auth] [-d '{...}'] [--contains TEXT]
+     (fill {params} with real values; happy path, plus an error path you touched)
   4. $S stop
 Any later edit to runtime code changes the fingerprint and needs a fresh run.
-Fix the code if a check fails; do not weaken the expectation to make it pass.
-Only if the change genuinely cannot be exercised over HTTP here (e.g. missing credentials for a
-third-party API), record why with: $S skip \"<reason>\" — and tell the user in your reply."
+Only if an endpoint genuinely cannot be exercised over HTTP here (e.g. missing credentials for a
+third-party API), record why with: $S skip \"<reason>\", and tell the user in your reply."

@@ -78,43 +78,12 @@ update_state() {
   cp "$STATE" "$DIR/latest.json"
 }
 
-# Affected-route hints: modules importing the changed files (up to 3 levels), then their routes.
-route_hints() {
-  local -a frontier=() next=() seen=()
-  local f m mod importer
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    mod=${f%.py}; mod=${mod%/__init__}; mod=${mod//\//.}
-    frontier+=("$mod")
-    # a helper inside a package (services.portfolio.helpers) is reached via the package itself
-    while [[ "$mod" == *.*.* ]]; do mod=${mod%.*}; frontier+=("$mod"); done
-  done <<<"$CHANGED"
-  local files=()
-  for _ in 1 2 3; do
-    next=()
-    for m in "${frontier[@]}"; do
-      [[ " ${seen[*]-} " == *" $m "* ]] && continue
-      seen+=("$m")
-      [[ "$m" == api.* ]] && continue  # routers are leaves: main.py only mounts them
-      while IFS= read -r importer; do
-        [ -n "$importer" ] || continue
-        files+=("$importer")
-        mod=${importer%.py}; mod=${mod%/__init__}; next+=("${mod//\//.}")
-      done < <(git grep -lE "^[[:space:]]*(from[[:space:]]+${m//./\\.}([[:space:].]|$)|import[[:space:]]+${m//./\\.}([[:space:].,]|$))" -- '*.py' \
-                 ':!tests/**' ':!scripts/**' ':!alembic/**' 2>/dev/null)
-    done
-    frontier=("${next[@]+"${next[@]}"}")
-    [ ${#frontier[@]} -gt 0 ] || break
-  done
-  while IFS= read -r f; do files+=("$f"); done <<<"$CHANGED"
-  printf '%s\n' "${files[@]}" | sort -u | while IFS= read -r f; do
-    case "$f" in api/*.py|main.py) ;; *) continue ;; esac
-    [ -f "$f" ] || continue
-    local prefix
-    prefix=$(grep -oE 'APIRouter\([^)]*prefix="[^"]*"' "$f" | sed -E 's/.*prefix="([^"]*)".*/\1/' | head -1)
-    grep -nE '^@(router|app)\.(get|post|put|patch|delete)\(' "$f" \
-      | sed -E "s#^([0-9]+):@[a-z]+\.([a-z]+)\(\"([^\"]*)\".*#  \U\2\E $prefix\3   ($f:\1)#"
-  done
+# Route analysis (see .claude/hooks/smoke_routes.py); prints nothing if it fails.
+routes_json() { smoke_routes "$TOP" "$CHANGED" "$STATE" 2>/dev/null; }
+
+# coverage_line <routes-json>
+coverage_line() {
+  jq -r '"coverage: \(.covered)/\(.routes | length) affected endpoints have a passing check (need \(.required))"' <<<"$1"
 }
 
 cmd=${1:-status}; shift || true
@@ -123,8 +92,18 @@ case "$cmd" in
     echo "fingerprint: $FP"
     if [ -z "$CHANGED" ]; then echo "no runtime changes vs base: smoke test not required"; exit 0; fi
     echo "changed runtime files:"; printf '  - %s\n' $CHANGED
-    echo "routes likely affected (heuristic; main.py imports may list routes that don't use the change):"
-    route_hints | sort -u
+    analysis=$(routes_json)
+    if [ -z "$analysis" ]; then
+      echo "route analysis failed (run: python3 .claude/hooks/smoke_routes.py ... to see why); any passing check counts"
+    elif [ "$(jq '.routes | length' <<<"$analysis")" -eq 0 ]; then
+      echo "changed functions: $(jq -r '.changed_symbols | join(", ")' <<<"$analysis")"
+      echo "no HTTP route reaches the changed code: smoke test not required"
+    else
+      echo "changed functions: $(jq -r '.changed_symbols | join(", ")' <<<"$analysis")"
+      echo "endpoints that reach them ([x] = has a passing check):"
+      jq -r '.routes[] | "  [\(if .covered then "x" else " " end)] \(.method) \(.path)\n        via \(.via | join(" -> "))"' <<<"$analysis"
+      coverage_line "$analysis"
+    fi
     echo "verdict: $(smoke_verdict "$STATE")"
     [ -f "$STATE" ] && jq -r '(.checks[] | "  [\(if .pass then "PASS" else "FAIL" end)] \(.method) \(.path) -> \(.http_status) (expect \(.expect))"),
                              (if .waiver then "  waiver: \(.waiver.reason)" else empty end)' "$STATE"
@@ -231,6 +210,11 @@ PY
     label=$([ "$pass" = true ] && echo PASS || echo FAIL)
     echo "[$label] $method $path -> $status (expect $expect, ${duration}ms, ${bytes} bytes)"
     head -c 600 "$DIR/.body"; echo
+    analysis=$(routes_json)
+    if [ -n "$analysis" ]; then
+      update_state '.affected = ($a | {changed_symbols, routes, required, covered, ok})' --argjson a "$analysis"
+      coverage_line "$analysis"
+    fi
     [ "$pass" = true ] || { [ -n "$log_tail" ] && printf -- '--- server log tail ---\n%s\n' "$log_tail"; exit 1; }
     ;;
 
