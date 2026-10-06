@@ -2,7 +2,7 @@ import pytest
 import redis
 
 from connectors import cache
-from services import rate_limit
+from services.portfolio import rate_limit
 from tests.api.test_quotes_price_changes import FakeRedis
 
 

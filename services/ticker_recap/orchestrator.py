@@ -6,7 +6,7 @@ from typing import Callable, Literal
 from connectors.ticker_recap import TickerRecapConnector, UpsertResult
 from connectors.yfinance_client import YFinanceClient
 from services.market_recap.logging import log_event, new_run_id
-from services.price_change import get_price_changes
+from services.shared.price_change import get_price_changes
 from services.ticker_recap.query_generator import generate_query
 from services.ticker_recap.recap_generator import GeneratorError, GeneratorResult, generate_recap
 from services.ticker_recap.retrieval import retrieve_for_ticker

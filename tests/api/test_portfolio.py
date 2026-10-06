@@ -16,9 +16,7 @@ from connectors import portfolio as portfolio_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
-from services import price_history
-from services.portfolio_chat import PortfolioChatStreamService
-from services.portfolio_service import PortfolioService
+from services.portfolio import PortfolioService, price_history
 from tests.api.test_me import SECRET, make_token
 from tests.api.test_quotes_price_changes import NY_TZ, FakeRedis, FakeYFinanceClient, make_history
 
@@ -137,7 +135,7 @@ def test_new_ticker_while_yahoo_down_is_retryable(client):
 
 
 def test_holdings_limit(client, monkeypatch):
-    monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_HOLDINGS_PER_USER", 1)
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
 
     over = client.post("/api/me/portfolio/holdings/NOKIA.HE/lots", json={"shares": 1, "price": 1}, headers=auth())
@@ -149,7 +147,7 @@ def test_holdings_limit(client, monkeypatch):
 
 def test_holdings_limit_enforced_on_insert(client, monkeypatch):
     # Simulates a concurrent POST: the service pre-check sees no holdings, so the connector must refuse.
-    monkeypatch.setattr("services.portfolio.MAX_HOLDINGS_PER_USER", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_HOLDINGS_PER_USER", 1)
     client.post("/api/me/portfolio/holdings/AAPL/lots", json={"shares": 1, "price": 1}, headers=auth())
     monkeypatch.setattr(portfolio_connector_module.PortfolioConnector, "held_tickers", lambda self, user_id: set())
 
@@ -431,7 +429,7 @@ def test_add_lot_to_held_ticker_while_yahoo_down(client):
 
 
 def test_lot_limit(client, monkeypatch):
-    monkeypatch.setattr("services.portfolio.MAX_LOTS_PER_HOLDING", 1)
+    monkeypatch.setattr("services.portfolio.valuation.MAX_LOTS_PER_HOLDING", 1)
     post_lot(client, "AAPL")
 
     assert post_lot(client, "AAPL").status_code == 409
@@ -576,22 +574,23 @@ def _parse_stream(raw: bytes) -> list[dict]:
     return [json.loads(block) for block in raw.decode().strip().split("\n\n") if block.strip()]
 
 
-class FakeChatService(PortfolioChatStreamService):
-    """Real scope check, canned stream."""
+class FakeChat:
+    """Real rate limit and scope check; canned answer stream."""
 
     calls: list[dict] = []
 
-    async def stream(self, **kwargs):
-        FakeChatService.calls.append(kwargs)
+    @staticmethod
+    async def stream_chat(self, **kwargs):
+        FakeChat.calls.append(kwargs)
         yield {"type": "conversation", "body": {"conversationId": "conv-1"}}
         yield {"type": "answer", "body": "Hi"}
 
 
 @pytest.fixture()
 def fake_chat(monkeypatch):
-    FakeChatService.calls = []
-    monkeypatch.setattr("services.portfolio_service.PortfolioChatStreamService", FakeChatService)
-    return FakeChatService
+    FakeChat.calls = []
+    monkeypatch.setattr(PortfolioService, "stream_chat", FakeChat.stream_chat)
+    return FakeChat
 
 
 def test_chat_requires_auth(client, fake_chat):
@@ -635,7 +634,7 @@ def test_chat_blank_scope_means_whole_portfolio(client, fake_chat):
     res = client.post("/api/me/portfolio/chat", json={"question": "hi", "scopeTicker": "  "}, headers=auth())
 
     assert res.status_code == 200
-    assert fake_chat.calls[0]["scope_ticker"] is None
+    assert fake_chat.calls[0]["scope"].ticker is None
 
 
 def test_chat_streams_events_for_normalised_scope(client, fake_chat):
@@ -651,13 +650,14 @@ def test_chat_streams_events_for_normalised_scope(client, fake_chat):
     assert res.headers["content-type"].startswith("text/event-stream")
     assert [e["type"] for e in _parse_stream(res.content)] == ["conversation", "answer"]
     call = fake_chat.calls[0]
-    assert (call["question"], call["scope_ticker"], call["conversation_id"]) == ("Why is it up?", "AAPL", "conv-1")
+    assert (call["question"], call["scope"].ticker, call["conversation_id"]) == ("Why is it up?", "AAPL", "conv-1")
+    assert [h.ticker for h in call["scope"].holdings] == ["AAPL"]
     assert call["user_id"]
 
 
 def test_chat_is_rate_limited_per_user(client, fake_chat, monkeypatch):
-    monkeypatch.setattr("services.portfolio_chat.RATE_LIMIT_PER_MINUTE", 1)
-    monkeypatch.setattr("services.rate_limit._now", lambda: 1_800_000_000.0)  # same window throughout
+    monkeypatch.setattr("services.portfolio.chat.RATE_LIMIT_PER_MINUTE", 1)
+    monkeypatch.setattr("services.portfolio.rate_limit._now", lambda: 1_800_000_000.0)  # same window throughout
 
     first = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
     second = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
@@ -673,12 +673,11 @@ def test_chat_forwards_mapped_preferred_model(client, fake_chat):
 
 
 def test_chat_stream_failure_becomes_error_event(client, monkeypatch):
-    class Boom(FakeChatService):
-        async def stream(self, **kwargs):
-            yield {"type": "conversation", "body": {"conversationId": "c"}}
-            raise RuntimeError("boom")
+    async def boom(self, **kwargs):
+        yield {"type": "conversation", "body": {"conversationId": "c"}}
+        raise RuntimeError("boom")
 
-    monkeypatch.setattr("services.portfolio_service.PortfolioChatStreamService", Boom)
+    monkeypatch.setattr(PortfolioService, "stream_chat", boom)
 
     events = _parse_stream(client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth()).content)
 

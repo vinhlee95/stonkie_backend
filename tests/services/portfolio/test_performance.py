@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from connectors.yfinance_client import LiveQuoteDto
-from services import price_history
-from services.portfolio_performance import EurSeries, get_performance, load_eur_series, period_returns
+from services.portfolio import price_history
+from services.portfolio.performance import EurSeries, get_performance, load_eur_series, period_returns
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 

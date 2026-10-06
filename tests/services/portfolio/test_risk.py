@@ -3,8 +3,8 @@ import math
 import pandas as pd
 import pytest
 
-from services.portfolio_performance import EurSeries
-from services.portfolio_risk import MIN_POINTS, compute_risk
+from services.portfolio.performance import EurSeries
+from services.portfolio.risk import MIN_POINTS, compute_risk
 
 
 def levels(returns: list[float], start: float = 100.0) -> list[float]:

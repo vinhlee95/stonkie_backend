@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from connectors.yfinance_client import LiveQuoteDto
-from services.live_quote import LIVE_QUOTE_TTL_SECONDS, get_live_quotes
+from services.portfolio.live_quote import LIVE_QUOTE_TTL_SECONDS, get_live_quotes
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 AAPL = LiveQuoteDto(

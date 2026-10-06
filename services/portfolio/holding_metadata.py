@@ -32,7 +32,7 @@ class HoldingMetadata(TypedDict):
 
 
 def get_holdings_metadata(
-    tickers: list[str], yf_client: YFinanceClient, companies: CompanyConnector | None = None
+    tickers: list[str], yf_client: YFinanceClient, companies: CompanyConnector
 ) -> dict[str, HoldingMetadata]:
     """Metadata for every ticker; unknown fields are "Other". Never raises."""
     result: dict[str, HoldingMetadata] = {}
@@ -47,7 +47,7 @@ def get_holdings_metadata(
     if not misses:
         return result
 
-    stored = _stored_classifications(misses, companies or CompanyConnector())
+    stored = _stored_classifications(misses, companies)
     fetch = []
     for ticker in misses:
         row = stored.get(ticker)

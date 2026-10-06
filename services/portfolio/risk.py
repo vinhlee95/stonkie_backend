@@ -9,7 +9,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from services.portfolio_performance import EurSeries
+from services.portfolio.performance import EurSeries
 
 RISK_WINDOW = pd.DateOffset(years=1)
 MIN_POINTS = 60

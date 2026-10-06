@@ -282,7 +282,7 @@ def test_failed_ticker_omitted(make_client):
 
 def _freeze_now(monkeypatch, local_dt: datetime) -> None:
     frozen = local_dt.astimezone(UTC)
-    monkeypatch.setattr("services.price_change._utcnow", lambda: frozen)
+    monkeypatch.setattr("services.shared.price_change._utcnow", lambda: frozen)
 
 
 @pytest.mark.parametrize("tz", [NY_TZ, BERLIN_TZ], ids=["us", "eu"])

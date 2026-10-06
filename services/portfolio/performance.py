@@ -10,8 +10,8 @@ import pandas as pd
 
 from connectors.portfolio import PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
-from services.portfolio import BASE_CURRENCY, MINOR_UNIT_CURRENCIES, get_quotes
-from services.price_history import get_close_histories
+from services.portfolio.price_history import get_close_histories
+from services.portfolio.valuation import BASE_CURRENCY, MINOR_UNIT_CURRENCIES, get_quotes
 
 BENCHMARK_SYMBOL = "^GSPC"
 BENCHMARK_CURRENCY = "USD"

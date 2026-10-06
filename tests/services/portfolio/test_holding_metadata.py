@@ -4,7 +4,7 @@ import pytest
 import redis
 
 from connectors.company import CompanyClassificationDto
-from services.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS, get_holdings_metadata
+from services.portfolio.holding_metadata import FAILED_TTL_SECONDS, METADATA_TTL_SECONDS, get_holdings_metadata
 from tests.api.test_quotes_price_changes import FakeRedis, FakeYFinanceClient
 
 

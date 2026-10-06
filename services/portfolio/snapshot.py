@@ -3,36 +3,53 @@
 import asyncio
 import datetime
 import logging
-from datetime import UTC
+from dataclasses import dataclass, field
+from datetime import UTC, date
 
+from connectors.company import CompanyConnector
+from connectors.fx import FxConnector
 from connectors.portfolio import PortfolioConnector
 from connectors.yfinance_client import YFinanceClient
-from services.portfolio import get_portfolio, get_quotes
-from services.portfolio_chat_context import PortfolioSnapshot
-from services.portfolio_performance import EurSeries, load_eur_series, period_returns
-from services.portfolio_risk import compute_risk
+from services.portfolio.errors import PortfolioUnavailableError
+from services.portfolio.performance import EurSeries, load_eur_series, period_returns
+from services.portfolio.risk import compute_risk
+from services.portfolio.valuation import get_portfolio, get_quotes
 
 logger = logging.getLogger(__name__)
 
 
-class PortfolioUnavailableError(Exception):
-    pass
+@dataclass(frozen=True)
+class PortfolioSnapshot:
+    """Everything the chat knows about the portfolio. `returns` / `risk` are None when unavailable."""
+
+    portfolio: dict
+    returns: dict | None
+    risk: dict | None
+    today: date
+    # Holdings left out of performance and beta/volatility/drawdown (no price history or currency).
+    excluded: list[str] = field(default_factory=list)
 
 
 async def load_snapshot(
-    user_id: str, portfolio: PortfolioConnector, yf_client: YFinanceClient, holdings: list | None = None
+    user_id: str,
+    *,
+    portfolio: PortfolioConnector,
+    yf_client: YFinanceClient,
+    fx: FxConnector,
+    companies: CompanyConnector,
+    holdings: list,
 ) -> PortfolioSnapshot:
     """Raises PortfolioUnavailableError when the holdings can't be valued; performance and risk
     degrade to None on their own."""
-    if holdings is None:
-        holdings = await asyncio.to_thread(portfolio.list_holdings, user_id)
     try:
         # Fetched once and shared, so valuation and history don't both hit Yahoo on a cold cache.
         quotes = await asyncio.to_thread(get_quotes, [h.ticker for h in holdings], yf_client)
     except Exception as exc:
         raise PortfolioUnavailableError(user_id) from exc
     valued, series_result = await asyncio.gather(
-        asyncio.to_thread(get_portfolio, user_id, portfolio, yf_client, quotes=quotes, holdings=holdings),
+        asyncio.to_thread(
+            get_portfolio, user_id, portfolio, yf_client, fx=fx, companies=companies, quotes=quotes, holdings=holdings
+        ),
         asyncio.to_thread(_safe_series, holdings, yf_client, quotes),
         return_exceptions=True,
     )

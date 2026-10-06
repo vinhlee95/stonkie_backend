@@ -38,10 +38,7 @@ def test_analyze_v2_route_keeps_layer_1_import_boundary():
 def test_v2_service_modules_do_not_import_fastapi_or_starlette():
     service_paths = [
         "services/analyze_v2_stream.py",
-        "services/portfolio_chat.py",
-        "services/portfolio_chat_context.py",
-        "services/portfolio_chat_targets.py",
-        "services/portfolio_snapshot.py",
+        *sorted(str(p.relative_to(PROJECT_ROOT)) for p in (PROJECT_ROOT / "services" / "portfolio").glob("*.py")),
         "services/financial_analyzer_v2.py",
         "services/analyze_retrieval/retrieval.py",
         "services/analyze_retrieval/ranking.py",

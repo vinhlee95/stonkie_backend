@@ -18,11 +18,12 @@ from services.portfolio import (
     MAX_LOTS_PER_HOLDING,
     HoldingLimitError,
     LotLimitError,
+    PortfolioService,
+    PortfolioUnavailableError,
     QuoteUnavailableError,
+    ScopeNotInPortfolioError,
     UnknownTickerError,
 )
-from services.portfolio_chat import ScopeNotInPortfolioError
-from services.portfolio_service import PortfolioService
 
 logger = logging.getLogger(__name__)
 
@@ -172,22 +173,23 @@ async def chat(
     body: ChatIn,
     request: Request,
     user: UserDto = Depends(get_current_user),
-    portfolio_service: PortfolioService = Depends(get_portfolio_service),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> StreamingResponse:
-    service = portfolio_service.chat()
-    if not await service.allow_request(user.id):
+    if not await service.allow_chat(user.id):
         raise HTTPException(status_code=429, detail="Too many portfolio chat requests, try again in a minute")
     try:
-        scope_ticker = await service.resolve_scope(user.id, body.scopeTicker)
+        scope = await service.resolve_chat_scope(user.id, body.scopeTicker)
     except ScopeNotInPortfolioError as exc:
         raise HTTPException(status_code=422, detail=f"{exc} is not in your portfolio")
+    except PortfolioUnavailableError:
+        raise HTTPException(status_code=503, detail="Couldn't load your portfolio, try again shortly")
 
     async def generate():
         try:
-            async for event in service.stream(
+            async for event in service.stream_chat(
                 user_id=user.id,
                 question=body.question,
-                scope_ticker=scope_ticker,
+                scope=scope,
                 preferred_model=map_frontend_model_to_enum(body.preferredModel),
                 conversation_id=body.conversationId,
                 is_disconnected=request.is_disconnected,

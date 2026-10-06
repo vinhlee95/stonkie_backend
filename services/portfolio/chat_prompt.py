@@ -1,27 +1,14 @@
-"""What Portfolio chat tells the model: the portfolio snapshot as text, and the answer prompt."""
+"""Portfolio chat prompt text: the snapshot as context, the news block, and the answer prompt."""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from datetime import date
 
 from services.analyze_retrieval.prompt_sources import build_sources_block as shared_sources_block
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
+from services.portfolio.snapshot import PortfolioSnapshot
 
 DISCLAIMER = "Not financial advice."
-
-
-@dataclass(frozen=True)
-class PortfolioSnapshot:
-    """Everything the chat knows about the portfolio. `returns` / `risk` are None when unavailable."""
-
-    portfolio: dict
-    returns: dict | None
-    risk: dict | None
-    today: date
-    # Holdings left out of performance and beta/volatility/drawdown (no price history or currency).
-    excluded: list[str] = field(default_factory=list)
 
 
 def _eur(value: float, signed: bool = False) -> str:
@@ -121,7 +108,7 @@ def _unfenced(text: str) -> str:
     return _FENCE_TAG.sub("", text or "")
 
 
-def build_sources_block(sources: list[AnalyzeSource], passages: list[AnalyzePassage]) -> str:
+def build_news_block(sources: list[AnalyzeSource], passages: list[AnalyzePassage]) -> str:
     """News for the prompt; web text can't touch the fence, and URLs are left out (the answer may not link)."""
     return shared_sources_block(sources, passages, include_url=False, clean=_unfenced)
 

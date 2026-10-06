@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from services import portfolio as portfolio_service
+from services.portfolio import valuation as portfolio_service
 
 HOLDING = SimpleNamespace(ticker="AAPL", name="Apple", shares=2.0, avg_cost=100.0, lots=())
 QUOTES = {
@@ -30,7 +30,7 @@ def test_get_portfolio_uses_passed_holdings_and_quotes_without_fetching():
         patch.object(portfolio_service, "get_holdings_metadata", return_value=meta),
     ):
         result = portfolio_service.get_portfolio(
-            "user-1", NoCalls(), NoCalls(), fx=fx, quotes=QUOTES, holdings=[HOLDING]
+            "user-1", NoCalls(), NoCalls(), fx=fx, companies=NoCalls(), quotes=QUOTES, holdings=[HOLDING]
         )
 
     assert result["summary"]["total_value"] == 2 * 120.0 * 0.5
