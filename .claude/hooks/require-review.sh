@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse hook: block `gh pr create` unless the current HEAD has a passing /multi-review.
-# Exit 0 = allow, exit 2 = block (stderr is shown to Claude). Fails closed; no bypass flag.
+# Exit 0 = allow, exit 2 = block (stderr is shown to Claude). Fails closed.
+# The only bypass: the user says "skip review" in a prompt, and review-skip.sh marks the session.
 # A workflow guardrail for Claude Code sessions, not a security boundary (the state file is local).
 set -uo pipefail
 
@@ -24,6 +25,10 @@ command -v git >/dev/null 2>&1 || block "git is not installed."
 
 cmd=$(printf '%s' "$input" | jq -er '.tool_input.command // ""' 2>/dev/null) \
   || block "could not parse hook input."
+
+# session skipped by the user ("skip review" prompt, marker written by review-skip.sh)
+sid=$(printf '%s' "$input" | jq -r '.session_id // ""' 2>/dev/null)
+[[ $sid =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "${CLAUDE_REVIEW_SKIP_DIR:-$HOME/.claude/review-skip}/$sid" ] && exit 0
 
 # Split the command into simple-command segments, one per line, the way a shell would:
 # - backslash-newline is removed first (line continuation, also inside double quotes)
