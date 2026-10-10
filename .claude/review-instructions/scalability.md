@@ -1,8 +1,3 @@
----
-applyTo: "**"
-excludeAgent: "cloud-agent"
----
-
 # Code review: Scalability/Performance
 
 This checklist covers the scalability/performance angle of code review for the Stonkie backend (FastAPI served by hypercorn, PostgreSQL, Celery workers with Playwright, Cloud Run cronjobs, LLM + search API calls).

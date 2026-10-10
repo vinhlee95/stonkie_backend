@@ -1,8 +1,3 @@
----
-applyTo: "**"
-excludeAgent: "cloud-agent"
----
-
 # Code review: Tests
 
 This checklist covers the tests angle of code review for the Stonkie backend (pytest, run as `python -m pytest`; tests under `tests/` mirroring `api/`, `services/`, `connectors/`).

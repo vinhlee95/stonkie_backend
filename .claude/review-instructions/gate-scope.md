@@ -1,8 +1,3 @@
----
-applyTo: ".claude/hooks/**"
-excludeAgent: "cloud-agent"
----
-
 # Code review: scope of the PR-creation gate
 
 `.claude/hooks/require-review.sh` is a workflow guardrail for Claude Code sessions: it stops an agent from *forgetting* to run `/multi-review` before `gh pr create`. It is not a security boundary against a deliberate attacker — the review state is a local file the same user controls, and no shell-text hook can model all of Bash.

@@ -1,8 +1,3 @@
----
-applyTo: "**"
-excludeAgent: "cloud-agent"
----
-
 # Code review: Security
 
 This checklist covers the security angle of code review for the Stonkie backend (FastAPI, PostgreSQL, Google login with users table + `GET /api/me`, LLM prompts built from user questions).

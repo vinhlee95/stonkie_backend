@@ -1,8 +1,3 @@
----
-applyTo: "**"
-excludeAgent: "cloud-agent"
----
-
 # Code review: Functionality
 
 This checklist covers the functionality angle of code review for the Stonkie backend (FastAPI + PostgreSQL/SQLAlchemy + Celery + LLM calls via OpenRouter/Gemini, market data via yfinance).
