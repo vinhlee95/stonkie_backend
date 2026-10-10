@@ -415,6 +415,55 @@ R=$(new_repo r52); write_state "$R" "$(head_sha "$R")" "$ALL_OK" '[]' '[]'
 expect "pr create heredoc body passes" 0 "$(run_hook "$(printf '%s\n' 'gh pr create --title t --body "$(cat <<'"'EOF'"'' 'body $x' 'EOF' ')"')" "$R")"
 expect "pr create dynamic --head blocks" 2 "$(run_hook 'gh pr create --head "$(git rev-parse --abbrev-ref HEAD)" --fill' "$R")"
 
+# 53. "skip review" in a user prompt marks the session; the gate then lets that session through
+SKIP_HOOK="$(dirname "$HOOK")/review-skip.sh"
+export CLAUDE_REVIEW_SKIP_DIR="$TMP/review-skip"
+prompt_hook() {  # prompt_hook <session-id> <prompt> -> marks session if it asks to skip
+  jq -n --arg s "$1" --arg p "$2" '{hook_event_name: "UserPromptSubmit", session_id: $s, prompt: $p}' \
+    | bash "$SKIP_HOOK" >/dev/null 2>&1
+}
+run_hook_sid() {  # run_hook_sid <session-id> <command> <cwd> -> prints exit code
+  jq -n --arg s "$1" --arg c "$2" --arg cwd "$3" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $cwd, session_id: $s}' \
+    | bash "$HOOK" >/dev/null 2>&1
+  echo $?
+}
+skipped() { [ -f "$CLAUDE_REVIEW_SKIP_DIR/$1" ] && echo 1 || echo 0; }
+R=$(new_repo r53)
+expect "unskipped session still blocks" 2 "$(run_hook_sid s-none 'gh pr create --fill' "$R")"
+i=0
+while IFS= read -r p; do
+  i=$((i + 1)); prompt_hook "s-yes-$i" "$p"
+  expect "prompt marks skip: $p" 1 "$(skipped "s-yes-$i")"
+done <<'PROMPTS'
+skip review
+open the PR, Skip Review this time
+skip local review and create the pr
+skip multi-review
+skip-review
+skip the review
+PROMPTS
+while IFS= read -r p; do
+  i=$((i + 1)); prompt_hook "s-no-$i" "$p"
+  expect "prompt does not mark skip: $p" 0 "$(skipped "s-no-$i")"
+done <<'PROMPTS'
+create the pr
+run /multi-review then open a PR
+don't skip review
+do not skip review
+never skip the review
+skip reviewing nothing
+the reviewer can skip it
+PROMPTS
+prompt_hook s-yes 'skip review'
+expect "skipped session allows pr create without review" 0 "$(run_hook_sid s-yes 'gh pr create --fill' "$R")"
+expect "skipped session allows gh api pulls write" 0 "$(run_hook_sid s-yes 'gh api repos/o/r/pulls -f title=x' "$R")"
+expect "other session still blocks" 2 "$(run_hook_sid s-other 'gh pr create --fill' "$R")"
+expect "no session id still blocks" 2 "$(run_hook 'gh pr create --fill' "$R")"
+prompt_hook '../x' 'skip review'
+expect "path-like session id is not marked" 0 "$( [ -e "$TMP/x" ] && echo 1 || echo 0)"
+mkdir -p "$CLAUDE_REVIEW_SKIP_DIR"; : > "$TMP/escaped"
+expect "path-like session id is not honored" 2 "$(run_hook_sid '../escaped' 'gh pr create --fill' "$R")"
+
 echo
 echo "passed: $PASSED  failed: $FAILED"
 [ "$FAILED" -eq 0 ]

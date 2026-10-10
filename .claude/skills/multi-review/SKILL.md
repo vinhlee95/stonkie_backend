@@ -1,6 +1,6 @@
 ---
 name: multi-review
-description: Multi-angle code review (functionality, architecture, security, scalability, tests) of the current branch, using 5 parallel reviewer subagents. REQUIRED before `gh pr create` — a hook blocks PR creation until HEAD has a passing review. Use when asked to review changes, before creating a PR, or when the require-review hook blocks `gh pr create`.
+description: Multi-angle code review (functionality, architecture, security, scalability, tests) of the current branch, using 5 parallel reviewer subagents. REQUIRED before `gh pr create` — a hook blocks PR creation until HEAD has a passing review, unless the user said "skip review" in a prompt this session (then don't run it unless asked). Use when asked to review changes, before creating a PR, or when the require-review hook blocks `gh pr create`.
 ---
 
 # /multi-review
