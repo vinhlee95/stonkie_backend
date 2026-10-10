@@ -4,7 +4,7 @@ See root `../CLAUDE.md` for shared conventions.
 
 ## Scope Discipline (always)
 
-Stay inside the task the user asked for. Applies equally to review feedback (Copilot, `/multi-review`, CI autofix events).
+Stay inside the task the user asked for. Applies equally to review feedback (`/multi-review`, CI autofix events).
 
 - Fix only what the task / comment needs in the files it touches. Problems found elsewhere (other feature packages, unrelated modules) → flag via spawn_task chip or mention in chat; never fix in the current branch/PR.
 - If a review comment can only be satisfied by out-of-scope work (e.g. refactoring another package), don't do it: reply on the thread explaining it's tracked separately, then resolve.
