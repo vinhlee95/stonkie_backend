@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel
 
+from api.deps import get_auth_service
 from api.me import MeResponse
 from services.auth import AuthError, AuthService, GoogleAuthNotConfiguredError
 
@@ -20,10 +21,6 @@ class GoogleSignInRequest(BaseModel):
 class AuthResponse(BaseModel):
     token: str
     user: MeResponse
-
-
-def get_auth_service() -> AuthService:
-    return AuthService()
 
 
 @router.post("/google", response_model=AuthResponse)
