@@ -685,3 +685,103 @@ def test_chat_stream_failure_becomes_error_event(client, monkeypatch):
     events = _parse_stream(client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth()).content)
 
     assert events[-1] == {"type": "error", "code": "internal", "body": "Something went wrong"}
+
+
+# --- News ---------------------------------------------------------------------------------------
+
+
+def _story(title: str, published: int, related: list[str], link: str | None = None) -> dict:
+    return {
+        "type": "STORY",
+        "title": title,
+        "publisher": "CNBC",
+        "link": link or f"https://news.example.com/{title.replace(' ', '-')}",
+        "providerPublishTime": published,
+        "relatedTickers": related,
+    }
+
+
+def _use_news(news: dict) -> FakeYFinanceClient:
+    fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, infos=INFOS, news=news)
+    app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
+    return fake
+
+
+def test_news_requires_auth(client):
+    assert client.get("/api/me/portfolio/news").status_code == 401
+
+
+def test_news_empty_portfolio(client):
+    fake = _use_news({})
+
+    assert client.get("/api/me/portfolio/news", headers=auth()).json() == []
+    assert fake.news_calls == []
+
+
+def test_news_merges_holdings_newest_first(client):
+    post_lot(client, "AAPL", name="Apple")
+    post_lot(client, "NOKIA.HE", name="Nokia Oyj")
+    shared = _story("Apple and Nokia rally", 1_792_000_300, ["AAPL", "NOKIA.HE"])
+    _use_news(
+        {
+            "AAPL": [
+                _story("Apple old", 1_792_000_000, ["AAPL"]),
+                shared,
+                _story("Off topic", 1_792_000_900, ["MSFT"]),
+                _story("Buy Amazon now", 1_792_000_900, ["AMZN", "AAPL"]),  # tagged, not named
+            ],
+            "NOKIA.HE": [],
+            "Nokia Oyj": [shared, _story("Nokia new", 1_792_000_600, ["NOKIA.HE"])],
+        }
+    )
+
+    body = client.get("/api/me/portfolio/news", headers=auth()).json()
+
+    assert [(n["headline"], n["tickers"]) for n in body] == [
+        ("Nokia new", ["NOKIA.HE"]),
+        ("Apple and Nokia rally", ["AAPL", "NOKIA.HE"]),
+        ("Apple old", ["AAPL"]),
+    ]
+    assert body[0] == {
+        "headline": "Nokia new",
+        "source": "CNBC",
+        "url": "https://news.example.com/Nokia-new",
+        "published_at": "2026-10-14T17:56:40Z",
+        "tickers": ["NOKIA.HE"],
+    }
+
+
+def test_news_limit(client):
+    post_lot(client, "AAPL")
+    _use_news({"AAPL": [_story(f"AAPL story {i}", 1_792_000_000 + i, ["AAPL"]) for i in range(10)]})
+
+    body = client.get("/api/me/portfolio/news?limit=3", headers=auth()).json()
+
+    assert [n["headline"] for n in body] == ["AAPL story 9", "AAPL story 8", "AAPL story 7"]
+    assert client.get("/api/me/portfolio/news?limit=0", headers=auth()).status_code == 422
+    assert client.get("/api/me/portfolio/news?limit=21", headers=auth()).status_code == 422
+
+
+def test_news_cached_per_ticker(client):
+    post_lot(client, "AAPL")
+    fake = _use_news({"AAPL": [_story("AAPL up", 1_792_000_000, ["AAPL"])]})
+
+    client.get("/api/me/portfolio/news", headers=auth())
+    second = client.get("/api/me/portfolio/news", headers=auth()).json()
+
+    assert fake.news_calls == ["AAPL"]
+    assert [n["headline"] for n in second] == ["AAPL up"]
+
+
+def test_news_yahoo_failure_is_skipped_and_not_cached(client):
+    post_lot(client, "AAPL")
+    post_lot(client, "NOKIA.HE", name="Nokia Oyj")
+    fake = _use_news({"AAPL": RuntimeError("rate limited"), "NOKIA.HE": [_story("Nokia", 1_792_000_000, ["NOKIA.HE"])]})
+
+    first = client.get("/api/me/portfolio/news", headers=auth())
+    client.get("/api/me/portfolio/news", headers=auth())
+
+    assert first.status_code == 200
+    assert [n["headline"] for n in first.json()] == ["Nokia"]
+    assert fake.news_calls.count("AAPL") == 2  # retried; the Nokia result came from cache
+    assert fake.news_calls.count("NOKIA.HE") == 1

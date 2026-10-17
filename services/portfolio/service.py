@@ -35,7 +35,7 @@ from connectors.conversation_store import (
     get_conversation_history_for_prompt,
 )
 from connectors.fx import FxConnector
-from connectors.portfolio import HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
+from connectors.portfolio import HoldingDto, HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
 from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
@@ -46,6 +46,7 @@ from services.portfolio import (
     chat,
     holding_metadata,
     live_quote,
+    news,
     performance,
     price_history,
     rate_limit,
@@ -307,6 +308,52 @@ class PortfolioService:
     def _store_metadata(result: dict[str, HoldingMetadata], ticker: str, meta: HoldingMetadata, ttl: int) -> None:
         result[ticker] = meta
         cache.set_json(holding_metadata.cache_key(ticker), dict(meta), ttl)
+
+    # --- News -----------------------------------------------------------------------------------
+
+    def get_news(self, user_id: str, limit: int = news.DEFAULT_LIMIT) -> list[dict]:
+        """Recent headlines about the user's holdings, newest first. A holding whose search fails is
+        left out (and asked again next time); never raises for Yahoo failures."""
+        holdings = self._portfolio.list_holdings(user_id)
+        if not holdings:
+            return []
+        tickers = [h.ticker for h in holdings]
+        per_ticker: dict[str, list[dict]] = {}
+        misses = []
+        for holding, cached in zip(holdings, cache.get_json_many([news.cache_key(t) for t in tickers])):
+            items = news.from_cache(holding.ticker, cached)
+            if items is not None:
+                per_ticker[holding.ticker] = items
+            else:
+                misses.append(holding)
+
+        if misses:
+            with ThreadPoolExecutor(max_workers=min(news.MAX_WORKERS, len(misses))) as pool:
+                fetched = pool.map(self._fetch_news, misses)
+            for holding, items in zip(misses, fetched):
+                if items is None:
+                    continue
+                per_ticker[holding.ticker] = items
+                ttl = news.NEWS_TTL_SECONDS if items else news.EMPTY_NEWS_TTL_SECONDS
+                cache.set_json(news.cache_key(holding.ticker), news.to_json(items), ttl)
+
+        # Holding order, so a story about several holdings lists them consistently.
+        names = {h.ticker: h.name for h in holdings}
+        return news.merge({t: per_ticker[t] for t in tickers if t in per_ticker}, names, limit)
+
+    def _fetch_news(self, holding: HoldingDto) -> list[dict] | None:
+        """Stories about one holding from the first query that finds any; None when Yahoo fails."""
+        items: list[dict] = []
+        for query in news.queries(holding.ticker, holding.name):
+            try:
+                raw = self._yf_client.search_news(query, news.STORIES_PER_QUERY)
+            except Exception:
+                logger.warning("Failed to fetch news for %s", holding.ticker, exc_info=True)
+                return None
+            items = [item for item in news.parse(raw) if news.is_about(item, holding.ticker, holding.name)]
+            if items:
+                break
+        return items
 
     # --- Price history --------------------------------------------------------------------------
 

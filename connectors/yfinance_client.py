@@ -104,6 +104,11 @@ class YFinanceClient:
             raise
         return [dto for q in quotes if (dto := parse_search_quote(q)) is not None]
 
+    def search_news(self, query: str, count: int) -> list[dict]:
+        """Yahoo news search: raw story dicts (title, publisher, link, providerPublishTime, relatedTickers).
+        Raises on transport/rate-limit errors, so callers can tell a failure from "no news"."""
+        return yf.Search(query, max_results=0, news_count=count, lists_count=0, timeout=3, raise_errors=True).news
+
     def get_info(self, ticker: str) -> dict:
         """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""
         return yf.Ticker(ticker).info or {}
