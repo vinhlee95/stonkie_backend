@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import jwt
 
+from connectors.session import SessionConnector
 from connectors.user import UserConnector, UserDto
 
 TOKEN_ISSUER = "stonkie-web"
@@ -60,18 +61,28 @@ def verify_backend_token(token: str, secret: str) -> TokenClaims:
     )
 
 
-def authenticate_bearer(authorization: str | None, users: UserConnector | None = None) -> UserDto:
-    """Verify an `Authorization: Bearer <jwt>` header and return the (upserted) user.
+def authenticate_bearer(
+    authorization: str | None,
+    users: UserConnector | None = None,
+    sessions: SessionConnector | None = None,
+) -> UserDto:
+    """Verify an `Authorization: Bearer <token>` header and return the user.
 
-    Raises AuthNotConfiguredError if the secret is unset, AuthError for any missing/invalid token.
+    A JWT (web, minted by the Next.js server) upserts the user from its claims; anything else is an
+    opaque iOS session token looked up in `user_sessions`.
+    Raises AuthNotConfiguredError if a JWT arrives and the secret is unset, AuthError for any missing/invalid token.
     """
-    secret = get_backend_jwt_secret()
-
     scheme, _, token = (authorization or "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         raise AuthError("missing bearer token")
 
-    claims = verify_backend_token(token, secret)
+    if token.count(".") != 2:
+        user = (sessions or SessionConnector()).user_for(token)
+        if user is None:
+            raise AuthError("unknown or expired session")
+        return user
+
+    claims = verify_backend_token(token, get_backend_jwt_secret())
     users = users or UserConnector()
     return users.upsert(google_sub=claims.sub, email=claims.email, name=claims.name, avatar_url=claims.picture)

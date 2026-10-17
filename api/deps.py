@@ -2,6 +2,7 @@ import logging
 
 from fastapi import Depends, Header, HTTPException, status
 
+from connectors.session import SessionConnector
 from connectors.user import UserConnector, UserDto
 from services.auth import AuthError, AuthNotConfiguredError, authenticate_bearer
 
@@ -12,13 +13,18 @@ def get_user_connector() -> UserConnector:
     return UserConnector()
 
 
+def get_session_connector() -> SessionConnector:
+    return SessionConnector()
+
+
 def get_current_user(
     authorization: str | None = Header(default=None),
     users: UserConnector = Depends(get_user_connector),
+    sessions: SessionConnector = Depends(get_session_connector),
 ) -> UserDto:
     """FastAPI dependency: maps auth service errors to 401/503."""
     try:
-        return authenticate_bearer(authorization, users=users)
+        return authenticate_bearer(authorization, users=users, sessions=sessions)
     except AuthNotConfiguredError as exc:
         logger.error("Protected route called but %s", exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication not configured")

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
+from connectors import session as session_connector_module
 from connectors import user as user_connector_module
 from main import app
 
@@ -30,11 +31,9 @@ def make_token(**overrides) -> str:
 def client(test_engine, db_session, monkeypatch):
     # db_session is requested for its teardown (truncates users between tests).
     monkeypatch.setenv("BACKEND_JWT_SECRET", SECRET)
-    monkeypatch.setattr(
-        user_connector_module,
-        "SessionLocal",
-        sessionmaker(bind=test_engine, autocommit=False, autoflush=False),
-    )
+    session_local = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
+    monkeypatch.setattr(user_connector_module, "SessionLocal", session_local)
+    monkeypatch.setattr(session_connector_module, "SessionLocal", session_local)
     with TestClient(app) as test_client:
         yield test_client
 
