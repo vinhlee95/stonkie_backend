@@ -3,8 +3,7 @@ from dataclasses import dataclass
 
 import jwt
 
-from connectors.session import SessionConnector
-from connectors.user import UserConnector, UserDto
+from connectors.google_id_token import GoogleIdTokenDto
 
 TOKEN_ISSUER = "stonkie-web"
 TOKEN_AUDIENCE = "stonkie-api"
@@ -18,6 +17,10 @@ class AuthError(Exception):
 
 class AuthNotConfiguredError(Exception):
     """BACKEND_JWT_SECRET is missing or too short."""
+
+
+class GoogleAuthNotConfiguredError(Exception):
+    """GOOGLE_IOS_CLIENT_ID is missing."""
 
 
 @dataclass(frozen=True)
@@ -61,28 +64,10 @@ def verify_backend_token(token: str, secret: str) -> TokenClaims:
     )
 
 
-def authenticate_bearer(
-    authorization: str | None,
-    users: UserConnector | None = None,
-    sessions: SessionConnector | None = None,
-) -> UserDto:
-    """Verify an `Authorization: Bearer <token>` header and return the user.
-
-    A JWT (web, minted by the Next.js server) upserts the user from its claims; anything else is an
-    opaque iOS session token looked up in `user_sessions`.
-    Raises AuthNotConfiguredError if a JWT arrives and the secret is unset, AuthError for any missing/invalid token.
-    """
-    scheme, _, token = (authorization or "").partition(" ")
-    token = token.strip()
-    if scheme.lower() != "bearer" or not token:
-        raise AuthError("missing bearer token")
-
-    if token.count(".") != 2:
-        user = (sessions or SessionConnector()).user_for(token)
-        if user is None:
-            raise AuthError("unknown or expired session")
-        return user
-
-    claims = verify_backend_token(token, get_backend_jwt_secret())
-    users = users or UserConnector()
-    return users.upsert(google_sub=claims.sub, email=claims.email, name=claims.name, avatar_url=claims.picture)
+def google_claims(token: GoogleIdTokenDto) -> TokenClaims:
+    """Claims from a signature-verified Google ID token; only verified emails sign in."""
+    if not token.email_verified:
+        raise AuthError("email not verified")
+    if not token.email:
+        raise AuthError("missing email claim")
+    return TokenClaims(sub=token.sub, email=token.email, name=token.name, picture=token.picture)

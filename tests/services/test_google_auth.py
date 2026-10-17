@@ -1,112 +1,103 @@
-import time
-from types import SimpleNamespace
+from datetime import UTC, datetime
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 
-from services.auth import AuthError, TokenClaims
-from services.google_auth import (
-    GoogleAuthNotConfiguredError,
-    get_google_ios_client_id,
-    verify_google_id_token,
+from connectors.google_id_token import GoogleIdTokenDto, GoogleIdTokenInvalidError, GoogleIdTokenNotConfiguredError
+from connectors.user import UserDto
+from services.auth import AuthError, AuthService, GoogleAuthNotConfiguredError
+
+DTO = GoogleIdTokenDto(
+    sub="google-123", email="a@example.com", email_verified=True, name="Ann", picture="https://img/a.png"
 )
 
-CLIENT_ID = "ios-client"
+
+class FakeGoogle:
+    def __init__(self, result: GoogleIdTokenDto | Exception = DTO):
+        self.result = result
+        self.calls: list[str] = []
+
+    def verify(self, id_token: str) -> GoogleIdTokenDto:
+        self.calls.append(id_token)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
 
 
-@pytest.fixture(scope="module")
-def signing_key():
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+class FakeUsers:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def upsert(self, **kwargs) -> UserDto:
+        self.calls.append(kwargs)
+        now = datetime.now(UTC)
+        return UserDto(id="u-1", created_at=now, last_seen_at=now, **kwargs)
 
 
-class FakeJwks:
-    def __init__(self, public_key):
-        self.public_key = public_key
+class FakeSessions:
+    def __init__(self):
+        self.created: list[str] = []
+        self.deleted: list[str] = []
 
-    def get_signing_key_from_jwt(self, token):
-        return SimpleNamespace(key=self.public_key)
+    def create(self, user_id: str) -> str:
+        self.created.append(user_id)
+        return "session-token"
 
-
-@pytest.fixture()
-def jwks(signing_key):
-    return FakeJwks(signing_key.public_key())
-
-
-def google_token(signing_key, **overrides) -> str:
-    now = int(time.time())
-    payload = {
-        "iss": "https://accounts.google.com",
-        "aud": CLIENT_ID,
-        "sub": "google-123",
-        "email": "a@example.com",
-        "email_verified": True,
-        "name": "Ann",
-        "picture": "https://img/x.png",
-        "iat": now,
-        "exp": now + 300,
-    }
-    payload.update(overrides)
-    payload = {k: v for k, v in payload.items() if v is not None}
-    return jwt.encode(payload, signing_key, algorithm="RS256", headers={"kid": "k1"})
+    def delete(self, token: str) -> None:
+        self.deleted.append(token)
 
 
-def verify(token, jwks):
-    return verify_google_id_token(token, client_id=CLIENT_ID, jwks_client=jwks)
+def make_service(google=None, users=None, sessions=None) -> AuthService:
+    return AuthService(users=users or FakeUsers(), sessions=sessions or FakeSessions(), google=google or FakeGoogle())
 
 
-def test_valid_token_returns_claims(signing_key, jwks):
-    assert verify(google_token(signing_key), jwks) == TokenClaims(
-        sub="google-123", email="a@example.com", name="Ann", picture="https://img/x.png"
-    )
+def test_sign_in_upserts_user_and_creates_session():
+    users, sessions, google = FakeUsers(), FakeSessions(), FakeGoogle()
 
+    token, user = make_service(google, users, sessions).sign_in_with_google("id-token")
 
-def test_bare_issuer_accepted(signing_key, jwks):
-    assert verify(google_token(signing_key, iss="accounts.google.com"), jwks).sub == "google-123"
-
-
-def test_string_email_verified_accepted(signing_key, jwks):
-    assert verify(google_token(signing_key, email_verified="true"), jwks).email == "a@example.com"
+    assert token == "session-token"
+    assert user.id == "u-1"
+    assert google.calls == ["id-token"]
+    assert users.calls == [
+        {"google_sub": "google-123", "email": "a@example.com", "name": "Ann", "avatar_url": "https://img/a.png"}
+    ]
+    assert sessions.created == ["u-1"]
 
 
 @pytest.mark.parametrize(
-    "override",
+    "dto",
     [
-        {"aud": "web-client"},
-        {"iss": "https://evil.example.com"},
-        {"exp": int(time.time()) - 600},
-        {"email_verified": False},
-        {"email_verified": None},
-        {"email": None},
-        {"sub": None},
+        GoogleIdTokenDto(sub="g", email="a@example.com", email_verified=False, name=None, picture=None),
+        GoogleIdTokenDto(sub="g", email=None, email_verified=True, name=None, picture=None),
+        GoogleIdTokenDto(sub="g", email="", email_verified=True, name=None, picture=None),
     ],
 )
-def test_rejected(signing_key, jwks, override):
-    with pytest.raises(AuthError):
-        verify(google_token(signing_key, **override), jwks)
-
-
-def test_wrong_signing_key_rejected(signing_key):
-    other = FakeJwks(rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key())
-    with pytest.raises(AuthError):
-        verify(google_token(signing_key), other)
-
-
-def test_jwks_lookup_failure_rejected(signing_key):
-    class FailingJwks:
-        def get_signing_key_from_jwt(self, token):
-            raise jwt.PyJWKClientError("no matching key")
+def test_sign_in_rejects_unverified_or_missing_email(dto):
+    users, sessions = FakeUsers(), FakeSessions()
 
     with pytest.raises(AuthError):
-        verify(google_token(signing_key), FailingJwks())
+        make_service(FakeGoogle(dto), users, sessions).sign_in_with_google("id-token")
+    assert users.calls == []
+    assert sessions.created == []
 
 
-def test_missing_client_id_env_raises_not_configured(monkeypatch):
-    monkeypatch.delenv("GOOGLE_IOS_CLIENT_ID", raising=False)
+def test_sign_in_invalid_token_raises_auth_error():
+    with pytest.raises(AuthError):
+        make_service(FakeGoogle(GoogleIdTokenInvalidError("bad"))).sign_in_with_google("id-token")
+
+
+def test_sign_in_not_configured():
     with pytest.raises(GoogleAuthNotConfiguredError):
-        get_google_ios_client_id()
+        make_service(FakeGoogle(GoogleIdTokenNotConfiguredError("missing"))).sign_in_with_google("id-token")
 
 
-def test_client_id_read_from_env(monkeypatch):
-    monkeypatch.setenv("GOOGLE_IOS_CLIENT_ID", CLIENT_ID)
-    assert get_google_ios_client_id() == CLIENT_ID
+@pytest.mark.parametrize(
+    "header, deleted",
+    [("Bearer abc", ["abc"]), ("bearer abc ", ["abc"]), (None, []), ("", []), ("Bearer ", []), ("Basic abc", [])],
+)
+def test_logout_deletes_only_bearer_tokens(header, deleted):
+    sessions = FakeSessions()
+
+    make_service(sessions=sessions).logout(header)
+
+    assert sessions.deleted == deleted

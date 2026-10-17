@@ -6,27 +6,31 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
-from api.auth import get_google_verifier
+from api.auth import get_auth_service
 from api.portfolio import get_portfolio_service
 from connectors import session as session_connector_module
 from connectors import user as user_connector_module
+from connectors.google_id_token import GoogleIdTokenDto, GoogleIdTokenInvalidError
 from main import app
-from services.auth import AuthError, TokenClaims
+from services.auth import AuthService
 
 SECRET = "s" * 32
-CLAIMS = TokenClaims(sub="google-123", email="a@example.com", name="Ann", picture="https://img/a.png")
+GOOGLE = GoogleIdTokenDto(
+    sub="google-123", email="a@example.com", email_verified=True, name="Ann", picture="https://img/a.png"
+)
 
 
 def web_token() -> str:
     now = int(time.time())
-    payload = {"sub": CLAIMS.sub, "email": CLAIMS.email, "iss": "stonkie-web", "aud": "stonkie-api"}
+    payload = {"sub": GOOGLE.sub, "email": GOOGLE.email, "iss": "stonkie-web", "aud": "stonkie-api"}
     return jwt.encode({**payload, "iat": now, "exp": now + 300}, SECRET, algorithm="HS256")
 
 
-def fake_verifier(id_token: str) -> TokenClaims:
-    if id_token != "good-google-token":
-        raise AuthError("bad token")
-    return CLAIMS
+class FakeGoogle:
+    def verify(self, id_token: str) -> GoogleIdTokenDto:
+        if id_token != "good-google-token":
+            raise GoogleIdTokenInvalidError("bad token")
+        return GOOGLE
 
 
 @pytest.fixture()
@@ -36,7 +40,7 @@ def client(test_engine, db_session, monkeypatch):
     session_local = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
     monkeypatch.setattr(user_connector_module, "SessionLocal", session_local)
     monkeypatch.setattr(session_connector_module, "SessionLocal", session_local)
-    app.dependency_overrides[get_google_verifier] = lambda: fake_verifier
+    app.dependency_overrides[get_auth_service] = lambda: AuthService(google=FakeGoogle())
     app.dependency_overrides[get_portfolio_service] = lambda: SimpleNamespace(
         get_portfolio=lambda user_id: {"user_id": user_id}
     )
@@ -97,7 +101,7 @@ def test_missing_id_token_422(client):
 
 
 def test_not_configured_503(client, monkeypatch):
-    app.dependency_overrides.pop(get_google_verifier)
+    app.dependency_overrides.pop(get_auth_service)
     monkeypatch.delenv("GOOGLE_IOS_CLIENT_ID", raising=False)
 
     response = client.post("/api/auth/google", json={"id_token": "anything"})
