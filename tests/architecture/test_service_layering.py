@@ -30,7 +30,6 @@ KNOWN_HELPER_OUTLIERS = {"services/deep_analysis/tools.py"}
 KNOWN_ROUTER_OUTLIERS = {
     "api/analyze_v2.py",
     "api/companies.py",
-    "api/deps.py",
     "api/markets.py",
     "api/quotes.py",
     "api/recap_analyze.py",

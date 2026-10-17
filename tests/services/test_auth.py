@@ -8,8 +8,8 @@ from connectors.user import UserDto
 from services.auth import (
     AuthError,
     AuthNotConfiguredError,
+    AuthService,
     TokenClaims,
-    authenticate_bearer,
     get_backend_jwt_secret,
     verify_backend_token,
 )
@@ -96,15 +96,30 @@ class FakeUserConnector:
         return UserDto(id="u-1", created_at=now, last_seen_at=now, **kwargs)
 
 
+class FakeSessionConnector:
+    def __init__(self, user: UserDto | None = None):
+        self.user = user
+        self.lookups: list[str] = []
+
+    def user_for(self, token: str) -> UserDto | None:
+        self.lookups.append(token)
+        return self.user
+
+
 @pytest.fixture()
 def secret_env(monkeypatch):
     monkeypatch.setenv("BACKEND_JWT_SECRET", SECRET)
 
 
+def authenticate(header, users=None, sessions=None) -> UserDto:
+    service = AuthService(users=users or FakeUserConnector(), sessions=sessions or FakeSessionConnector())
+    return service.authenticate(header)
+
+
 def test_authenticate_bearer_upserts_user_from_claims(secret_env):
     users = FakeUserConnector()
 
-    user = authenticate_bearer(f"Bearer {make_token()}", users=users)
+    user = authenticate(f"Bearer {make_token()}", users=users)
 
     assert user.id == "u-1"
     assert users.calls == [
@@ -113,7 +128,7 @@ def test_authenticate_bearer_upserts_user_from_claims(secret_env):
 
 
 def test_authenticate_bearer_accepts_lowercase_scheme(secret_env):
-    assert authenticate_bearer(f"bearer {make_token()}", users=FakeUserConnector()).id == "u-1"
+    assert authenticate(f"bearer {make_token()}", users=FakeUserConnector()).id == "u-1"
 
 
 @pytest.mark.parametrize("header", [None, "", "Basic abc", "Bearer ", "Bearer not-a-jwt"])
@@ -121,7 +136,7 @@ def test_authenticate_bearer_rejects_bad_header(secret_env, header):
     users = FakeUserConnector()
 
     with pytest.raises(AuthError):
-        authenticate_bearer(header, users=users)
+        authenticate(header, users=users, sessions=FakeSessionConnector())
     assert users.calls == []
 
 
@@ -129,4 +144,32 @@ def test_authenticate_bearer_requires_configured_secret(monkeypatch):
     monkeypatch.delenv("BACKEND_JWT_SECRET", raising=False)
 
     with pytest.raises(AuthNotConfiguredError):
-        authenticate_bearer(f"Bearer {make_token()}", users=FakeUserConnector())
+        authenticate(f"Bearer {make_token()}", users=FakeUserConnector())
+
+
+def test_opaque_token_uses_session_lookup(monkeypatch):
+    # Sessions work even when the web JWT secret isn't configured.
+    monkeypatch.delenv("BACKEND_JWT_SECRET", raising=False)
+    now = datetime.now(UTC)
+    session_user = UserDto(
+        id="u-9", google_sub="g", email="a@example.com", name=None, avatar_url=None, created_at=now, last_seen_at=now
+    )
+    sessions = FakeSessionConnector(session_user)
+    users = FakeUserConnector()
+
+    assert authenticate("Bearer opaque-token", users=users, sessions=sessions) == session_user
+    assert sessions.lookups == ["opaque-token"]
+    assert users.calls == []
+
+
+def test_opaque_token_unknown_raises_auth_error():
+    with pytest.raises(AuthError):
+        authenticate("Bearer opaque-token", users=FakeUserConnector(), sessions=FakeSessionConnector())
+
+
+def test_jwt_shaped_token_does_not_hit_sessions(secret_env):
+    sessions = FakeSessionConnector()
+
+    authenticate(f"Bearer {make_token()}", users=FakeUserConnector(), sessions=sessions)
+
+    assert sessions.lookups == []

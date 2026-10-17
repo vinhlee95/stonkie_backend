@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.analyze_v2 import router as analyze_v2_router
+from api.auth import router as auth_router
 from api.companies import router as companies_router
 from api.markets import router as markets_router
 from api.me import router as me_router
@@ -67,6 +68,8 @@ logger = logging.getLogger(__name__)
 
 if len(os.getenv("BACKEND_JWT_SECRET", "").encode()) < 32:
     logger.error("BACKEND_JWT_SECRET missing or shorter than 32 bytes; /api/me routes will return 503")
+if not os.getenv("GOOGLE_IOS_CLIENT_ID"):
+    logger.warning("GOOGLE_IOS_CLIENT_ID missing; iOS sign-in (/api/auth/google) will return 503")
 
 # Shared search decision engine
 search_decision_engine = SearchDecisionEngine()
@@ -83,6 +86,7 @@ app.include_router(companies_router)
 app.include_router(recap_analyze_router)
 app.include_router(quotes_router)
 app.include_router(me_router)
+app.include_router(auth_router)
 app.include_router(portfolio_router)
 app.include_router(tickers_router)
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import jwt
 
-from connectors.user import UserConnector, UserDto
+from connectors.google_id_token import GoogleIdTokenDto
 
 TOKEN_ISSUER = "stonkie-web"
 TOKEN_AUDIENCE = "stonkie-api"
@@ -17,6 +17,10 @@ class AuthError(Exception):
 
 class AuthNotConfiguredError(Exception):
     """BACKEND_JWT_SECRET is missing or too short."""
+
+
+class GoogleAuthNotConfiguredError(Exception):
+    """GOOGLE_IOS_CLIENT_ID is missing."""
 
 
 @dataclass(frozen=True)
@@ -60,18 +64,10 @@ def verify_backend_token(token: str, secret: str) -> TokenClaims:
     )
 
 
-def authenticate_bearer(authorization: str | None, users: UserConnector | None = None) -> UserDto:
-    """Verify an `Authorization: Bearer <jwt>` header and return the (upserted) user.
-
-    Raises AuthNotConfiguredError if the secret is unset, AuthError for any missing/invalid token.
-    """
-    secret = get_backend_jwt_secret()
-
-    scheme, _, token = (authorization or "").partition(" ")
-    token = token.strip()
-    if scheme.lower() != "bearer" or not token:
-        raise AuthError("missing bearer token")
-
-    claims = verify_backend_token(token, secret)
-    users = users or UserConnector()
-    return users.upsert(google_sub=claims.sub, email=claims.email, name=claims.name, avatar_url=claims.picture)
+def google_claims(token: GoogleIdTokenDto) -> TokenClaims:
+    """Claims from a signature-verified Google ID token; only verified emails sign in."""
+    if not token.email_verified:
+        raise AuthError("email not verified")
+    if not token.email:
+        raise AuthError("missing email claim")
+    return TokenClaims(sub=token.sub, email=token.email, name=token.name, picture=token.picture)

@@ -28,6 +28,7 @@ def ticker_recap_engine():
         connection.execute(text("DROP TABLE IF EXISTS ticker_recap"))
         connection.execute(text("DROP TABLE IF EXISTS portfolio_lots"))
         connection.execute(text("DROP TABLE IF EXISTS portfolio_holdings"))
+        connection.execute(text("DROP TABLE IF EXISTS user_sessions"))
         connection.execute(text("DROP TABLE IF EXISTS users"))
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     setup_engine.dispose()
