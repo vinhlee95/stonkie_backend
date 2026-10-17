@@ -29,6 +29,7 @@ from models.portfolio_lot import PortfolioLot  # noqa: F401
 from models.semantic_cache import SemanticCacheEntry  # noqa: F401
 from models.ticker_recap import TickerRecap  # noqa: F401
 from models.user import User  # noqa: F401
+from models.user_session import UserSession  # noqa: F401
 
 target_metadata = Base.metadata
 
