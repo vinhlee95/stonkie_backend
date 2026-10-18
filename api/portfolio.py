@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -16,6 +16,8 @@ from connectors.user import UserDto
 from services.portfolio import (
     MAX_HOLDINGS_PER_USER,
     MAX_LOTS_PER_HOLDING,
+    NEWS_DEFAULT_LIMIT,
+    NEWS_MAX_LIMIT,
     HoldingLimitError,
     LotLimitError,
     PortfolioService,
@@ -104,6 +106,15 @@ def read_performance(
     service: PortfolioService = Depends(get_portfolio_service),
 ):
     return service.get_performance(user.id)
+
+
+@router.get("/news")
+def read_news(
+    limit: int = Query(default=NEWS_DEFAULT_LIMIT, ge=1, le=NEWS_MAX_LIMIT),
+    user: UserDto = Depends(get_current_user),
+    service: PortfolioService = Depends(get_portfolio_service),
+):
+    return service.get_news(user.id, limit)
 
 
 @router.post("/holdings/{ticker}/lots", status_code=status.HTTP_201_CREATED)

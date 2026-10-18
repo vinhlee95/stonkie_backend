@@ -86,3 +86,47 @@ def test_search_other_errors_propagate_unchanged(monkeypatch):
     _patch_search(monkeypatch, error=ValueError("bad query"))
     with pytest.raises(ValueError):
         YFinanceClient().search("x")
+
+
+def _patch_news_json(monkeypatch, responses):
+    calls = []
+
+    class FakeYfData:
+        def get_raw_json(self, url, params=None, timeout=30):
+            calls.append((url, params, timeout))
+            response = responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+    monkeypatch.setattr(yfinance_client, "YfData", FakeYfData)
+    return calls
+
+
+def test_search_news_fetches_fresh_each_call(monkeypatch):
+    # yf.Search memoises responses forever in-process; each call must hit Yahoo so news refreshes after Redis TTL.
+    calls = _patch_news_json(monkeypatch, [{"news": [{"title": "old"}]}, {"news": [{"title": "new"}]}])
+
+    assert YFinanceClient().search_news("AAPL", 10) == [{"title": "old"}]
+    assert YFinanceClient().search_news("AAPL", 10) == [{"title": "new"}]
+    url, params, timeout = calls[0]
+    assert url.endswith("/v1/finance/search")
+    assert params["q"] == "AAPL"
+    assert params["newsCount"] == 10
+    assert params["quotesCount"] == 0
+    assert timeout <= 3
+
+
+@pytest.mark.parametrize("payload", [{}, {"finance": {"error": "bad"}}, None])
+def test_search_news_raises_on_payload_without_news(monkeypatch, payload):
+    _patch_news_json(monkeypatch, [payload])
+
+    with pytest.raises(YFDataException):
+        YFinanceClient().search_news("AAPL", 10)
+
+
+def test_search_news_propagates_transport_errors(monkeypatch):
+    _patch_news_json(monkeypatch, [YFRateLimitError()])
+
+    with pytest.raises(YFRateLimitError):
+        YFinanceClient().search_news("AAPL", 10)

@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
+from yfinance.const import _BASE_URL_
+from yfinance.data import YfData
 from yfinance.exceptions import YFDataException, YFRateLimitError, YFTickerMissingError
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,8 @@ class CloseHistoryBatchDto:
     # which are simply absent from `closes`.
     failed: list[str]
 
+
+_NEWS_SEARCH_URL = f"{_BASE_URL_}/v1/finance/search"
 
 # Caps concurrent Yahoo requests per history batch; a portfolio holds at most 50 tickers.
 HISTORY_MAX_WORKERS = 8
@@ -103,6 +107,20 @@ class YFinanceClient:
                 raise YahooSearchUnavailableError(str(exc)) from exc
             raise
         return [dto for q in quotes if (dto := parse_search_quote(q)) is not None]
+
+    def search_news(self, query: str, count: int) -> list[dict]:
+        """Yahoo news search: raw story dicts (title, publisher, link, providerPublishTime, relatedTickers).
+        Raises on transport/HTTP/rate-limit errors or a payload without "news", so callers can tell a failure
+        from "no news". Bypasses yf.Search: its responses sit in a process-wide, never-expiring LRU cache, and it
+        ignores raise_errors (non-429 errors come back as empty news)."""
+        data = YfData().get_raw_json(
+            _NEWS_SEARCH_URL,
+            params={"q": query, "quotesCount": 0, "newsCount": count, "listsCount": 0, "newsQueryId": "news_cie_vespa"},
+            timeout=3,
+        )
+        if not isinstance(data, dict) or not isinstance(data.get("news"), list):
+            raise YFDataException(f"Yahoo news search for {query!r} returned no news payload")
+        return data["news"]
 
     def get_info(self, ticker: str) -> dict:
         """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""
