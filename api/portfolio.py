@@ -117,6 +117,14 @@ def read_news(
     return service.get_news(user.id, limit)
 
 
+@router.get("/recaps")
+def read_recaps(
+    user: UserDto = Depends(get_current_user),
+    service: PortfolioService = Depends(get_portfolio_service),
+):
+    return service.get_recaps(user.id)
+
+
 @router.post("/holdings/{ticker}/lots", status_code=status.HTTP_201_CREATED)
 def post_lot(
     ticker: str,

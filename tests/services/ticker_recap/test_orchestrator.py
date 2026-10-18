@@ -52,9 +52,13 @@ def _generated() -> GeneratorResult:
 
 
 class FakeConnector:
-    def __init__(self, result: UpsertResult | None = None):
+    def __init__(self, result: UpsertResult | None = None, existing: int | None = None):
         self.result = result or UpsertResult(inserted=True, replaced=False, recap_id=42)
+        self.existing = existing
         self.upsert_calls: list[dict] = []
+
+    def existing_id(self, *, ticker, cadence, period_start):
+        return self.existing
 
     def upsert_recap(self, **kwargs):
         self.upsert_calls.append(kwargs)
@@ -172,3 +176,24 @@ def test_replace_sets_replaced_status():
     assert result.inserted is True
     assert result.recap_id == 5
     assert connector.upsert_calls[0]["replace"] is True
+
+
+def test_existing_recap_skips_before_any_paid_call():
+    def boom(*args, **kwargs):
+        raise AssertionError("must not be called for an existing recap")
+
+    connector = FakeConnector(existing=9)
+    result, connector = _run(
+        recap_connector=connector, price_fn=boom, query_fn=boom, retrieve_fn=boom, generate_fn=boom
+    )
+
+    assert result.status == "skipped_existing"
+    assert result.recap_id == 9
+    assert connector.upsert_calls == []
+
+
+def test_replace_ignores_existing_recap():
+    connector = FakeConnector(UpsertResult(inserted=True, replaced=True, recap_id=5), existing=9)
+    result, _ = _run(recap_connector=connector, replace=True)
+
+    assert result.status == "replaced"

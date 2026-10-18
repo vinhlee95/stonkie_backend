@@ -13,6 +13,7 @@ from api.portfolio import get_portfolio_service
 from connectors import cache
 from connectors import company as company_connector_module
 from connectors import portfolio as portfolio_connector_module
+from connectors import ticker_recap as ticker_recap_connector_module
 from connectors import user as user_connector_module
 from connectors.yfinance_client import LiveQuoteDto
 from main import app
@@ -64,6 +65,7 @@ def client(test_engine, db_session, monkeypatch):
     monkeypatch.setattr(user_connector_module, "SessionLocal", session_local)
     monkeypatch.setattr(portfolio_connector_module, "SessionLocal", session_local)
     monkeypatch.setattr(company_connector_module, "SessionLocal", session_local)
+    monkeypatch.setattr(ticker_recap_connector_module, "SessionLocal", session_local)
     fake = FakeYFinanceClient(HISTORIES, currencies=CURRENCIES, infos=INFOS)
     app.dependency_overrides[get_portfolio_service] = lambda: _service(fake)
     with TestClient(app) as test_client:
@@ -785,3 +787,70 @@ def test_news_yahoo_failure_is_skipped_and_not_cached(client):
     assert [n["headline"] for n in first.json()] == ["Nokia"]
     assert fake.news_calls.count("AAPL") == 2  # retried; the Nokia result came from cache
     assert fake.news_calls.count("NOKIA.HE") == 1
+
+
+def _add_recap(ticker: str, period_end: date, summary: str = "") -> None:
+    from connectors.ticker_recap import TickerRecapConnector
+    from tests.connectors.test_ticker_recap import build_payload
+
+    TickerRecapConnector().upsert_recap(
+        ticker=ticker,
+        cadence="daily",
+        payload=build_payload(
+            ticker=ticker, summary=summary or f"{ticker} recap", period_start=period_end, period_end=period_end
+        ),
+        model="m",
+    )
+
+
+def test_recaps_requires_auth(client):
+    assert client.get("/api/me/portfolio/recaps").status_code == 401
+
+
+def test_recaps_empty_portfolio(client):
+    _add_recap("AAPL", date.today())
+
+    assert client.get("/api/me/portfolio/recaps", headers=auth()).json() == []
+
+
+def test_recaps_latest_per_holding_in_holding_order(client):
+    post_lot(client, "NOKIA.HE")
+    post_lot(client, "AAPL")
+    today = datetime.now(UTC).date()
+    _add_recap("AAPL", today - timedelta(days=1), "AAPL older")
+    _add_recap("AAPL", today, "AAPL newest")
+    _add_recap("NOKIA.HE", today)
+    _add_recap("NVDA", today)  # not held
+
+    body = client.get("/api/me/portfolio/recaps", headers=auth()).json()
+
+    assert [item["ticker"] for item in body] == ["AAPL", "NOKIA.HE"]
+    recap = body[0]["recap"]
+    assert recap["summary"] == "AAPL newest"
+    assert recap["period_end"] == today.isoformat()
+    assert recap["created_at"].endswith("Z")
+    assert recap["bullets"] == [{"text": "Apple gained on demand.", "citations": [{"source_id": "src-1"}]}]
+    assert recap["sources"][0]["id"] == "src-1"
+    assert set(recap) == {"id", "period_start", "period_end", "created_at", "summary", "bullets", "sources"}
+
+
+def test_recaps_staleness_boundary(client):
+    assert post_lot(client, "AAPL").status_code == 201
+    assert post_lot(client, "NOKIA.HE").status_code == 201
+    today = datetime.now(UTC).date()
+    _add_recap("AAPL", today - timedelta(days=4))
+    _add_recap("NOKIA.HE", today - timedelta(days=5))
+
+    body = client.get("/api/me/portfolio/recaps", headers=auth()).json()
+
+    assert [item["ticker"] for item in body] == ["AAPL"]
+
+
+def test_recaps_holding_without_recap_omitted(client):
+    assert post_lot(client, "AAPL").status_code == 201
+    assert post_lot(client, "NOKIA.HE").status_code == 201
+    _add_recap("NOKIA.HE", datetime.now(UTC).date())
+
+    body = client.get("/api/me/portfolio/recaps", headers=auth()).json()
+
+    assert [item["ticker"] for item in body] == ["NOKIA.HE"]

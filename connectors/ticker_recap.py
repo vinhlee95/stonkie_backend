@@ -159,3 +159,31 @@ class TickerRecapConnector:
                 .all()
             )
             return [_to_dto(row) for row in rows]
+
+    def existing_id(self, *, ticker: str, cadence: str, period_start: date) -> int | None:
+        """Id of the recap for this ticker/cadence/period, if one was already generated."""
+        with SessionLocal() as db:
+            return db.execute(
+                select(TickerRecap.id).where(
+                    TickerRecap.ticker == ticker,
+                    TickerRecap.cadence == cadence,
+                    TickerRecap.period_start == period_start,
+                )
+            ).scalar_one_or_none()
+
+    def get_latest_many(self, tickers: list[str], cadence: str) -> dict[str, TickerRecapDto]:
+        """Newest recap per ticker, in one query; tickers without a recap are absent."""
+        if not tickers:
+            return {}
+        with SessionLocal() as db:
+            rows = (
+                db.execute(
+                    select(TickerRecap)
+                    .where(TickerRecap.ticker.in_(tickers), TickerRecap.cadence == cadence)
+                    .order_by(TickerRecap.ticker, TickerRecap.period_start.desc())
+                    .distinct(TickerRecap.ticker)
+                )
+                .scalars()
+                .all()
+            )
+            return {row.ticker: _to_dto(row) for row in rows}

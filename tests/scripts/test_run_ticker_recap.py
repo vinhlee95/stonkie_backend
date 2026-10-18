@@ -3,7 +3,27 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from scripts import run_ticker_recap
 from scripts.run_ticker_recap import POPULAR_TICKERS, main
+from services.ticker_recap.universe import HeldTicker, TickerInfo
+
+
+@pytest.fixture(autouse=True)
+def no_holdings(monkeypatch):
+    """Tests never read portfolio_holdings unless they pass their own held_fn."""
+    monkeypatch.setattr(run_ticker_recap, "_default_held", lambda: [])
+
+
+def recording_runner(calls):
+    def runner(**kwargs):
+        calls.append(kwargs)
+        return {"status": "inserted"}
+
+    return runner
+
+
+def equity(ticker):
+    return TickerInfo(name=f"{ticker} Corp", quote_type="EQUITY")
 
 
 def test_tracer_all_tickers_succeed_returns_zero():
@@ -115,3 +135,86 @@ def test_recap_tickers_env_overrides_builtin_name_and_market():
     assert exit_code == 0
     assert calls[0]["company_name"] == "Apple (override)"
     assert calls[0]["market"] == "FI"
+
+
+def test_held_tickers_are_recapped_after_popular():
+    calls = []
+    held = [HeldTicker("NOKIA.HE", 2)]
+
+    assert main(["--cadence", "daily"], runner=recording_runner(calls), held_fn=lambda: held, lookup=equity) == 0
+
+    assert [call["ticker"] for call in calls] == [*POPULAR_TICKERS, "NOKIA.HE"]
+    assert (calls[-1]["market"], calls[-1]["company_name"]) == ("FI", "NOKIA.HE Corp")
+
+
+def test_cli_tickers_bypass_universe():
+    calls = []
+
+    def held_fn():
+        raise AssertionError("must not read holdings")
+
+    assert main(["--tickers", "AAPL"], runner=recording_runner(calls), held_fn=held_fn) == 0
+    assert [call["ticker"] for call in calls] == ["AAPL"]
+
+
+def test_cli_ticker_outside_catalog_uses_its_suffix_market():
+    calls = []
+
+    assert main(["--ticker", "NOKIA.HE"], runner=recording_runner(calls)) == 0
+    assert calls[0]["market"] == "FI"
+
+
+def test_max_tickers_env():
+    calls = []
+    held = [HeldTicker(t, 1) for t in ("MSFT", "AMZN", "META")]
+
+    main(
+        ["--cadence", "daily"],
+        runner=recording_runner(calls),
+        env={"RECAP_MAX_TICKERS": "5"},
+        held_fn=lambda: held,
+        lookup=equity,
+    )
+
+    assert [call["ticker"] for call in calls] == [*POPULAR_TICKERS, "MSFT"]
+
+
+def test_invalid_max_tickers_env_uses_default():
+    calls = []
+    held = [HeldTicker("MSFT", 1)]
+
+    main(
+        ["--cadence", "daily"],
+        runner=recording_runner(calls),
+        env={"RECAP_MAX_TICKERS": "abc"},
+        held_fn=lambda: held,
+        lookup=equity,
+    )
+
+    assert [call["ticker"] for call in calls] == [*POPULAR_TICKERS, "MSFT"]
+
+
+def test_held_query_failure_falls_back_to_popular(caplog):
+    calls = []
+
+    def held_fn():
+        raise RuntimeError("db down")
+
+    assert main(["--cadence", "daily"], runner=recording_runner(calls), held_fn=held_fn) == 0
+    assert [call["ticker"] for call in calls] == list(POPULAR_TICKERS)
+    assert "held tickers" in caplog.text
+
+
+def test_overrides_run_before_held_tickers():
+    calls = []
+    env = {"RECAP_TICKERS": "NKE:NIKE, Inc."}
+
+    main(
+        ["--cadence", "daily"],
+        runner=recording_runner(calls),
+        env=env,
+        held_fn=lambda: [HeldTicker("MSFT", 9)],
+        lookup=equity,
+    )
+
+    assert [call["ticker"] for call in calls] == [*POPULAR_TICKERS, "NKE", "MSFT"]
