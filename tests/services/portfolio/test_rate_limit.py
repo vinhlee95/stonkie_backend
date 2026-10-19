@@ -62,6 +62,9 @@ def test_new_window_resets_the_count(fake, monkeypatch):
 
 def test_fails_open_when_redis_is_down(monkeypatch):
     class Down:
+        def set(self, *_args, **_kwargs):
+            raise redis.ConnectionError("down")
+
         def incr(self, key):
             raise redis.ConnectionError("down")
 

@@ -54,7 +54,9 @@ def post_lot(client, ticker: str, shares: float = 1, price: float = 1, headers: 
 
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
-    monkeypatch.setattr("connectors.cache.redis_client", FakeRedis())
+    fake = FakeRedis()
+    monkeypatch.setattr("connectors.cache.redis_client", fake)
+    monkeypatch.setattr("connectors.cache.counter_client", fake)
 
 
 @pytest.fixture()

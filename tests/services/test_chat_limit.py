@@ -23,6 +23,14 @@ def test_client_ip_uses_last_forwarded_hop_then_peer():
     assert client_ip({}, None) == "unknown"
 
 
+def test_client_ip_groups_ipv6_by_64_and_unmaps_ipv4():
+    a = client_ip({"x-forwarded-for": "2001:db8:1:2::1"}, None)
+    b = client_ip({"x-forwarded-for": "2001:db8:1:2:ffff:ffff:ffff:ffff"}, None)
+    assert a == b == "2001:db8:1:2::/64"
+    assert client_ip({"x-forwarded-for": "2001:db8:1:3::1"}, None) != a
+    assert client_ip({"x-forwarded-for": "::ffff:203.0.113.7"}, None) == "203.0.113.7"
+
+
 def test_client_ip_rejects_non_ip_values():
     assert client_ip({"x-forwarded-for": "1.1.1.1, " + "a" * 500}, "9.9.9.9") == "9.9.9.9"
     assert client_ip({}, "testclient") == "unknown"

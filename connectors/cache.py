@@ -210,10 +210,9 @@ def get_json_many(keys: list[str]) -> list[Optional[dict]]:
 def incr_with_ttl(key: str, ttl_seconds: int) -> Optional[int]:
     """Increment a counter, starting its TTL on first use. None on Redis failure (callers fail open)."""
     try:
-        count = counter_client.incr(key)
-        if count == 1:
-            counter_client.expire(key, ttl_seconds)
-        return int(count)
+        # SET NX EX creates the key with its TTL atomically, so a failure before INCR can't leave an immortal key.
+        counter_client.set(key, 0, ex=ttl_seconds, nx=True)
+        return int(counter_client.incr(key))
     except redis.RedisError:
         logger.warning("Redis incr failed for key %s", key, exc_info=True)
         return None

@@ -107,6 +107,12 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
 
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.store:
+            return None
+        self.store[key] = (str(value), ex if ex is not None else -1)
+        return True
+
     def incr(self, key):
         value = int(self.store.get(key, ("0", -1))[0]) + 1
         self.store[key] = (str(value), self.store.get(key, (None, -1))[1])
