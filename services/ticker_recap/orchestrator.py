@@ -83,6 +83,19 @@ def run_ticker_recap(
     def _outcome(*, status: str) -> None:
         log_event(logger, EVENT_RUN_OUTCOME, {**base_fields, "status": status})
 
+    # A rerun (or the retry after a timeout) skips tickers already done before paying for any LLM/search call.
+    existing_id = None if replace else connector.existing_id(ticker=ticker, cadence=cadence, period_start=period_start)
+    if existing_id is not None:
+        _outcome(status="skipped_existing")
+        return RunResult(
+            status="skipped_existing",
+            inserted=False,
+            attempts=0,
+            validation_failures=[],
+            validation_warnings=[],
+            recap_id=existing_id,
+        )
+
     price_change = price_fn(ticker)
     if price_change is None:
         logger.warning("ticker_recap: no price change for %s; skipping", ticker)

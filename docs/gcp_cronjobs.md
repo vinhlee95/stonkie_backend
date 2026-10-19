@@ -229,6 +229,8 @@ Generates daily per-ticker news recaps for a fixed set of popular US tickers and
 
 The ticker set = built-in `POPULAR_TICKERS` (in `scripts/run_ticker_recap.py`) **merged with** the optional `RECAP_TICKERS` env var. Adding/overriding tickers via the env var needs **no image rebuild** — just a job update (see below).
 
+**Held tickers (portfolio recaps):** the job also reads `portfolio_holdings` and recaps every held ticker on a supported exchange (no suffix = US, `.HE`, `.VN`) that Yahoo `info` lists as `EQUITY`. ETFs, funds, crypto and indices are skipped, and the company name comes from Yahoo (`longName`), never from user-entered holding names. Run order is popular → `RECAP_TICKERS` → held (most-held first). The total is capped by `RECAP_MAX_TICKERS` (default 20, sized to the 1800s timeout and the audio stage's `--limit 20`), which only cuts held tickers. A ticker whose run crashes is logged (`ticker_recap_crashed`) and skipped; Yahoo lookups give up after 15s. Tickers already recapped for the period are skipped before any LLM/search call, so the retry after a timeout resumes rather than redoing work. Each run logs a `ticker_recap.universe` event with counts. Tickers run sequentially (~20–40s each): **raise the timeout and `--limit` together with `RECAP_MAX_TICKERS`.**
+
 Also requires `OPENAI_API_KEY` for the audio stage — see [Audio stage](#audio-stage-recap-narration). **`--limit 20` must stay above the ticker count**; raise it when tickers are added or the newest recaps will crowd out the rest.
 
 ### Add / change tickers (no redeploy)

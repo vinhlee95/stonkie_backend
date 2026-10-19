@@ -63,6 +63,13 @@ def _to_holding_dto(row: PortfolioHolding, lots: list[PortfolioLot]) -> HoldingD
     )
 
 
+@dataclass(frozen=True)
+class HeldTickerDto:
+    ticker: str
+    # Users holding it.
+    holders: int
+
+
 class HoldingLimitExceeded(Exception):
     pass
 
@@ -110,6 +117,18 @@ class PortfolioConnector:
             for holding, lot in rows:
                 grouped.setdefault(holding.id, (holding, []))[1].append(lot)
             return [_to_holding_dto(holding, lots) for holding, lots in grouped.values()]
+
+    def held_ticker_counts(self) -> list[HeldTickerDto]:
+        """Every ticker any user holds (with at least one lot), most-held first."""
+        holders = func.count(func.distinct(PortfolioHolding.user_id))
+        with SessionLocal() as db:
+            rows = db.execute(
+                select(PortfolioHolding.ticker, holders)
+                .where(exists().where(PortfolioLot.holding_id == PortfolioHolding.id))
+                .group_by(PortfolioHolding.ticker)
+                .order_by(holders.desc(), PortfolioHolding.ticker)
+            ).all()
+            return [HeldTickerDto(ticker=ticker, holders=count) for ticker, count in rows]
 
     def held_tickers(self, user_id) -> set[str]:
         """Tickers with a holding row, including lot-less ones written by pre-lots code."""

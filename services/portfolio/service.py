@@ -36,6 +36,7 @@ from connectors.conversation_store import (
 )
 from connectors.fx import FxConnector
 from connectors.portfolio import HoldingDto, HoldingLimitExceeded, LotDto, LotLimitExceeded, PortfolioConnector
+from connectors.ticker_recap import TickerRecapConnector
 from connectors.yfinance_client import LiveQuoteDto, YFinanceClient
 from services.analysis_progress import AnalysisPhase, thinking_status
 from services.analyze_retrieval.citation_index import build_sources_event
@@ -50,6 +51,7 @@ from services.portfolio import (
     performance,
     price_history,
     rate_limit,
+    recaps,
     valuation,
 )
 from services.portfolio.chat import ChatRoute, ChatScope, SearchJob
@@ -123,6 +125,7 @@ class PortfolioService:
         brave_client: BraveClient | None = None,
         fx: FxConnector | None = None,
         companies: CompanyConnector | None = None,
+        recaps: TickerRecapConnector | None = None,
     ) -> None:
         self._portfolio = portfolio or PortfolioConnector()
         self._yf_client = yf_client or YFinanceClient()
@@ -130,6 +133,7 @@ class PortfolioService:
         self._brave_client = brave_client
         self._fx = fx or FxConnector(self._yf_client)
         self._companies = companies or CompanyConnector()
+        self._recaps = recaps or TickerRecapConnector()
 
     def _brave(self) -> BraveClient:
         if self._brave_client is None:
@@ -308,6 +312,19 @@ class PortfolioService:
     def _store_metadata(result: dict[str, HoldingMetadata], ticker: str, meta: HoldingMetadata, ttl: int) -> None:
         result[ticker] = meta
         cache.set_json(holding_metadata.cache_key(ticker), dict(meta), ttl)
+
+    # --- Recaps ---------------------------------------------------------------------------------
+
+    def get_recaps(self, user_id: str, *, today: date | None = None) -> list[dict]:
+        """Each holding's newest daily recap, in holding order; holdings without a fresh one are left out."""
+        tickers = [h.ticker for h in self._portfolio.list_holdings(user_id)]
+        latest = self._recaps.get_latest_many(tickers, recaps.CADENCE)
+        today = today or _utcnow().date()
+        return [
+            recaps.to_json(ticker, latest[ticker])
+            for ticker in tickers
+            if ticker in latest and recaps.is_fresh(latest[ticker], today)
+        ]
 
     # --- News -----------------------------------------------------------------------------------
 

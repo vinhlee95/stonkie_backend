@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class TickerInfoDto:
+    """Yahoo's name for a symbol and its quoteType (EQUITY, ETF, MUTUALFUND, CRYPTOCURRENCY, ...)."""
+
+    name: str | None
+    quote_type: str | None
+
+
+@dataclass(frozen=True)
 class LiveQuoteDto:
     """Latest regular-session price. Yahoo delays some exchanges by 15-20 min."""
 
@@ -125,6 +133,17 @@ class YFinanceClient:
     def get_info(self, ticker: str) -> dict:
         """Yahoo quoteSummary profile (sector, country, quoteType, ...). Slow: one request per ticker."""
         return yf.Ticker(ticker).info or {}
+
+    def get_ticker_info(self, ticker: str) -> "TickerInfoDto | None":
+        """Name (`longName`, else `shortName`) and quoteType; None when Yahoo fails or doesn't know the symbol."""
+        try:
+            info = self.get_info(ticker)
+        except Exception:
+            logger.warning("Yahoo info lookup failed for %s", ticker, exc_info=True)
+            return None
+        if not info.get("quoteType"):
+            return None
+        return TickerInfoDto(name=info.get("longName") or info.get("shortName"), quote_type=info["quoteType"])
 
     def get_quote(self, ticker: str) -> dict | None:
         """Live quote snapshot used as a fallback when the latest daily bar's

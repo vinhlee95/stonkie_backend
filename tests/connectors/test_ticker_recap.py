@@ -169,3 +169,33 @@ def test_get_without_audio_since_bounds_lookback(recap_connector):
 
     assert recap_connector.get_without_audio(cadence="daily", since=PERIOD_START) != []
     assert recap_connector.get_without_audio(cadence="daily", since=PERIOD_END) == []
+
+
+def test_get_latest_many_returns_newest_per_ticker(recap_connector):
+    for ticker, day, summary in (
+        ("AAPL", date(2026, 6, 25), "old"),
+        ("AAPL", date(2026, 6, 26), "new"),
+        ("NVDA", date(2026, 6, 26), "nvda"),
+    ):
+        recap_connector.upsert_recap(
+            ticker=ticker,
+            cadence="daily",
+            payload=build_payload(ticker=ticker, summary=summary, period_start=day, period_end=day),
+            model="m",
+        )
+
+    latest = recap_connector.get_latest_many(["AAPL", "NVDA", "MSFT"], "daily")
+
+    assert {ticker: dto.summary for ticker, dto in latest.items()} == {"AAPL": "new", "NVDA": "nvda"}
+
+
+def test_get_latest_many_empty_input(recap_connector):
+    assert recap_connector.get_latest_many([], "daily") == {}
+
+
+def test_existing_id(recap_connector):
+    inserted = recap_connector.upsert_recap(ticker="AAPL", cadence="daily", payload=build_payload(), model="m")
+
+    assert recap_connector.existing_id(ticker="AAPL", cadence="daily", period_start=PERIOD_START) == inserted.recap_id
+    assert recap_connector.existing_id(ticker="AAPL", cadence="weekly", period_start=PERIOD_START) is None
+    assert recap_connector.existing_id(ticker="NVDA", cadence="daily", period_start=PERIOD_START) is None

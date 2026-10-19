@@ -215,3 +215,30 @@ def test_held_tickers_includes_lotless_holdings(portfolio, users, test_engine):
         )
 
     assert portfolio.held_tickers(alice) == {"AAPL", "MSFT"}
+
+
+def test_held_ticker_counts_orders_by_holders(portfolio, users):
+    alice, bob = users
+    add(portfolio, alice, ticker="AAPL", name="Apple")
+    add(portfolio, alice, ticker="NOKIA.HE", name="Nokia Oyj")
+    add(portfolio, bob, ticker="NOKIA.HE")
+
+    counts = portfolio.held_ticker_counts()
+
+    assert [(c.ticker, c.holders) for c in counts] == [("NOKIA.HE", 2), ("AAPL", 1)]
+
+
+def test_held_ticker_counts_ignores_lotless_holdings(portfolio, users, test_engine):
+    alice, bob = users
+    add(portfolio, alice, ticker="MSFT")
+    with test_engine.begin() as connection:
+        for user_id, ticker in ((alice, "AAPL"), (bob, "MSFT")):
+            connection.execute(
+                text(
+                    "INSERT INTO portfolio_holdings (user_id, ticker, shares, avg_cost) "
+                    "VALUES (CAST(:user_id AS uuid), :ticker, 1, 1)"
+                ),
+                {"user_id": str(user_id), "ticker": ticker},
+            )
+
+    assert [(c.ticker, c.holders) for c in portfolio.held_ticker_counts()] == [("MSFT", 1)]
