@@ -319,7 +319,7 @@ class PortfolioService:
         """Each holding's newest daily recap, in holding order; holdings without a fresh one are left out."""
         tickers = [h.ticker for h in self._portfolio.list_holdings(user_id)]
         latest = self._recaps.get_latest_many(tickers, recaps.CADENCE)
-        today = today or recaps.today_utc()
+        today = today or _utcnow().date()
         return [
             recaps.to_json(ticker, latest[ticker])
             for ticker in tickers

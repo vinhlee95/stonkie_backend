@@ -1,4 +1,5 @@
-from services.ticker_recap.universe import HeldTicker, TickerInfo, build_universe, market_for_ticker, yahoo_lookup
+from connectors.yfinance_client import TickerInfoDto as TickerInfo
+from services.ticker_recap.universe import HeldTicker, build_universe, market_for_ticker
 
 POPULAR = {
     "NVDA": {"name": "NVIDIA Corporation", "market": "US"},
@@ -104,33 +105,3 @@ def test_build_universe_stats_counts():
     held = [HeldTicker("MSFT", 2), HeldTicker("AAPL", 1)]
     _, stats = build_universe(POPULAR, held, {}, lookup=equity, cap=100)
     assert stats == {"popular": 4, "held": 1, "dropped_market": 0, "dropped_type": 0, "capped": 0}
-
-
-class FakeInfoClient:
-    def __init__(self, info=None, error=None):
-        self.info = info or {}
-        self.error = error
-
-    def get_info(self, ticker):
-        if self.error:
-            raise self.error
-        return self.info
-
-
-def test_yahoo_lookup_prefers_long_name():
-    lookup = yahoo_lookup(FakeInfoClient({"quoteType": "EQUITY", "longName": "Nokia Oyj", "shortName": "Nokia"}))
-    assert lookup("NOKIA.HE") == TickerInfo(name="Nokia Oyj", quote_type="EQUITY")
-
-
-def test_yahoo_lookup_falls_back_to_short_name():
-    assert yahoo_lookup(FakeInfoClient({"quoteType": "ETF", "shortName": "Vanguard"}))("VOO") == TickerInfo(
-        "Vanguard", "ETF"
-    )
-
-
-def test_yahoo_lookup_error_is_none():
-    assert yahoo_lookup(FakeInfoClient(error=RuntimeError("429")))("X") is None
-
-
-def test_yahoo_lookup_empty_info_is_none():
-    assert yahoo_lookup(FakeInfoClient({}))("X") is None

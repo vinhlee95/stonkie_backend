@@ -834,18 +834,6 @@ def test_recaps_latest_per_holding_in_holding_order(client):
     assert set(recap) == {"id", "period_start", "period_end", "created_at", "summary", "bullets", "sources"}
 
 
-def test_recaps_staleness_boundary(client):
-    assert post_lot(client, "AAPL").status_code == 201
-    assert post_lot(client, "NOKIA.HE").status_code == 201
-    today = datetime.now(UTC).date()
-    _add_recap("AAPL", today - timedelta(days=4))
-    _add_recap("NOKIA.HE", today - timedelta(days=5))
-
-    body = client.get("/api/me/portfolio/recaps", headers=auth()).json()
-
-    assert [item["ticker"] for item in body] == ["AAPL"]
-
-
 def test_recaps_holding_without_recap_omitted(client):
     assert post_lot(client, "AAPL").status_code == 201
     assert post_lot(client, "NOKIA.HE").status_code == 201

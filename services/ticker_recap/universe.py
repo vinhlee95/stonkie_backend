@@ -1,38 +1,24 @@
 """Which tickers the daily ticker recap job covers: popular tickers, every held ticker, then env overrides.
 
 Held tickers are kept only on markets the recap pipeline supports (search routing + trading-day tz)
-and when Yahoo lists them as equities (funds, crypto, indices have near-empty ticker news). The job fetches
-holdings; the Yahoo lookup is injected.
+and when Yahoo lists them as equities (funds, crypto, indices have near-empty ticker news). Pure: the job
+fetches holdings and passes the Yahoo lookup in.
 """
 
-import logging
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol
 
 from connectors.portfolio import HeldTickerDto as HeldTicker
+from connectors.yfinance_client import TickerInfoDto
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_TICKERS = 100
+# Tickers run one after another (~20-40s each): 20 fits the job's 1800s timeout with room for retries, and
+# matches the audio stage's `--limit 20` so every recap of the day gets narrated. Raise all three together.
+DEFAULT_MAX_TICKERS = 20
 # Exchange suffix → recap market. No suffix is US (dashed share classes like BRK-B included).
 SUFFIX_MARKETS = {"HE": "FI", "VN": "VN"}
 # Only operating companies have ticker news worth a recap; ETFs, funds, crypto, indices and FX are skipped.
 RECAP_QUOTE_TYPES = {"EQUITY"}
 
-__all__ = ["DEFAULT_MAX_TICKERS", "HeldTicker", "TickerInfo", "build_universe", "market_for_ticker", "yahoo_lookup"]
-
-
-@dataclass(frozen=True)
-class TickerInfo:
-    """Yahoo's view of a symbol: the company name used in prompts and search, and its quoteType."""
-
-    name: str | None
-    quote_type: str | None
-
-
-class InfoClient(Protocol):
-    def get_info(self, ticker: str) -> dict: ...
+__all__ = ["DEFAULT_MAX_TICKERS", "HeldTicker", "build_universe", "market_for_ticker"]
 
 
 def market_for_ticker(ticker: str) -> str | None:
@@ -47,7 +33,7 @@ def build_universe(
     held: list[HeldTicker],
     overrides: dict[str, dict[str, str]],
     *,
-    lookup: Callable[[str], TickerInfo | None],
+    lookup: Callable[[str], TickerInfoDto | None],
     cap: int,
 ) -> tuple[dict[str, dict[str, str]], dict[str, int]]:
     """`{ticker: {name, market}}` in run order (popular, overrides, then held as given) plus filter stats.
@@ -77,19 +63,3 @@ def build_universe(
         kept[item.ticker] = {"name": (info.name if info else None) or item.ticker, "market": market}
     stats["held"] = len(kept)
     return {**popular, **overrides, **kept}, stats
-
-
-def yahoo_lookup(yf_client: InfoClient) -> Callable[[str], TickerInfo | None]:
-    """Name + quoteType from Yahoo `info`; None when Yahoo fails or knows nothing about the symbol."""
-
-    def lookup(ticker: str) -> TickerInfo | None:
-        try:
-            info = yf_client.get_info(ticker)
-        except Exception:
-            logger.warning("ticker_recap: Yahoo info lookup failed for %s", ticker, exc_info=True)
-            return None
-        if not info.get("quoteType"):
-            return None
-        return TickerInfo(name=info.get("longName") or info.get("shortName"), quote_type=info["quoteType"])
-
-    return lookup

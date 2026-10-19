@@ -12,10 +12,10 @@ only list the *new* tickers. Format is semicolon-separated records of
 commas/spaces but not ':' or ';'. Example:
     RECAP_TICKERS="NKE:NIKE, Inc.;DELL:Dell Technologies Inc."
 
-Every ticker a user holds is recapped too (after the popular set), when its exchange is US/FI/VN and
-Yahoo lists it as an equity (no ETFs/funds/crypto/indices), named by Yahoo, after the popular and RECAP_TICKERS
-set, up to RECAP_MAX_TICKERS (default 100) in total; the least-held go first. Tickers already recapped for the
-period are skipped before any paid call, so a rerun resumes where a timed-out run stopped.
+Every ticker a user holds is recapped too, when its exchange is US/FI/VN and Yahoo lists it as an equity
+(no ETFs/funds/crypto/indices), named by Yahoo. They run after the popular and RECAP_TICKERS set, most-held
+first, up to RECAP_MAX_TICKERS (default 20) in total, so the cap drops the least-held. Tickers already
+recapped for the period are skipped before any paid call, so a rerun resumes where a timed-out run stopped.
 
 Local usage:
     source venv/bin/activate
@@ -31,8 +31,12 @@ import argparse
 import logging
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date, datetime
 
+from connectors.portfolio import PortfolioConnector
+from connectors.yfinance_client import TickerInfoDto, YFinanceClient
 from scripts.run_market_recap import (
     MARKET_TZ,
     NY_TZ,
@@ -43,10 +47,8 @@ from services.ticker_recap.orchestrator import run_ticker_recap
 from services.ticker_recap.universe import (
     DEFAULT_MAX_TICKERS,
     HeldTicker,
-    TickerInfo,
     build_universe,
     market_for_ticker,
-    yahoo_lookup,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ POPULAR_TICKERS: dict[str, dict[str, str]] = {
 RECAP_TICKERS_ENV = "RECAP_TICKERS"
 RECAP_MAX_TICKERS_ENV = "RECAP_MAX_TICKERS"
 EVENT_UNIVERSE = "ticker_recap.universe"
+LOOKUP_TIMEOUT_S = 15
 
 
 def _parse_ticker_env(raw: str | None) -> dict[str, dict[str, str]]:
@@ -102,21 +105,35 @@ def _max_tickers(env: dict[str, str]) -> int:
 
 
 def _default_held() -> list[HeldTicker]:
-    from connectors.portfolio import PortfolioConnector
-
     return PortfolioConnector().held_ticker_counts()
 
 
-def _default_lookup() -> Callable[[str], TickerInfo | None]:
-    from connectors.yfinance_client import YFinanceClient
+def _with_timeout(
+    lookup: Callable[[str], TickerInfoDto | None], timeout_s: float
+) -> Callable[[str], TickerInfoDto | None]:
+    """Gives up on a Yahoo lookup after `timeout_s` (the ticker is then tried under its own name) so one hung
+    request can't eat the job's time budget. The abandoned call finishes on a pool thread in the background."""
+    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="recap-lookup")
 
-    return yahoo_lookup(YFinanceClient())
+    def call(ticker: str) -> TickerInfoDto | None:
+        future = pool.submit(lookup, ticker)
+        try:
+            return future.result(timeout=timeout_s)
+        except FutureTimeout:
+            logger.warning("ticker_recap: Yahoo info lookup timed out for %s", ticker)
+            return None
+
+    return call
+
+
+def _default_lookup() -> Callable[[str], TickerInfoDto | None]:
+    return _with_timeout(YFinanceClient().get_ticker_info, LOOKUP_TIMEOUT_S)
 
 
 def _universe(
     env: dict[str, str],
     held_fn: Callable[[], list[HeldTicker]] | None,
-    lookup: Callable[[str], TickerInfo | None] | None,
+    lookup: Callable[[str], TickerInfoDto | None] | None,
 ) -> dict[str, dict[str, str]]:
     """Popular + held + RECAP_TICKERS. A failed holdings read still recaps the fixed set."""
     try:
@@ -128,7 +145,8 @@ def _universe(
         POPULAR_TICKERS,
         held,
         _parse_ticker_env(env.get(RECAP_TICKERS_ENV)),
-        lookup=lookup or _default_lookup(),
+        # Built only when needed: no held tickers, no Yahoo client.
+        lookup=lookup or (_default_lookup() if held else lambda ticker: None),
         cap=_max_tickers(env),
     )
     log_event(logger, EVENT_UNIVERSE, stats)
@@ -169,7 +187,7 @@ def main(
     runner=run_ticker_recap,
     env=None,
     held_fn: Callable[[], list[HeldTicker]] | None = None,
-    lookup: Callable[[str], TickerInfo | None] | None = None,
+    lookup: Callable[[str], TickerInfoDto | None] | None = None,
 ) -> int:
     env = os.environ if env is None else env
 
@@ -210,15 +228,20 @@ def main(
             trading_day = compute_latest_completed_trading_day(market, now=_now_for_market(market))
             period_start = period_end = trading_day
 
-        result = runner(
-            ticker=ticker,
-            company_name=meta["name"],
-            cadence=args.cadence,
-            period_start=period_start,
-            period_end=period_end,
-            market=market,
-            replace=args.replace,
-        )
+        # One ticker's crash (a held symbol Yahoo/Brave chokes on) must not abort the rest or the audio stage.
+        try:
+            result = runner(
+                ticker=ticker,
+                company_name=meta["name"],
+                cadence=args.cadence,
+                period_start=period_start,
+                period_end=period_end,
+                market=market,
+                replace=args.replace,
+            )
+        except Exception:
+            logger.exception("ticker_recap_crashed ticker=%s", ticker)
+            continue
         status = _extract_status(result)
         if _is_success_status(status):
             success_count += 1
