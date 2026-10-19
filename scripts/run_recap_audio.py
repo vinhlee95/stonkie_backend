@@ -4,7 +4,10 @@ Runs after the recap jobs (see Dockerfile.market-recap.daily / Dockerfile.ticker
 Idempotent: only picks up rows where `audio_key IS NULL`, so a re-run costs nothing
 and a missed run self-heals on the next pass.
 
-Exit code 0 = all attempted recaps succeeded (or none were pending);
+Disabled unless RECAP_AUDIO_ENABLED=true (paused while OpenAI credits are out):
+the job then logs and exits 0 so the chained recap job stays green.
+
+Exit code 0 = all attempted recaps succeeded (or none were pending, or disabled);
 exit code 1 = at least one failed.
 
 Local usage:
@@ -19,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from datetime import date, timedelta
 
@@ -29,8 +33,18 @@ from services.recap_audio import RecapAudioService
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+RECAP_AUDIO_ENABLED_ENV = "RECAP_AUDIO_ENABLED"
 
-async def _run(*, cadence: str, kind: str, limit: int, since_days: int, dry_run: bool) -> int:
+
+def _audio_enabled(env) -> bool:
+    return (env.get(RECAP_AUDIO_ENABLED_ENV) or "").strip().lower() in ("1", "true", "yes")
+
+
+async def _run(*, cadence: str, kind: str, limit: int, since_days: int, dry_run: bool, env=None) -> int:
+    if not _audio_enabled(os.environ if env is None else env):
+        logger.info("recap_audio.job.disabled set %s=true to enable", RECAP_AUDIO_ENABLED_ENV)
+        return 0
+
     market_connector = MarketRecapConnector()
     ticker_connector = TickerRecapConnector()
 
