@@ -61,12 +61,12 @@ def test_new_window_resets_the_count(fake, monkeypatch):
 
 
 def test_fails_open_when_redis_is_down(monkeypatch):
-    class Down:
-        def set(self, *_args, **_kwargs):
+    class Down(FakeRedis):
+        def execute(self):
             raise redis.ConnectionError("down")
 
-        def incr(self, key):
-            raise redis.ConnectionError("down")
+        def pipeline(self, transaction=True):
+            return self
 
     monkeypatch.setattr("connectors.cache.counter_client", Down())
     monkeypatch.setattr(chat, "RATE_LIMIT_PER_MINUTE", 1)

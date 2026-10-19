@@ -126,6 +126,27 @@ class FakeRedis:
         entry = self.store.get(key)
         return entry[1] if entry else -2
 
+    def pipeline(self, transaction=True):
+        return FakePipeline(self)
+
+
+class FakePipeline:
+    """Queues commands and runs them against the FakeRedis on execute(), like a redis-py pipeline."""
+
+    def __init__(self, redis):
+        self._redis = redis
+        self._commands = []
+
+    def __getattr__(self, name):
+        def queue(*args, **kwargs):
+            self._commands.append((name, args, kwargs))
+            return self
+
+        return queue
+
+    def execute(self):
+        return [getattr(self._redis, name)(*args, **kwargs) for name, args, kwargs in self._commands]
+
 
 @pytest.fixture(autouse=True)
 def fake_redis(monkeypatch):
