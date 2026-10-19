@@ -8,10 +8,11 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
+from api.chat_limit import limit_chat
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.recap_analyze import RecapAnalyzeStreamService
 
@@ -20,7 +21,7 @@ recap_analyze_stream_service = RecapAnalyzeStreamService()
 logger = logging.getLogger(__name__)
 
 
-@router.post("/api/recaps/{recap_id}/analyze")
+@router.post("/api/recaps/{recap_id}/analyze", dependencies=[Depends(limit_chat)])
 async def analyze_recap(recap_id: int, request: Request) -> StreamingResponse:
     try:
         body = await request.json()

@@ -7,10 +7,11 @@ import json
 import os
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
+from api.chat_limit import limit_chat
 from services.analyze_v2_stream import AnalyzeV2StreamService
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.search_decision_engine import SearchDecisionEngine
@@ -22,7 +23,7 @@ financial_analyzer_v2 = FinancialAnalyzerV2(search_decision_engine=search_decisi
 analyze_v2_stream_service = AnalyzeV2StreamService(financial_analyzer_v2)
 
 
-@router.post("/api/v2/companies/{ticker}/analyze")
+@router.post("/api/v2/companies/{ticker}/analyze", dependencies=[Depends(limit_chat)])
 async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingResponse:
     try:
         body = await request.json()
