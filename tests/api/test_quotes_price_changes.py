@@ -107,6 +107,12 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self.store[key] = (value, ttl)
 
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.store:
+            return None
+        self.store[key] = (str(value), ex if ex is not None else -1)
+        return True
+
     def incr(self, key):
         value = int(self.store.get(key, ("0", -1))[0]) + 1
         self.store[key] = (str(value), self.store.get(key, (None, -1))[1])
@@ -119,6 +125,27 @@ class FakeRedis:
     def ttl(self, key):
         entry = self.store.get(key)
         return entry[1] if entry else -2
+
+    def pipeline(self, transaction=True):
+        return FakePipeline(self)
+
+
+class FakePipeline:
+    """Queues commands and runs them against the FakeRedis on execute(), like a redis-py pipeline."""
+
+    def __init__(self, redis):
+        self._redis = redis
+        self._commands = []
+
+    def __getattr__(self, name):
+        def queue(*args, **kwargs):
+            self._commands.append((name, args, kwargs))
+            return self
+
+        return queue
+
+    def execute(self):
+        return [getattr(self._redis, name)(*args, **kwargs) for name, args, kwargs in self._commands]
 
 
 @pytest.fixture(autouse=True)

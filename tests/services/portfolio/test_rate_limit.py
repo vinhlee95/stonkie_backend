@@ -15,6 +15,7 @@ NOW = datetime.fromtimestamp(1_800_000_000, UTC)
 def fake(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr("connectors.cache.redis_client", fake)
+    monkeypatch.setattr("connectors.cache.counter_client", fake)
     monkeypatch.setattr(portfolio_service, "_utcnow", lambda: NOW)
     monkeypatch.setattr(chat, "RATE_LIMIT_PER_MINUTE", 2)
     return fake
@@ -60,11 +61,14 @@ def test_new_window_resets_the_count(fake, monkeypatch):
 
 
 def test_fails_open_when_redis_is_down(monkeypatch):
-    class Down:
-        def incr(self, key):
+    class Down(FakeRedis):
+        def execute(self):
             raise redis.ConnectionError("down")
 
-    monkeypatch.setattr("connectors.cache.redis_client", Down())
+        def pipeline(self, transaction=True):
+            return self
+
+    monkeypatch.setattr("connectors.cache.counter_client", Down())
     monkeypatch.setattr(chat, "RATE_LIMIT_PER_MINUTE", 1)
 
     assert cache.incr_with_ttl("k", 60) is None

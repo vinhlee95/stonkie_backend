@@ -7,13 +7,14 @@ from datetime import datetime
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.analyze_v2 import router as analyze_v2_router
 from api.auth import router as auth_router
+from api.chat_limit import limit_chat
 from api.companies import router as companies_router
 from api.markets import router as markets_router
 from api.me import router as me_router
@@ -208,7 +209,7 @@ async def get_revenue_insights_region(ticker: str):
     return StreamingResponse(generate_insights(), media_type="text/event-stream")
 
 
-@app.post("/api/companies/{ticker}/analyze")
+@app.post("/api/companies/{ticker}/analyze", dependencies=[Depends(limit_chat)])
 async def analyze_financial_data(ticker: str, request: Request):
     """
     Analyze financial statements for a given ticker symbol based on a specific question,
@@ -411,7 +412,7 @@ async def analyze_financial_data(ticker: str, request: Request):
         raise HTTPException(status_code=500, detail="Something went wrong. Please try again later.")
 
 
-@app.post("/api/companies/{ticker}/files/analyze")
+@app.post("/api/companies/{ticker}/files/analyze", dependencies=[Depends(limit_chat)])
 async def analyze_financial_data_with_file(
     ticker: str,
     file: UploadFile = File(...),
@@ -639,7 +640,7 @@ async def generate_report_for_insight_dynamic(ticker: str, slug: str):
     return StreamingResponse(generate_report(), media_type="text/event-stream")
 
 
-@app.post("/api/companies/{ticker}/reports/analyze")
+@app.post("/api/companies/{ticker}/reports/analyze", dependencies=[Depends(limit_chat)])
 async def analyze_company_report(
     ticker: str,
     request: Request,
