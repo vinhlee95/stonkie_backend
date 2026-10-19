@@ -1,5 +1,6 @@
 """Per-IP fixed-window limits for the public (no sign-in) chat endpoints, which run paid LLM calls."""
 
+import ipaddress
 from dataclasses import dataclass
 
 
@@ -11,7 +12,7 @@ class Window:
     message: str
 
 
-# Checked in order; the first exceeded window answers.
+# Checked in order; the first exceeded window answers and later windows are not counted.
 WINDOWS = (
     Window("minute", 60, 10, "Too many questions. Try again in a minute."),
     Window("day", 86_400, 150, "Daily question limit reached. Try again tomorrow."),
@@ -21,25 +22,28 @@ WINDOWS = (
 class ChatLimitExceeded(Exception):
     def __init__(self, window: Window):
         super().__init__(window.message)
-        self.window = window
+        self.message = window.message
+        self.retry_after = window.seconds
+
+
+def _valid_ip(value: str | None) -> str | None:
+    try:
+        return str(ipaddress.ip_address((value or "").strip()))
+    except ValueError:
+        return None
 
 
 def client_ip(headers: dict[str, str], peer: str | None) -> str:
-    """Caller IP behind Railway's edge: X-Real-IP, else the first X-Forwarded-For hop, else the socket peer."""
-    real_ip = (headers.get("x-real-ip") or "").strip()
-    if real_ip:
-        return real_ip
-    forwarded = (headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    return forwarded or peer or "unknown"
+    """Caller IP behind Railway's edge: the LAST X-Forwarded-For hop (appended by the edge; earlier hops are
+    caller-supplied and spoofable), else the socket peer. Must be a valid IP, which also bounds key length."""
+    last_hop = (headers.get("x-forwarded-for") or "").split(",")[-1]
+    return _valid_ip(last_hop) or _valid_ip(peer) or "unknown"
 
 
 def window_key(window: Window, ip: str, now: float) -> str:
     return f"rate:chat:{window.name}:{ip}:{int(now) // window.seconds}"
 
 
-def exceeded(counts: list[int | None]) -> Window | None:
-    """First window over its limit. A None count (counter store down) fails open."""
-    for window, count in zip(WINDOWS, counts):
-        if count is not None and count > window.limit:
-            return window
-    return None
+def over_limit(window: Window, count: int | None) -> bool:
+    """A None count (counter store down) fails open."""
+    return count is not None and count > window.limit

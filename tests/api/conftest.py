@@ -7,6 +7,9 @@ from sqlalchemy.orm import sessionmaker
 
 from alembic import command
 from alembic.config import Config
+from api.chat_limit import get_chat_limit_service
+from main import app
+from services.chat_limit import ChatLimitService
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MARKET_RECAP_BASE_REVISION = "d4e5f6a7b8c9"
@@ -14,6 +17,14 @@ TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/stonkie_test",
 )
+
+
+@pytest.fixture(autouse=True)
+def unlimited_chat():
+    """Endpoint tests must not share (or need) Redis rate-limit counters; test_chat_limit.py overrides."""
+    app.dependency_overrides[get_chat_limit_service] = lambda: ChatLimitService(incr=lambda _key, _ttl: None)
+    yield
+    app.dependency_overrides.pop(get_chat_limit_service, None)
 
 
 @pytest.fixture(scope="session")

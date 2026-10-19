@@ -2,7 +2,7 @@
 
 from fastapi import Depends, HTTPException, Request, status
 
-from services.chat_limit import ChatLimitExceeded, ChatLimitService, client_ip
+from services.chat_limit import ChatLimitExceeded, ChatLimitService
 
 
 def get_chat_limit_service() -> ChatLimitService:
@@ -10,12 +10,11 @@ def get_chat_limit_service() -> ChatLimitService:
 
 
 async def limit_chat(request: Request, service: ChatLimitService = Depends(get_chat_limit_service)) -> None:
-    ip = client_ip(dict(request.headers), request.client.host if request.client else None)
     try:
-        await service.check(ip)
+        await service.check(request.headers, request.client.host if request.client else None)
     except ChatLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=exc.window.message,
-            headers={"Retry-After": str(exc.window.seconds)},
+            detail=exc.message,
+            headers={"Retry-After": str(exc.retry_after)},
         ) from exc
