@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
+from utils.async_helpers import iterate_in_thread
 
 logger = getLogger(__name__)
 
@@ -37,7 +38,7 @@ async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
     current_insight = ""
     in_insight = False
 
-    for chunk_text in response:
+    async for chunk_text in iterate_in_thread(response):
         if not isinstance(chunk_text, str):
             continue
         accumulated_text += chunk_text

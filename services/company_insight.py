@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -100,7 +101,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        query = agent.generate_text(prompt).strip()
+        query = (await asyncio.to_thread(agent.generate_text, prompt)).strip()
 
         # Add the new query to cache
         _query_cache[ticker].add(query)
@@ -247,7 +248,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        insights = _generate_insights(prompt)
+        insights = await asyncio.to_thread(_generate_insights, prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.GROWTH)
@@ -322,7 +323,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        insights = _generate_insights(prompt)
+        insights = await asyncio.to_thread(_generate_insights, prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.EARNINGS)
@@ -401,7 +402,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             All metrics from the financial data have values in thousands. In the insights, use billions when possible.
         """
 
-        insights = _generate_insights(prompt)
+        insights = await asyncio.to_thread(_generate_insights, prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.CASH_FLOW)

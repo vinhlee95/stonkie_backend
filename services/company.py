@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -64,7 +65,7 @@ async def get_swot_analysis_for_ticker(ticker: str):
         Each list should have maximum 3 items. Keep the words amount in each SWOT aspect within 100 words.
         At the end of each list, say explicitly where it the source of your analysis.
     """
-    accumulated_text = agent.generate_text(prompt)
+    accumulated_text = await asyncio.to_thread(agent.generate_text, prompt)
 
     # Parse JSON from accumulated_text
     json_match = re.search(r"```json\s*(.+?)\s*```", accumulated_text, re.DOTALL)
@@ -263,7 +264,7 @@ async def handle_company_report(
         if extract_revenue:
             # Get analysis from AI agent
             analysis_start = time.time()
-            analysis = analyze_10k_revenue("\n".join([chunk["text"] for chunk in chunks]))
+            analysis = await asyncio.to_thread(analyze_10k_revenue, "\n".join([chunk["text"] for chunk in chunks]))
             analysis_end = time.time()
             logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
 

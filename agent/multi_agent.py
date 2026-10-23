@@ -51,7 +51,8 @@ class MultiAgent:
         return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search)
 
     def generate_text(self, prompt: str) -> str:
-        """generate_content collected into one string; citation dicts are dropped."""
+        """generate_content collected into one string; citation dicts are dropped.
+        Blocking for the whole LLM call: async callers must offload it (asyncio.to_thread)."""
         return _join_text_chunks(list(self.generate_content(prompt=prompt)))
 
     @observe(name="generate_content", as_type="generation", capture_input=False, capture_output=False)
