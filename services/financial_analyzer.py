@@ -7,7 +7,6 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langfuse import observe
 
-from agent.agent import Agent
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
@@ -34,12 +33,10 @@ class FinancialAnalyzer:
 
     def __init__(
         self,
-        agent: Optional[Agent] = None,
         company_connector: Optional[CompanyConnector] = None,
         company_financial_connector: Optional[CompanyFinancialConnector] = None,
         search_decision_engine: Optional[SearchDecisionEngine] = None,
     ):
-        self.agent = agent or Agent(model_type="gemini")
         self.company_connector = company_connector or CompanyConnector()
         self.company_financial_connector = company_financial_connector or CompanyFinancialConnector()
         self.search_decision_engine = search_decision_engine or SearchDecisionEngine()
@@ -53,14 +50,9 @@ class FinancialAnalyzer:
 
         # Initialize handlers
         self.handlers = {
-            QuestionType.GENERAL_FINANCE.value: GeneralFinanceHandler(
-                agent=self.agent, company_connector=self.company_connector
-            ),
-            QuestionType.COMPANY_GENERAL.value: CompanyGeneralHandler(
-                agent=self.agent, company_connector=self.company_connector
-            ),
+            QuestionType.GENERAL_FINANCE.value: GeneralFinanceHandler(company_connector=self.company_connector),
+            QuestionType.COMPANY_GENERAL.value: CompanyGeneralHandler(company_connector=self.company_connector),
             QuestionType.COMPANY_SPECIFIC_FINANCE.value: CompanySpecificFinanceHandler(
-                agent=self.agent,
                 company_connector=self.company_connector,
                 data_optimizer=self.data_optimizer,
                 classifier=self.classifier,
@@ -357,7 +349,6 @@ class FinancialAnalyzer:
 
 # Factory function for backwards compatibility
 def create_financial_analyzer(
-    agent: Optional[Agent] = None,
     company_connector: Optional[CompanyConnector] = None,
     company_financial_connector: Optional[CompanyFinancialConnector] = None,
 ) -> FinancialAnalyzer:
@@ -365,7 +356,6 @@ def create_financial_analyzer(
     Create a FinancialAnalyzer instance.
 
     Args:
-        agent: AI agent for analysis
         company_connector: Connector for company data
         company_financial_connector: Connector for financial data
 
@@ -373,5 +363,5 @@ def create_financial_analyzer(
         Configured FinancialAnalyzer instance
     """
     return FinancialAnalyzer(
-        agent=agent, company_connector=company_connector, company_financial_connector=company_financial_connector
+        company_connector=company_connector, company_financial_connector=company_financial_connector
     )

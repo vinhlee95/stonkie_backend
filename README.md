@@ -27,7 +27,7 @@ Welcome to the **Stonkie Backend** project! This repository contains the backend
 
 - **AI-Driven Financial Analysis:** Harnesses advanced AI models to deeply analyze company business operations, financial statements, and market trends.
 - **Automated Company Insights & Reporting:** Instantly generates actionable insights and comprehensive reports tailored to each company.
-- **Seamless AI Integrations:** Leverages the power of OpenAI and Gemini for natural language understanding, data extraction, and intelligent recommendations.
+- **Seamless AI Integrations:** Leverages OpenRouter (LLMs) and OpenAI (embeddings) for natural language understanding, data extraction, and intelligent recommendations.
 - **Flexible Data Ingestion:** Easily connect and process financial data from multiple sources for a holistic view.
 
 ## Project Structure
@@ -107,7 +107,7 @@ Example:
 ```
 DATABASE_URL=postgresql://user:password@localhost:5432/stonkie
 OPENAI_API_KEY=your_openai_key
-GEMINI_API_KEY=your_gemini_key
+OPENROUTER_API_KEY=your_openrouter_key
 ```
 
 > **Note:** The actual variables required depend on your code. Check for usage of `os.environ` or similar in the codebase.

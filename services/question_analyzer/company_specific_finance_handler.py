@@ -7,7 +7,6 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langfuse import get_client
 
-from agent.agent import Agent
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
@@ -30,7 +29,6 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
 
     def __init__(
         self,
-        agent: Optional[Agent] = None,
         company_connector: Optional[CompanyConnector] = None,
         data_optimizer: Optional[FinancialDataOptimizer] = None,
         classifier: Optional[QuestionClassifier] = None,
@@ -39,12 +37,11 @@ class CompanySpecificFinanceHandler(BaseQuestionHandler):
         Initialize the handler.
 
         Args:
-            agent: AI agent for generating responses
             company_connector: Connector for company data
             data_optimizer: Optimizer for fetching financial data
             classifier: Classifier for analyzing questions
         """
-        super().__init__(agent, company_connector)
+        super().__init__(company_connector)
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
         self.classifier = classifier or QuestionClassifier()
 

@@ -3,12 +3,13 @@ import csv
 import json
 import os
 
-import google.generativeai as genai
 from dotenv import load_dotenv
 from google.cloud import storage, vision
 from google.oauth2 import service_account
 from playwright.sync_api import sync_playwright
 
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from core.financial_statement_type import FinancialStatementType
 
 
@@ -66,7 +67,6 @@ def parse_text_from_image(path):
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -156,14 +156,7 @@ def save_to_csv(data, filename="financial_data.csv", output_dir="outputs"):
         print(f"❌❌❌ Error saving CSV file: {e}")
 
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro",
-    system_instruction="""
-    You are a helpful financial agent that can take in:
-    - Input as a screenshot of a financial statement of a company
-    - Output as a CSV of the financial data having required columns and rows specified in the prompt
-  """,
-)
+model = MultiAgent(model_name=ModelName.Gemini35Flash)
 
 
 def get_prompt_from_ocr_text(ocr_text):
@@ -235,11 +228,11 @@ def export_financial_data_to_csv(url, file_name, force=False):
         print("❌❌ Failed to parse the text from the image")
         return
 
-    response = model.generate_content(get_prompt_from_ocr_text(ocr_text))
+    response_text = model.generate_text(get_prompt_from_ocr_text(ocr_text))
 
     # Convert response to CSV format
-    if response.text:
-        save_to_csv(response.text, f"{file_name}.csv", OUTPUT_DIR)
+    if response_text:
+        save_to_csv(response_text, f"{file_name}.csv", OUTPUT_DIR)
 
         # Upload the CSV to gcloud storage
         print(f"🗂️ Uploading {file_name}.csv to gcloud storage...")

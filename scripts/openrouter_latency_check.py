@@ -12,7 +12,6 @@ Usage:
 
 Optional direct comparisons (if keys present):
   OPENAI_API_KEY=... python scripts/openrouter_latency_check.py --provider openai
-  GEMINI_API_KEY=... python scripts/openrouter_latency_check.py --provider gemini
 """
 
 import argparse
@@ -21,14 +20,6 @@ import time
 from typing import Iterable, Tuple
 
 from openai import OpenAI
-
-try:
-    from google import genai
-    from google.genai import types as genai_types
-except ImportError:
-    genai = None
-    genai_types = None
-
 
 DEFAULT_PROMPT = (
     "You are an expert business analyst. Analyze this company question with the same depth as "
@@ -92,25 +83,6 @@ def stream_openai(prompt: str, model: str) -> Iterable[str]:
             yield delta
 
 
-def stream_gemini(prompt: str, model: str) -> Iterable[str]:
-    if genai is None:
-        raise RuntimeError("google-genai is not installed; cannot run gemini provider")
-
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is required for gemini provider")
-
-    client = genai.Client(api_key=api_key)
-    chat = client.chats.create(model=model)
-    response = chat.send_message_stream(prompt)
-    for chunk in response:
-        for candidate in chunk.candidates:
-            for part in candidate.content.parts:
-                text = getattr(part, "text", None)
-                if text:
-                    yield text
-
-
 def main():
     parser = argparse.ArgumentParser(description="Measure TTFT and total latency for a prompt.")
     parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT, help="Prompt to send")
@@ -118,7 +90,7 @@ def main():
         "--provider",
         type=str,
         default="openrouter",
-        choices=["openrouter", "openai", "gemini"],
+        choices=["openrouter", "openai"],
         help="Provider to test",
     )
     parser.add_argument(
@@ -131,10 +103,8 @@ def main():
 
     if args.provider == "openrouter":
         streamer = stream_openrouter
-    elif args.provider == "openai":
-        streamer = stream_openai
     else:
-        streamer = stream_gemini
+        streamer = stream_openai
 
     print(f"Running provider={args.provider}, model={args.model}")
     ttft, total = measure_latency(streamer(args.prompt, args.model))

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -5,6 +6,8 @@ import time
 from enum import StrEnum
 
 from agent.agent import Agent
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from connectors.cache import can_dispatch_task, set_task_state
 from connectors.company import Company, CompanyConnector, CompanyFundamentalDto
 from connectors.company_financial import CompanyFinancialConnector
@@ -47,7 +50,7 @@ async def get_swot_analysis_for_ticker(ticker: str):
         top_k=20,
     )
 
-    agent = Agent(model_type="gemini")
+    agent = MultiAgent(model_name=ModelName.Gemini35Flash)
     prompt = f"""
         Generate a SWOT analysis for company {ticker.upper()}.
         Here are relevant information from 10-K file:
@@ -62,11 +65,7 @@ async def get_swot_analysis_for_ticker(ticker: str):
         Each list should have maximum 3 items. Keep the words amount in each SWOT aspect within 100 words.
         At the end of each list, say explicitly where it the source of your analysis.
     """
-    accumulated_text = ""
-    response = await agent.generate_content(prompt=prompt, stream=True)
-
-    async for chunk in response:
-        accumulated_text += chunk.text
+    accumulated_text = await asyncio.to_thread(agent.generate_text, prompt)
 
     # Parse JSON from accumulated_text
     json_match = re.search(r"```json\s*(.+?)\s*```", accumulated_text, re.DOTALL)
@@ -119,7 +118,7 @@ def chunk_text(pages_data: list[PageData], chunk_size: int = 1000, overlap: int 
 
 def analyze_10k_revenue(content):
     """Use AI agent to analyze revenue breakdown from 10-K"""
-    agent = Agent(model_type="gemini")
+    agent = MultiAgent(model_name=ModelName.Gemini35Flash)
 
     prompt = """
     Analyze the following 10-K document content and provide revenue stream breakdown
@@ -146,18 +145,7 @@ def analyze_10k_revenue(content):
     {content}
     """
 
-    # Use non-streaming response for simplicity
-    response_obj = agent.generate_content(
-        prompt.format(content=content),
-        stream=False,
-    )
-
-    # For non-streaming responses, we can directly access the text property
-    if hasattr(response_obj, "text"):
-        return response_obj.text
-    else:
-        # Handle case where response might be a different type
-        return str(response_obj)
+    return agent.generate_text(prompt.format(content=content))
 
 
 def save_analysis(company_symbol: str, analysis_result: str, raw_text: str):
@@ -276,7 +264,7 @@ async def handle_company_report(
         if extract_revenue:
             # Get analysis from AI agent
             analysis_start = time.time()
-            analysis = analyze_10k_revenue("\n".join([chunk["text"] for chunk in chunks]))
+            analysis = await asyncio.to_thread(analyze_10k_revenue, "\n".join([chunk["text"] for chunk in chunks]))
             analysis_end = time.time()
             logger.info(f"AI analysis took {analysis_end - analysis_start:.2f} seconds")
 

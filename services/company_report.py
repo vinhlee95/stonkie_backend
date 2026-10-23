@@ -4,12 +4,15 @@ from enum import Enum
 from typing import Any, Optional
 
 from agent.agent import Agent
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
 from connectors.company_insight import CompanyInsightConnector
+from utils.async_helpers import iterate_in_thread
 
 company_insight_connector = CompanyInsightConnector()
 company_financial_connector = CompanyFinancialConnector()
-agent = Agent(model_type="gemini")
+agent = MultiAgent(model_name=ModelName.Gemini35Flash)
 openai_agent = Agent(model_type="openai")
 
 
@@ -200,6 +203,6 @@ async def generate_detailed_report_for_insight(ticker: str, slug: str):
       At the end of the report, name the sources of the information you used to generate the report.
     """
 
-    response = await agent.generate_content(prompt=prompt, stream=True)
-    async for chunk in response:
-        yield chunk.text
+    async for chunk in iterate_in_thread(agent.generate_content(prompt=prompt)):
+        if isinstance(chunk, str):
+            yield chunk

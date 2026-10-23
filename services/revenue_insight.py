@@ -2,8 +2,10 @@ import json
 from logging import getLogger
 from typing import AsyncGenerator
 
-from agent.agent import Agent
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 from connectors.company_financial import CompanyFinancialConnector
+from utils.async_helpers import iterate_in_thread
 
 logger = getLogger(__name__)
 
@@ -36,8 +38,9 @@ async def process_streaming_insights(response) -> AsyncGenerator[dict, None]:
     current_insight = ""
     in_insight = False
 
-    async for chunk in response:
-        chunk_text = chunk.text
+    async for chunk_text in iterate_in_thread(response):
+        if not isinstance(chunk_text, str):
+            continue
         accumulated_text += chunk_text
 
         # Process any complete insights
@@ -81,7 +84,7 @@ async def get_revenue_insights_for_company_product(ticker: str):
             yield {"type": "error", "body": "No revenue data found for that company"}
             return
 
-        agent = Agent(model_type="gemini")
+        agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         prompt = f"""
             You are a financial analyst tasked with analyzing revenue data for {ticker}. The data shows revenue breakdowns by product over multiple years.
             Generate 5 insights for {ticker} based on the revenue data.
@@ -121,7 +124,7 @@ async def get_revenue_insights_for_company_product(ticker: str):
             Do not include any other text or formatting outside of these markers.
         """
 
-        response = await agent.generate_content(prompt=prompt, stream=True)
+        response = agent.generate_content(prompt=prompt)
         async for insight in process_streaming_insights(response):
             yield insight
 
@@ -137,7 +140,7 @@ async def get_revenue_insights_for_company_region(ticker: str):
             yield {"type": "error", "body": "No revenue data found for that company"}
             return
 
-        agent = Agent(model_type="gemini")
+        agent = MultiAgent(model_name=ModelName.Gemini35Flash)
         prompt = f"""
             You are a financial analyst tasked with analyzing revenue data for {ticker}. The data shows revenue breakdowns by region over multiple years.
             Generate 5 insights for {ticker} based on the revenue data.
@@ -177,7 +180,7 @@ async def get_revenue_insights_for_company_region(ticker: str):
             Do not include any other text or formatting outside of these markers.
         """
 
-        response = await agent.generate_content(prompt=prompt, stream=True)
+        response = agent.generate_content(prompt=prompt)
         async for insight in process_streaming_insights(response):
             yield insight
 
