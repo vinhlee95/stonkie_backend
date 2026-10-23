@@ -8,10 +8,10 @@ from typing import Any, AsyncGenerator, Dict
 from urllib.parse import urlencode
 
 import requests
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.inspection import inspect
 
-from agent.agent import Agent
+from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
@@ -30,7 +30,13 @@ logger = getLogger(__name__)
 company_financial_connector = CompanyFinancialConnector()
 company_insight_connector = CompanyInsightConnector()
 company_connector = CompanyConnector()
-agent = Agent(model_type="gemini", model_name=ModelName.Gemini25Flash)
+agent = MultiAgent(model_name=ModelName.Gemini35Flash)
+
+_INSIGHTS_JSON_INSTRUCTION = """
+    Return ONLY a JSON array, with no prose or code fences.
+    Each item is an object with string fields "title" and "content".
+"""
+_insights_adapter = TypeAdapter(list[CompanyInsight])
 
 # Cache to store used queries for each ticker
 _query_cache: Dict[str, set[str]] = {}
@@ -94,8 +100,7 @@ async def fetch_unsplash_image(ticker: str) -> str:
             
             Generate a unique, creative query that hasn't been used before.
         """
-        response = agent.generate_content(prompt, model_name=ModelName.Gemini25Flash, stream=False)
-        query = response.text.strip()
+        query = agent.generate_text(prompt).strip()
 
         # Add the new query to cache
         _query_cache[ticker].add(query)
@@ -116,6 +121,14 @@ async def fetch_unsplash_image(ticker: str) -> str:
     url = result.get("urls").get("full")
 
     return url
+
+
+def _generate_insights(prompt: str) -> list[CompanyInsight]:
+    text = agent.generate_text(prompt + _INSIGHTS_JSON_INSTRUCTION)
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        raise ValueError("No JSON array in insights response")
+    return _insights_adapter.validate_json(text[start : end + 1])
 
 
 def to_dict(model_instance) -> Dict[str, Any]:
@@ -234,12 +247,7 @@ async def get_growth_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[str
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        insights = agent.generate_content(
-            prompt=prompt,
-            model_name=ModelName.Gemini25Flash,
-            stream=False,
-            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
-        )
+        insights = _generate_insights(prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.GROWTH)
@@ -314,12 +322,7 @@ async def get_earning_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[st
             {json.dumps(quarterly_financial_statements_json, indent=2)}
         """
 
-        insights = agent.generate_content(
-            prompt=prompt,
-            model_name=ModelName.Gemini25Flash,
-            stream=False,
-            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
-        )
+        insights = _generate_insights(prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.EARNINGS)
@@ -398,12 +401,7 @@ async def get_cash_flow_insights_for_ticker(ticker: str) -> AsyncGenerator[Dict[
             All metrics from the financial data have values in thousands. In the insights, use billions when possible.
         """
 
-        insights = agent.generate_content(
-            prompt=prompt,
-            model_name=ModelName.Gemini25Flash,
-            stream=False,
-            config={"response_mime_type": "application/json", "response_schema": list[CompanyInsight]},
-        )
+        insights = _generate_insights(prompt)
 
         for parsed_insight in insights:
             saved_insight = await process_insight(ticker, parsed_insight, InsightType.CASH_FLOW)

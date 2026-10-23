@@ -21,7 +21,8 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import sync_playwright
 
-from agent.agent import Agent
+from agent.multi_agent import MultiAgent
+from ai_models.model_name import ModelName
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -170,8 +171,8 @@ def extract_etf_data_with_ai(html: str, isin: str) -> dict[str, Any] | None:
         Extracted ETF data as dict or None if failed
     """
     try:
-        logger.info("Initializing Gemini 2.5 Flash for extraction...")
-        agent = Agent(model_type="gemini", model_name="gemini-2.5-flash")
+        logger.info("Initializing Gemini 3.5 Flash (OpenRouter) for extraction...")
+        agent = MultiAgent(model_name=ModelName.Gemini35Flash)
 
         # Preprocess HTML to remove noise and reduce token usage
         html_cleaned = preprocess_html(html)
@@ -319,10 +320,7 @@ HTML page content:
 """
 
         logger.info("Sending HTML to Gemini for extraction...")
-        response = agent.generate_content(
-            prompt=prompt,
-            stream=False,
-        )
+        response = agent.generate_text(prompt)
 
         if not response:
             logger.error("No response from AI")

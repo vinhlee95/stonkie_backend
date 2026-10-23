@@ -8,7 +8,6 @@ from typing import Any, AsyncGenerator, Dict, Generator, Iterable, List, Optiona
 
 from langfuse import get_client, observe
 
-from agent.agent import Agent
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
@@ -252,15 +251,13 @@ def _collect_paragraph_sources(
 class BaseQuestionHandler:
     """Base class for question handlers."""
 
-    def __init__(self, agent: Optional[Agent] = None, company_connector: Optional[CompanyConnector] = None):
+    def __init__(self, company_connector: Optional[CompanyConnector] = None):
         """
         Initialize the handler.
 
         Args:
-            agent: AI agent for generating responses
             company_connector: Connector for company data
         """
-        self.agent = agent or Agent(model_type="gemini")
         self.company_connector = company_connector or CompanyConnector()
 
     @observe(name="generate_related_questions")
