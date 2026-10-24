@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 import main as main_module
 from services.analyze_retrieval.schemas import BraveRetrievalError
+from services.semantic_analysis_cache import SEMANTIC_CACHE_ENABLED_ENV
 
 
 def _parse_sse(raw: bytes) -> list[dict]:
@@ -146,7 +147,8 @@ def test_v2_analyze_translates_brave_retrieval_error_to_sse_error():
     assert events[1]["code"] == "retrieval_failed"
 
 
-def test_v2_analyze_cache_hit_uses_v2_ticker_namespace_and_skips_analyzer():
+def test_v2_analyze_cache_hit_uses_v2_ticker_namespace_and_skips_analyzer(monkeypatch):
+    monkeypatch.setenv(SEMANTIC_CACHE_ENABLED_ENV, "true")
     entry = MagicMock()
     entry.answer_text = "cached v2 answer"
     entry.sources = None
@@ -180,7 +182,9 @@ def test_v2_analyze_cache_hit_uses_v2_ticker_namespace_and_skips_analyzer():
     assert "cache_meta" in [event["type"] for event in events]
 
 
-def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_ttl():
+def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_ttl(monkeypatch):
+    monkeypatch.setenv(SEMANTIC_CACHE_ENABLED_ENV, "true")
+
     async def fake_analyze(*_args, **_kwargs):
         yield {"type": "answer", "body": "live "}
         yield {"type": "answer", "body": "v2 answer"}
@@ -214,6 +218,7 @@ def test_v2_analyze_cache_miss_schedules_store_with_v2_namespace_and_30_minute_t
     assert kwargs["related_questions"] == ["Related one?"]
     assert kwargs["ttl_seconds"] == 30 * 60
     assert kwargs["last_sources_payload"] == [{"source_id": "s_1", "url": "https://example.com/1"}]
+    assert kwargs["use_semantic_cache"] is True
 
 
 def test_v2_analyze_debug_prompt_context_event_is_streamed_when_requested():
@@ -273,6 +278,35 @@ def test_v2_analyze_disable_cache_bypasses_lookup_and_store():
     assert schedule_store.call_args.kwargs["use_semantic_cache"] is False
 
 
+def test_v2_analyze_semantic_cache_off_by_default_skips_lookup_and_store(monkeypatch):
+    monkeypatch.delenv(SEMANTIC_CACHE_ENABLED_ENV, raising=False)
+
+    async def fake_analyze(*_args, **kwargs):
+        yield {"type": "answer", "body": "fresh answer"}
+        yield {"type": "model_used", "body": "test-model"}
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message"),
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit") as lookup,
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store") as schedule_store,
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                json={"question": "What is Apple revenue?"},
+            ) as response:
+                assert response.status_code == 200
+                response.read()
+
+    lookup.assert_not_called()
+    assert schedule_store.call_args.kwargs["use_semantic_cache"] is False
+
+
 def test_v2_live_stream_splits_visual_answer_blocks():
     async def fake_analyze(*_args, **_kwargs):
         yield {"type": "answer", "body": "Intro\n\n```html\n<div>chart</div>\n```\nDone"}
@@ -302,7 +336,8 @@ def test_v2_live_stream_splits_visual_answer_blocks():
     assert "answer_visual_done" in types
 
 
-def test_v2_cache_replay_splits_visual_answer_blocks():
+def test_v2_cache_replay_splits_visual_answer_blocks(monkeypatch):
+    monkeypatch.setenv(SEMANTIC_CACHE_ENABLED_ENV, "true")
     entry = MagicMock()
     entry.answer_text = "Intro\n\n```html\n<div>cached chart</div>\n```\n"
     entry.sources = None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import Request
@@ -33,6 +34,13 @@ _URL_GROUNDED_REPORT_TERMS = (
     "10-q",
     "10q",
 )
+# Off unless SEMANTIC_CACHE_ENABLED=true: the embedding key is out of credits, so every lookup
+# failed after SDK retries (~1.5-1.9s per request) with zero hits.
+SEMANTIC_CACHE_ENABLED_ENV = "SEMANTIC_CACHE_ENABLED"
+
+
+def _semantic_cache_flag_on(env) -> bool:
+    return (env.get(SEMANTIC_CACHE_ENABLED_ENV) or "").strip().lower() in ("1", "true", "yes")
 
 
 def _legacy_related_prompt(original_question: str) -> str:
@@ -93,11 +101,13 @@ class SemanticAnalysisCache:
         deep_analysis: bool,
         use_url_context: bool,
         question: str,
+        env=None,
     ) -> bool:
         normalized = " ".join((question or "").lower().split())
         is_report_url_grounded = any(term in normalized for term in _URL_GROUNDED_REPORT_TERMS)
         return (
-            bool(cache_ticker)
+            _semantic_cache_flag_on(os.environ if env is None else env)
+            and bool(cache_ticker)
             and not deep_analysis
             and not use_url_context
             and extract_first_url(question) is None

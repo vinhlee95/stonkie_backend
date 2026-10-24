@@ -1,9 +1,35 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import get_openrouter_model_name
-from services.semantic_analysis_cache import SemanticAnalysisCache
+from services.semantic_analysis_cache import SEMANTIC_CACHE_ENABLED_ENV, SemanticAnalysisCache
+
+_ENABLED = {SEMANTIC_CACHE_ENABLED_ENV: "true"}
+
+
+@pytest.mark.parametrize("env", [{}, {SEMANTIC_CACHE_ENABLED_ENV: ""}, {SEMANTIC_CACHE_ENABLED_ENV: "false"}])
+def test_semantic_cache_disabled_unless_flag_set(env):
+    assert not SemanticAnalysisCache.use_semantic_cache_enabled(
+        "v2:AAPL",
+        deep_analysis=False,
+        use_url_context=False,
+        question="What is Apple revenue?",
+        env=env,
+    )
+
+
+@pytest.mark.parametrize("value", ["true", "1", "YES"])
+def test_semantic_cache_enabled_with_flag(value):
+    assert SemanticAnalysisCache.use_semantic_cache_enabled(
+        "v2:AAPL",
+        deep_analysis=False,
+        use_url_context=False,
+        question="What is Apple revenue?",
+        env={SEMANTIC_CACHE_ENABLED_ENV: value},
+    )
 
 
 def test_report_url_grounded_questions_are_not_semantic_cache_eligible():
@@ -12,12 +38,14 @@ def test_report_url_grounded_questions_are_not_semantic_cache_eligible():
         deep_analysis=False,
         use_url_context=False,
         question="Summarize the latest quarterly report",
+        env=_ENABLED,
     )
     assert not SemanticAnalysisCache.use_semantic_cache_enabled(
         "v2:AAPL",
         deep_analysis=False,
         use_url_context=False,
         question="What are the key risks in the latest 10-K filing?",
+        env=_ENABLED,
     )
 
 
