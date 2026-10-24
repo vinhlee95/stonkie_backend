@@ -96,8 +96,9 @@ _COMPARISON_PATTERN = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# "AAPL or MSFT": case-sensitive so "or sell" / "or not" don't match
-_OR_TICKER_PATTERN = re.compile(r"\bor\s+([A-Z][A-Z0-9]{1,4})\b")
+# "AAPL or MSFT", "Tesla or Ford", "TSLA or F": the word after "or" must start uppercase,
+# so "or sell" / "or not" don't match
+_OR_OPERAND_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Za-z0-9]*(?:/[A-Z][A-Za-z0-9]*)*)")
 
 # Ticker-like token; "X/Y" (e.g. "P/E") is captured as one token
 _TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{0,5}(?:/[A-Z][A-Z0-9]{0,5})*\b")
@@ -112,6 +113,14 @@ _CONTEXTUAL_REFERENCE_PATTERN = re.compile(
 def _is_ticker_like(token: str) -> bool:
     upper = token.upper()
     return 1 < len(token) <= 5 and upper not in TICKER_STOPWORDS and upper not in FINANCE_ACRONYM_STOPWORDS
+
+
+def _is_or_operand(token: str) -> bool:
+    """Company name or ticker after "or" (1-letter tickers like "F" allowed; "I", "EPS", "P/E" not)."""
+    upper = token.upper()
+    if upper in FINANCE_ACRONYM_STOPWORDS or any(p in FINANCE_ACRONYM_STOPWORDS for p in upper.split("/")):
+        return False
+    return upper != "I" and upper not in TICKER_STOPWORDS
 
 
 def _ticker_like_tokens(question: str) -> list[str]:
@@ -130,7 +139,7 @@ def _has_comparison_signals(question: str) -> bool:
     """Fast check: does the question contain comparison language or multiple ticker-like tokens?"""
     if _COMPARISON_PATTERN.search(question):
         return True
-    if any(_is_ticker_like(m) for m in _OR_TICKER_PATTERN.findall(question)):
+    if any(_is_or_operand(m) for m in _OR_OPERAND_PATTERN.findall(question)):
         return True
     # Multiple uppercase ticker-like tokens (e.g. "AAPL MSFT revenue")
     return len(_ticker_like_tokens(question)) >= 2
