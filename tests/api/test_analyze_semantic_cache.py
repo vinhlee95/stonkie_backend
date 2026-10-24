@@ -10,7 +10,8 @@ import services.semantic_analysis_cache as sac_module
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv(sac_module.SEMANTIC_CACHE_ENABLED_ENV, "true")
     with TestClient(main_module.app) as c:
         yield c
 
