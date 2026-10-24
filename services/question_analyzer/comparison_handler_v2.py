@@ -27,7 +27,7 @@ from services.question_analyzer.context_builders.components import PromptCompone
 from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
     _build_sources_block,
-    _collect_answer_chunks,
+    _iter_answer_chunks,
     _trusted_publisher_status,
 )
 from services.search_decision_engine import SearchDecision
@@ -254,7 +254,7 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
             )
 
         agent = MultiAgent(model_name=preferred_model)
-        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if flat_sources or use_google_search:

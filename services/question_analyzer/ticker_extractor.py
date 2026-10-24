@@ -61,6 +61,30 @@ TICKER_STOPWORDS = {
 }
 
 
+# Finance acronyms that look like tickers but are metrics/terms ("P/E", "EPS or ROE")
+FINANCE_ACRONYM_STOPWORDS = {
+    "P/E",
+    "PE",
+    "EPS",
+    "ROE",
+    "ROA",
+    "ROI",
+    "EBITDA",
+    "EBIT",
+    "FCF",
+    "GAAP",
+    "CEO",
+    "CFO",
+    "AI",
+    "US",
+    "USD",
+    "ETF",
+    "IPO",
+    "YOY",
+    "QOQ",
+    "TTM",
+}
+
 # Regex pattern detecting comparison intent in a question
 _COMPARISON_PATTERN = re.compile(
     r"""
@@ -68,20 +92,52 @@ _COMPARISON_PATTERN = re.compile(
     | \bagainst\b | \bhead[\s-]to[\s-]head\b | \bbetter\s+than\b
     | \bworse\s+than\b | \bstronger\s+than\b | \bweaker\s+than\b
     | \boutperform | \bunderperform | \brelative\s+to\b
-    | \bor\b(?=\s+(?:[A-Z]{1,5}\b))  # "AAPL or MSFT"
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+
+# "AAPL or MSFT": case-sensitive so "or sell" / "or not" don't match
+_OR_TICKER_PATTERN = re.compile(r"\bor\s+([A-Z][A-Z0-9]{1,4})\b")
+
+# Ticker-like token; "X/Y" (e.g. "P/E") is captured as one token
+_TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{0,5}(?:/[A-Z][A-Z0-9]{0,5})*\b")
+
+# References to the ticker the user is viewing ("compare it with MSFT")
+_CONTEXTUAL_REFERENCE_PATTERN = re.compile(
+    r"\b(?:this|it|its|that|these|the\s+company|the\s+current\s+one|the\s+one\s+i'?m\s+viewing)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_ticker_like(token: str) -> bool:
+    upper = token.upper()
+    return 1 < len(token) <= 5 and upper not in TICKER_STOPWORDS and upper not in FINANCE_ACRONYM_STOPWORDS
+
+
+def _ticker_like_tokens(question: str) -> list[str]:
+    tokens: list[str] = []
+    for token in _TICKER_LIKE_PATTERN.findall(question):
+        parts = token.split("/")
+        # Ratios like "P/E", "EV/EBITDA" are metrics, not tickers
+        if token.upper() in FINANCE_ACRONYM_STOPWORDS or any(p.upper() in FINANCE_ACRONYM_STOPWORDS for p in parts):
+            continue
+        # "AAPL/MSFT" still counts as two tickers
+        tokens.extend(part for part in parts if _is_ticker_like(part))
+    return tokens
 
 
 def _has_comparison_signals(question: str) -> bool:
     """Fast check: does the question contain comparison language or multiple ticker-like tokens?"""
     if _COMPARISON_PATTERN.search(question):
         return True
+    if any(_is_ticker_like(m) for m in _OR_TICKER_PATTERN.findall(question)):
+        return True
     # Multiple uppercase ticker-like tokens (e.g. "AAPL MSFT revenue")
-    ticker_like = re.findall(r"\b[A-Z][A-Z0-9]{0,4}\b", question)
-    ticker_like = [t for t in ticker_like if t not in TICKER_STOPWORDS]
-    return len(ticker_like) >= 2
+    return len(_ticker_like_tokens(question)) >= 2
+
+
+def _has_contextual_reference(question: str) -> bool:
+    return bool(_CONTEXTUAL_REFERENCE_PATTERN.search(question))
 
 
 class StockTickerExtractor:
@@ -153,9 +209,9 @@ Return ONLY the rewritten question, no explanation."""
                 logger.info("[ticker_extractor] No comparison signals — skipping extraction")
                 return []
 
-            # AI preprocessing if context provided
+            # AI preprocessing only when the question refers to the current ticker
             processed_question = question
-            if current_ticker:
+            if current_ticker and _has_contextual_reference(question):
                 processed_question = await self._preprocess_question_with_context(question, current_ticker)
                 if processed_question != question:
                     logger.info(f"Context resolved: '{question}' → '{processed_question}'")
