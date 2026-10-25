@@ -15,7 +15,7 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 from services.question_analyzer.handlers_v2 import (
@@ -236,34 +236,32 @@ class FinancialAnalyzerV2:
             langfuse.update_current_generation(input=question)
         ttft_recorded = False
 
+        progress = ThinkingProgress()
         extracted_url = extract_first_url(question)
         force_google_search_reason: str | None = None
+        if extracted_url and not use_url_context and not is_sec_filing_url(extracted_url):
+            is_valid, error_message = validate_pdf_url(extracted_url)
+            if not is_valid:
+                yield {"type": "answer", "body": f"❌ {error_message}"}
+                return
+            yield {"type": "attachment_url", "body": extracted_url}
+            # No routing here: one LLM call reads the PDF and writes the answer.
+            yield progress.status("Reading the attached document...", phase=AnalysisPhase.ANALYZE)
+            async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
+                yield chunk
+            return
+
+        # Sent before the DB lookups and the router LLM call so the client shows progress at once.
+        yield progress.status("Understanding your question...", phase=AnalysisPhase.CLASSIFY)
         if extracted_url:
-            if use_url_context:
-                yield {"type": "attachment_url", "body": extracted_url}
-                yield thinking_status("Reading the attached document...", phase=AnalysisPhase.SEARCH, step=2)
-            elif is_sec_filing_url(extracted_url):
+            # use_url_context: the handler reports reading the document right before it ingests it.
+            yield {"type": "attachment_url", "body": extracted_url}
+            if not use_url_context:
                 logger.info(
                     "SEC filing URL detected: %s. Forcing search decision (sec_url).",
                     extracted_url,
                 )
-                yield {"type": "attachment_url", "body": extracted_url}
-                yield thinking_status("Reading SEC filing...", phase=AnalysisPhase.SEARCH, step=2)
                 force_google_search_reason = "sec_url"
-            else:
-                is_valid, error_message = validate_pdf_url(extracted_url)
-                if not is_valid:
-                    yield {"type": "answer", "body": f"❌ {error_message}"}
-                    return
-                yield {"type": "attachment_url", "body": extracted_url}
-                yield thinking_status(
-                    "Reading the attached document...",
-                    phase=AnalysisPhase.ANALYZE,
-                    step=2,
-                )
-                async for chunk in self._handle_pdf_url_question(ticker, question, extracted_url, preferred_model):
-                    yield chunk
-                return
 
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in ["UNDEFINED", "NULL", ""] or normalized_ticker == "NONE":
@@ -293,17 +291,6 @@ class FinancialAnalyzerV2:
             available_metrics=available_metrics,
             force_google_search_reason=force_google_search_reason,
         )
-
-        status_ticker = normalized_ticker if normalized_ticker != "none" else None
-        if decision.use_google_search:
-            body = (
-                f"Searching for the latest {status_ticker} data..."
-                if status_ticker
-                else "Searching for the latest data..."
-            )
-        else:
-            body = f"Found {status_ticker} data in our database" if status_ticker else "Using data from our database"
-        yield thinking_status(body, phase=AnalysisPhase.SEARCH, step=2)
 
         if not classification:
             yield {"type": "answer", "body": "❌ Unable to classify question type"}
@@ -368,4 +355,4 @@ class FinancialAnalyzerV2:
             if not ttft_recorded and langfuse and chunk.get("type") == "answer" and isinstance(chunk.get("body"), str):
                 langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
                 ttft_recorded = True
-            yield chunk
+            yield progress.renumber(chunk)

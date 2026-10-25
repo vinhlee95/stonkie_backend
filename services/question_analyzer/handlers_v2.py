@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import Any, AsyncGenerator, AsyncIterator, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
@@ -12,11 +13,15 @@ from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
-from services.analyze_retrieval.query_reformulator import PrecomputedQueryReformulator, QueryReformulator
+from services.analyze_retrieval.query_reformulator import (
+    PrecomputedQueryReformulator,
+    QueryReformulator,
+    ReformulationResult,
+)
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
 from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
@@ -25,7 +30,7 @@ from services.question_analyzer.context_builders import ContextBuilderInput, get
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.router import RoutingResult
-from services.question_analyzer.types import FinancialDataRequirement
+from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement
 from services.search_decision_engine import SearchDecision
 from utils.conversation_format import format_conversation_context
 from utils.url_helper import extract_first_url
@@ -142,8 +147,52 @@ async def related_questions_result(task: asyncio.Task) -> list[Dict[str, str]]:
 _FILING_REQUIREMENTS = (FinancialDataRequirement.QUARTERLY_SUMMARY, FinancialDataRequirement.ANNUAL_SUMMARY)
 
 
-def _searching_status(query: str) -> dict:
-    return thinking_status(f'Searching for "{query}"...', phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
+_PERIOD_WORDING = {"annual": "annual", "quarterly": "quarterly", "both": "annual and quarterly"}
+
+
+def _searching_status(progress: ThinkingProgress, query: str) -> dict:
+    return progress.status(f'Searching for "{query}"...', phase=AnalysisPhase.SEARCH)
+
+
+def _writing_status(
+    progress: ThinkingProgress,
+    retrieved_sources=(),
+    *,
+    ticker_list: Optional[List[str]] = None,
+    lead: str = "",
+) -> dict:
+    """The last status before the answer LLM call; says what the answer is grounded on.
+
+    Pass web sources only (not URL-grounded documents). ``lead`` prefixes a note, e.g. a failed retrieval.
+    """
+    body = "writing your answer"
+    if retrieved_sources:
+        count = len(retrieved_sources)
+        body += f" from {count} source{'' if count == 1 else 's'}"
+        if ticker_list and len(ticker_list) > 1:
+            body += f" across {', '.join(ticker_list)}"
+        trusted_publishers: list[str] = []
+        for source in retrieved_sources:
+            if source.is_trusted and source.publisher not in trusted_publishers:
+                trusted_publishers.append(source.publisher)
+        if trusted_publishers:
+            body += f": {', '.join(trusted_publishers)}"
+    body += "..."
+    body = f"{lead}{body}" if lead else body[0].upper() + body[1:]
+    return progress.status(body, phase=AnalysisPhase.ANALYZE)
+
+
+def _period_wording(
+    data_requirement: FinancialDataRequirement, period_requirement: Optional[FinancialPeriodRequirement]
+) -> Optional[str]:
+    """Human period wording for the statements fetch_optimized_data loads; None when it loads none."""
+    if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY:
+        return "quarterly"
+    if data_requirement == FinancialDataRequirement.ANNUAL_SUMMARY:
+        return "annual"
+    if data_requirement == FinancialDataRequirement.DETAILED and period_requirement is not None:
+        return _PERIOD_WORDING.get(period_requirement.period_type)
+    return None
 
 
 def _retrieve_routed(
@@ -153,16 +202,47 @@ def _retrieve_routed(
     request_id: str,
     ticker: str | None,
     company_name: str | None = None,
+    finished: Optional[threading.Event] = None,
 ):
     """Brave retrieval for the router's standalone question + queries (no reformulator LLM call). Blocking."""
+    try:
+        return retrieve_for_analyze(
+            question=routing.standalone_question,
+            market=market,
+            request_id=request_id,
+            brave_client=BraveClient(api_key=os.getenv("BRAVE_API_KEY", "")),
+            ticker=ticker,
+            company_name=company_name,
+            query_reformulator=PrecomputedQueryReformulator(routing.search_queries),
+        )
+    finally:
+        if finished is not None:
+            finished.set()
+
+
+def _reformulate(question: str, *, ticker: str | None, company_name: str | None) -> ReformulationResult:
+    """Legacy (no router) query reformulation, run before Brave so the search status names the real query."""
+    return QueryReformulator().reformulate(question, ticker=ticker, company_name=company_name or "")
+
+
+def _retrieve_reformulated(
+    reformulation: ReformulationResult,
+    *,
+    question: str,
+    market,
+    request_id: str,
+    ticker: str | None,
+    company_name: str | None = None,
+):
+    """Brave retrieval for queries already reformulated by ``_reformulate``. Blocking."""
     return retrieve_for_analyze(
-        question=routing.standalone_question,
+        question=question,
         market=market,
         request_id=request_id,
         brave_client=BraveClient(api_key=os.getenv("BRAVE_API_KEY", "")),
         ticker=ticker,
         company_name=company_name,
-        query_reformulator=PrecomputedQueryReformulator(routing.search_queries),
+        query_reformulator=PrecomputedQueryReformulator(reformulation.queries, reasoning=reformulation.reasoning),
     )
 
 
@@ -232,15 +312,9 @@ class CompanyGeneralHandlerV2:
         debug_prompt_context: bool = False,
         routing: Optional[RoutingResult] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        progress = ThinkingProgress()
         company = self.company_connector.get_by_ticker(ticker)
         company_name = company.name if company else ticker.upper()
-
-        yield thinking_status(
-            f"Analyzing {company_name} ({ticker})...",
-            phase=AnalysisPhase.ANALYZE,
-            step=3,
-            total_steps=4,
-        )
 
         conversation_context = ""
         if conversation_messages:
@@ -254,12 +328,7 @@ class CompanyGeneralHandlerV2:
         is_url_grounded = False
         user_url = extract_first_url(question) if use_url_context else None
         if user_url:
-            yield thinking_status(
-                "Reading the attached document...",
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=4,
-            )
+            yield progress.status("Reading the attached document...", phase=AnalysisPhase.SEARCH)
             try:
                 url_result = _ingest_user_url(user_url, question, request_id)
             except UrlIngestError:
@@ -271,7 +340,7 @@ class CompanyGeneralHandlerV2:
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif search_decision.use_google_search and routing is not None:
-            yield _searching_status(routing.search_queries[0])
+            yield _searching_status(progress, routing.search_queries[0])
             retrieval_result = await asyncio.to_thread(
                 _retrieve_routed,
                 routing,
@@ -282,41 +351,23 @@ class CompanyGeneralHandlerV2:
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
         elif search_decision.use_google_search:
-            market = resolve_market(getattr(company, "country", None), question)
-            brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
-            retrieval_result = retrieve_for_analyze(
+            reformulation = await asyncio.to_thread(
+                _reformulate, question, ticker=ticker.upper(), company_name=company_name
+            )
+            yield _searching_status(progress, reformulation.queries[0])
+            retrieval_result = await asyncio.to_thread(
+                _retrieve_reformulated,
+                reformulation,
                 question=question,
-                market=market,
+                market=resolve_market(getattr(company, "country", None), question),
                 request_id=request_id,
-                brave_client=brave_client,
                 ticker=ticker.upper(),
                 company_name=company_name,
-                query_reformulator=QueryReformulator(),
-            )
-            yield thinking_status(
-                f'Searching for "{retrieval_result.query}"...',
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=4,
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
-
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
         grounding_directive = _select_grounding(
@@ -349,6 +400,7 @@ Use short paragraphs and bullet points for readability.
                 selected_passages=selected_passages,
             )
 
+        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
@@ -364,30 +416,6 @@ Use short paragraphs and bullet points for readability.
                 yield related_q
         finally:
             related_task.cancel()
-
-
-def _trusted_publisher_status(
-    retrieved_sources,
-    *,
-    ticker_list: Optional[List[str]] = None,
-    passage_count: int = 0,
-):
-    trusted_publishers: list[str] = []
-    for source in retrieved_sources:
-        if not source.is_trusted:
-            continue
-        if source.publisher in trusted_publishers:
-            continue
-        trusted_publishers.append(source.publisher)
-    if not trusted_publishers:
-        return None
-    publisher_list = ", ".join(trusted_publishers)
-    passage_suffix = f", {passage_count} passages" if passage_count > 0 else ""
-    if ticker_list:
-        body = f"Reading {len(retrieved_sources)} sources{passage_suffix} across {', '.join(ticker_list)}: {publisher_list}"
-    else:
-        body = f"Reading {len(retrieved_sources)} sources{passage_suffix}: {publisher_list}"
-    return thinking_status(body, phase=AnalysisPhase.SEARCH, step=2, total_steps=4)
 
 
 def _url_ingest_error_event() -> dict[str, str]:
@@ -460,13 +488,7 @@ class GeneralFinanceHandlerV2:
         debug_prompt_context: bool = False,
         routing: Optional[RoutingResult] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        yield thinking_status(
-            "Writing your answer...",
-            phase=AnalysisPhase.ANALYZE,
-            step=3,
-            total_steps=4,
-        )
-
+        progress = ThinkingProgress()
         conversation_context = ""
         if conversation_messages:
             recent = conversation_messages[-4:] if len(conversation_messages) >= 4 else conversation_messages
@@ -485,12 +507,7 @@ class GeneralFinanceHandlerV2:
         is_url_grounded = False
         user_url = extract_first_url(question) if use_url_context else None
         if user_url:
-            yield thinking_status(
-                "Reading the attached document...",
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=4,
-            )
+            yield progress.status("Reading the attached document...", phase=AnalysisPhase.SEARCH)
             try:
                 url_result = _ingest_user_url(user_url, question, request_id)
             except UrlIngestError:
@@ -502,7 +519,7 @@ class GeneralFinanceHandlerV2:
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif search_decision.use_google_search and routing is not None:
-            yield _searching_status(routing.search_queries[0])
+            yield _searching_status(progress, routing.search_queries[0])
             retrieval_result = await asyncio.to_thread(
                 _retrieve_routed,
                 routing,
@@ -512,40 +529,20 @@ class GeneralFinanceHandlerV2:
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
         elif search_decision.use_google_search:
-            market = resolve_market(None, question)
-            brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
-            retrieval_result = retrieve_for_analyze(
+            reformulation = await asyncio.to_thread(_reformulate, question, ticker=None, company_name=None)
+            yield _searching_status(progress, reformulation.queries[0])
+            retrieval_result = await asyncio.to_thread(
+                _retrieve_reformulated,
+                reformulation,
                 question=question,
-                market=market,
+                market=resolve_market(None, question),
                 request_id=request_id,
-                brave_client=brave_client,
                 ticker=None,
-                query_reformulator=QueryReformulator(),
-            )
-            yield thinking_status(
-                f'Searching for "{retrieval_result.query}"...',
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=4,
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
-
             sources_context = _build_sources_block(retrieved_sources, selected_passages)
 
         grounding_directive = _select_grounding(
@@ -576,6 +573,7 @@ Keep the answer under 150 words. Break into short paragraphs.
                 selected_passages=selected_passages,
             )
 
+        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
@@ -655,16 +653,12 @@ Provide a helpful, general answer that builds on what we discussed before."""
         debug_prompt_context: bool = False,
         routing: Optional[RoutingResult] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        progress = ThinkingProgress()
         ticker_norm = (ticker or "").lower().strip()
 
         # Fallback 1: missing/undefined ticker + conversation
         if (not ticker_norm or ticker_norm in ["undefined", "null", "none", ""]) and conversation_messages:
-            yield thinking_status(
-                "Continuing from our previous conversation...",
-                phase=AnalysisPhase.ANALYZE,
-                step=3,
-                total_steps=4,
-            )
+            yield progress.status("Writing your answer from our conversation...", phase=AnalysisPhase.ANALYZE)
             async for event in self._stream_fallback_answer(
                 question, ticker_norm, "", conversation_messages, preferred_model
             ):
@@ -676,11 +670,8 @@ Provide a helpful, general answer that builds on what we discussed before."""
             period_requirement = routing.period_requirement
             relevant_statements = routing.relevant_statements
         else:
-            yield thinking_status(
-                f"Figuring out what {ticker_norm.upper()} data you need...",
-                phase=AnalysisPhase.CLASSIFY,
-                step=3,
-                total_steps=6,
+            yield progress.status(
+                f"Figuring out what {ticker_norm.upper()} data you need...", phase=AnalysisPhase.CLASSIFY
             )
             (
                 data_requirement,
@@ -695,6 +686,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         # Router queries are known up front, so Brave runs while the DB fetch does. Not for filing summaries
         # (a single filing replaces search) or BASIC (the search market comes from the fetched fundamentals).
         search_task: Optional[asyncio.Future] = None
+        search_finished = threading.Event()  # set in the worker thread; the task only notices once the loop runs
         if (
             routing is not None
             and search_decision.use_google_search
@@ -702,7 +694,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             and data_requirement not in _FILING_REQUIREMENTS
             and data_requirement != FinancialDataRequirement.BASIC
         ):
-            yield _searching_status(routing.search_queries[0])
+            yield _searching_status(progress, routing.search_queries[0])
             search_task = asyncio.ensure_future(
                 asyncio.to_thread(
                     _retrieve_routed,
@@ -711,17 +703,17 @@ Provide a helpful, general answer that builds on what we discussed before."""
                     request_id=request_id,
                     ticker=ticker_norm.upper(),
                     company_name=ticker_norm.upper(),
+                    finished=search_finished,
                 )
             )
             search_task.add_done_callback(_consume_task_exception)
             await asyncio.sleep(0)  # start the Brave thread before the (sync) DB fetch blocks the loop
 
-        if period_requirement is not None:
-            yield thinking_status(
-                f"Loading {ticker_norm.upper()} {period_requirement.period_type} financial reports...",
-                phase=AnalysisPhase.DATA_FETCH,
-                step=4,
-                total_steps=6,
+        period_wording = _period_wording(data_requirement, period_requirement)
+        if period_wording and search_task is None:
+            # With a search in flight the DB fetch starts at the same moment; the search status says more.
+            yield progress.status(
+                f"Loading {ticker_norm.upper()} {period_wording} financial reports...", phase=AnalysisPhase.DATA_FETCH
             )
 
         (
@@ -768,11 +760,9 @@ Provide a helpful, general answer that builds on what we discussed before."""
             and len(quarterly_statements) == 0
         )
         if has_no_data and conversation_messages and data_requirement != FinancialDataRequirement.NONE:
-            yield thinking_status(
-                f"No {ticker_norm.upper()} financials available — answering from conversation context",
+            yield progress.status(
+                f"No {ticker_norm.upper()} financials found, writing your answer from our conversation...",
                 phase=AnalysisPhase.ANALYZE,
-                step=5,
-                total_steps=6,
             )
             company_name = company_fundamental.get("Name", "") if company_fundamental else ""
             async for event in self._stream_fallback_answer(
@@ -781,12 +771,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 yield event
             return
 
-        yield thinking_status(
-            f"Analyzing {ticker_norm.upper()} financials...",
-            phase=AnalysisPhase.ANALYZE,
-            step=5,
-            total_steps=6,
-        )
+        has_financials = bool(company_fundamental) or bool(annual_statements) or bool(quarterly_statements)
+        if has_financials and search_task is not None and not search_finished.is_set():
+            # Only while Brave still runs; otherwise this would land together with the next status.
+            yield progress.status(f"Analyzing {ticker_norm.upper()} financials...", phase=AnalysisPhase.ANALYZE)
 
         builder = get_context_builder(data_requirement)
         financial_context = builder.build(
@@ -820,12 +808,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             report_url = annual_statements[0].get("filing_10k_url")
 
         if user_url:
-            yield thinking_status(
-                "Reading the attached document...",
-                phase=AnalysisPhase.SEARCH,
-                step=4,
-                total_steps=6,
-            )
+            yield progress.status("Reading the attached document...", phase=AnalysisPhase.SEARCH)
             try:
                 url_result = _ingest_user_url(user_url, question, request_id)
             except UrlIngestError:
@@ -837,12 +820,8 @@ Provide a helpful, general answer that builds on what we discussed before."""
             is_url_grounded = True
             sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
         elif report_url:
-            yield thinking_status(
-                "Reading the filing document...",
-                phase=AnalysisPhase.SEARCH,
-                step=4,
-                total_steps=6,
-            )
+            form = "10-Q" if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY else "10-K"
+            yield progress.status(f"Reading the {ticker_norm.upper()} {form} filing...", phase=AnalysisPhase.SEARCH)
             try:
                 url_result = ingest_url(
                     url=report_url,
@@ -861,7 +840,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         elif search_decision.use_google_search and routing is not None:
             if search_task is None:
                 country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
-                yield _searching_status(routing.search_queries[0])
+                yield _searching_status(progress, routing.search_queries[0])
                 retrieval_result = await asyncio.to_thread(
                     _retrieve_routed,
                     routing,
@@ -874,40 +853,25 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 retrieval_result = await search_task
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
         elif search_decision.use_google_search:
             country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
-            market = resolve_market(country, question)
-            brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
-            retrieval_result = retrieve_for_analyze(
-                question=question,
-                market=market,
-                request_id=request_id,
-                brave_client=brave_client,
-                ticker=ticker_norm.upper(),
-                company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
-                query_reformulator=QueryReformulator(),
+            company_name = (company_fundamental or {}).get("Name") or ticker_norm.upper()
+            reformulation = await asyncio.to_thread(
+                _reformulate, question, ticker=ticker_norm.upper(), company_name=company_name
             )
-            yield thinking_status(
-                f'Searching for "{retrieval_result.query}"...',
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=4,
+            yield _searching_status(progress, reformulation.queries[0])
+            retrieval_result = await asyncio.to_thread(
+                _retrieve_reformulated,
+                reformulation,
+                question=question,
+                market=resolve_market(country, question),
+                request_id=request_id,
+                ticker=ticker_norm.upper(),
+                company_name=company_name,
             )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(
-                retrieved_sources,
-                passage_count=len(selected_passages) if selected_passages else 0,
-            )
-            if status_event is not None:
-                yield status_event
             sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
         visual_prompt = PromptComponents.visual_output_instructions()
@@ -929,6 +893,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 selected_passages=selected_passages,
             )
 
+        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)

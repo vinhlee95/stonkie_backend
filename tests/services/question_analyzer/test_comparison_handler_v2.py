@@ -246,7 +246,7 @@ async def test_aggregated_thinking_status_across_tickers(mock_multi_agent_cls, m
     ):
         events.append(event)
 
-    reading = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]]
+    reading = [e for e in events if e["type"] == "thinking_status" and "writing your answer from" in e["body"].lower()]
     assert len(reading) == 1
     body = reading[0]["body"]
     for pub in ["Reuters", "Bloomberg", "FT", "CNBC"]:
@@ -300,13 +300,9 @@ async def test_partial_failure_proceeds_with_successes(mock_multi_agent_cls, moc
         events.append(event)
 
     failed_status = [
-        e
-        for e in events
-        if e["type"] == "thinking_status"
-        and "TSLA" in e["body"]
-        and ("failed" in e["body"].lower() or "unavailable" in e["body"].lower())
+        e for e in events if e["type"] == "thinking_status" and e["body"].startswith("No web results for TSLA, ")
     ]
-    assert len(failed_status) >= 1
+    assert len(failed_status) == 1
 
     sources_events = [e for e in events if e["type"] == "sources"]
     assert len(sources_events) == 1
@@ -432,8 +428,8 @@ async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
     ):
         events.append(event)
 
-    # No "Reading N sources" thinking_status (no Brave)
-    assert not any(e["type"] == "thinking_status" and "Reading" in e["body"] for e in events)
+    # No "Writing your answer from N sources" thinking_status (no Brave)
+    assert not any(e["type"] == "thinking_status" and "writing your answer from" in e["body"].lower() for e in events)
     # No v2 sources event from build_sources_event
     v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
     assert len(v2_sources) == 0
@@ -522,7 +518,9 @@ async def test_dedupes_trusted_publishers_across_tickers(mock_multi_agent_cls, m
     ):
         events.append(event)
 
-    reading = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]][0]
+    reading = [e for e in events if e["type"] == "thinking_status" and "writing your answer from" in e["body"].lower()][
+        0
+    ]
     assert reading["body"].count("Reuters") == 1
 
 
