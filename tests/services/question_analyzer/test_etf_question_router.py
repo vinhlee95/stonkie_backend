@@ -9,12 +9,15 @@ import pytest
 
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.question_analyzer.router import (
+    MAX_QUERY_CHARS,
+    MAX_QUERY_WORDS,
     ETFRoutingResult,
     QuestionRouter,
     apply_etf_fast_paths,
     build_etf_router_prompt,
     default_etf_routing,
     parse_etf_routing_response,
+    trim_search_query,
 )
 
 
@@ -246,3 +249,17 @@ async def test_route_etf_returns_none_on_timeout():
     start = time.perf_counter()
     assert await QuestionRouter(llm=slow_llm, timeout_seconds=0.05).route_etf(question="q", ticker="SXR8") is None
     assert time.perf_counter() - start < 0.25
+
+
+def test_trim_search_query_caps_chars_and_words():
+    assert trim_search_query("  a   b \n c ") == "a b c"
+    long_words = " ".join(f"w{i}" for i in range(100))
+    assert len(trim_search_query(long_words).split()) == MAX_QUERY_WORDS
+    long_chars = "x" * 1000
+    assert trim_search_query(long_chars) == "x" * MAX_QUERY_CHARS
+
+
+def test_router_queries_use_the_same_trimming():
+    long_query = " ".join(["word"] * 120)
+    result = _parse(_payload(search_queries=[long_query]))
+    assert result.search_queries == [trim_search_query(long_query)]

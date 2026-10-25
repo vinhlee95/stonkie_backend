@@ -40,7 +40,7 @@ from services.question_analyzer.handlers_v2 import (
     related_questions_result,
     start_related_questions,
 )
-from services.question_analyzer.router import ETFRoutingResult
+from services.question_analyzer.router import ETFRoutingResult, trim_search_query
 from utils.conversation_format import format_conversation_context
 
 from .context_builders import ETFContextBuilderInput, get_etf_context_builder
@@ -66,10 +66,11 @@ def _etf_search_queries(routing: ETFRoutingResult, *, ticker: str | None, etf_na
 
 
 def _fund_query(question: str, *, ticker: str | None, etf_name: str | None) -> str:
-    """Search query naming the fund (name + ticker, or the ticker alone when the fund isn't in the DB)."""
+    """Short search query: '<fund name> <TICKER> <question>' (ticker alone when the fund isn't in the DB), capped
+    like the router's own queries so a long standalone question or fund name can't exceed Brave's limits."""
     if etf_name:
-        return build_company_aware_query(question, ticker=ticker, company_name=etf_name)
-    return build_company_aware_query(question, company_name=ticker)
+        return trim_search_query(build_company_aware_query(question, ticker=ticker, company_name=etf_name))
+    return trim_search_query(build_company_aware_query(question, company_name=ticker))
 
 
 def _conversation_context(

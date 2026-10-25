@@ -19,7 +19,7 @@ from services.etf_question_analyzer.handlers_v2 import (
 )
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.question_analyzer.context_builders.components import PromptComponents
-from services.question_analyzer.router import ETFRoutingResult
+from services.question_analyzer.router import MAX_QUERY_CHARS, MAX_QUERY_WORDS, ETFRoutingResult, trim_search_query
 from services.search_decision_engine import SearchDecision
 from tests.services.etf_question_analyzer.etf_fakes import (
     FakeAgent,
@@ -376,3 +376,22 @@ async def test_router_requested_search_failure_still_raises(handler_cls, questio
     with pytest.raises(BraveRetrievalError):
         await _run(handler, routing=_routing(question_type, search=True), etf_data=etf)
     assert agent.prompts == []
+
+
+LONG_QUESTION = "What does it say about " + " ".join(f"topic{i}" for i in range(120)) + "?"
+
+
+@pytest.mark.asyncio
+async def test_handler_built_query_is_capped_for_long_questions_and_names():
+    handler, retriever, _ = _make(ETFOverviewHandlerV2)
+    long_name = "iShares Core S&P 500 UCITS ETF " + "Extra Long Share Class Name " * 20
+    routing = _routing(search=False, reason="db_data_sufficient", standalone=LONG_QUESTION)
+    events = await _run(handler, routing=routing, etf_data=make_etf(name=long_name, ter_percent=None))
+
+    (call,) = retriever.calls
+    (query,) = call["query_reformulator"].reformulate("x", ticker="", company_name="").queries
+    assert query == trim_search_query(query)
+    assert len(query) <= MAX_QUERY_CHARS
+    assert len(query.split()) <= MAX_QUERY_WORDS
+    assert query.startswith("iShares Core S&P 500 UCITS ETF")
+    assert f'Searching for "{query}"...' in _statuses(events)

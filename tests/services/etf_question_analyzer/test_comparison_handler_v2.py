@@ -16,7 +16,7 @@ from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.etf_question_analyzer.comparison_handler_v2 import ETFComparisonHandlerV2
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.question_analyzer.context_builders.components import PromptComponents
-from services.question_analyzer.router import ETFRoutingResult
+from services.question_analyzer.router import MAX_QUERY_CHARS, MAX_QUERY_WORDS, ETFRoutingResult
 from services.search_decision_engine import SearchDecision
 from tests.services.etf_question_analyzer.etf_fakes import (
     FakeAgentFactory,
@@ -221,3 +221,18 @@ async def test_follow_up_uses_standalone_question_in_prompt_and_retrieval():
 
     assert {c["question"] for c in retriever.calls} == {"How do SXR8 and VUSA fees compare?"}
     assert '"How do SXR8 and VUSA fees compare?"' in agent.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_comparison_queries_are_short_fund_name_ticker_plus_trimmed_question():
+    long_question = "Compare SXR8 vs VUSA on " + " ".join(f"aspect{i}" for i in range(150))
+    retriever = _per_company_retriever()
+    handler, _ = _handler(retriever=retriever)
+    await _run(handler, question=long_question, routing=_routing(standalone=long_question))
+
+    assert len(retriever.calls) == 2
+    for call in retriever.calls:
+        (query,) = call["query_reformulator"].reformulate("x", ticker="", company_name="").queries
+        assert len(query) <= MAX_QUERY_CHARS
+        assert len(query.split()) <= MAX_QUERY_WORDS
+        assert query.startswith(f"{ETFS[call['ticker']].name} {call['ticker']} Compare SXR8 vs VUSA")

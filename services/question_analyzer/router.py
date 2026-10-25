@@ -35,7 +35,9 @@ _TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,9}$")
 
 MAX_SEARCH_QUERIES = 3
 _MAX_STANDALONE_CHARS = 500
-_MAX_QUERY_CHARS = 200
+# Search-query caps shared by the router and every query built outside it (Brave rejects >400 chars / 50 words).
+MAX_QUERY_CHARS = 200
+MAX_QUERY_WORDS = 40
 _CONVERSATION_MESSAGES = 4  # last 2 Q/A turns
 _USER_MESSAGE_CHARS = 500
 _ASSISTANT_MESSAGE_CHARS = 300
@@ -275,6 +277,11 @@ def _parse_statements(
     return deduped
 
 
+def trim_search_query(query: str) -> str:
+    """Collapse whitespace and cap a web-search query at MAX_QUERY_WORDS words and MAX_QUERY_CHARS chars."""
+    return " ".join(query.split()[:MAX_QUERY_WORDS])[:MAX_QUERY_CHARS].strip()
+
+
 def _parse_queries(raw: object) -> list[str]:
     if not isinstance(raw, list):
         raise ValueError("search_queries must be a list")
@@ -282,7 +289,7 @@ def _parse_queries(raw: object) -> list[str]:
     for item in raw:
         if not isinstance(item, str):
             raise ValueError("search_queries items must be strings")
-        query = " ".join(item.split())[:_MAX_QUERY_CHARS]
+        query = trim_search_query(item)
         if query and query not in queries:
             queries.append(query)
     return queries[:MAX_SEARCH_QUERIES]
