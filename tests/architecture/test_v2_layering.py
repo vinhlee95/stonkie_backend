@@ -25,6 +25,8 @@ def test_analyze_v2_route_keeps_layer_1_import_boundary():
         "services.question_analyzer.handlers_v2",
         "services.question_analyzer.comparison_handler",
         "services.question_analyzer.comparison_handler_v2",
+        "services.etf_question_analyzer.handlers",
+        "services.etf_question_analyzer.comparison_handler",
     )
 
     violations = sorted(
@@ -40,6 +42,10 @@ def test_v2_service_modules_do_not_import_fastapi_or_starlette():
         "services/analyze_v2_stream.py",
         *sorted(str(p.relative_to(PROJECT_ROOT)) for p in (PROJECT_ROOT / "services" / "portfolio").glob("*.py")),
         "services/financial_analyzer_v2.py",
+        "services/etf_analyzer_v2.py",
+        "services/etf_question_analyzer/handlers_v2.py",
+        "services/etf_question_analyzer/comparison_handler_v2.py",
+        "services/question_analyzer/router.py",
         "services/analyze_retrieval/retrieval.py",
         "services/analyze_retrieval/ranking.py",
         "services/analyze_retrieval/goggle.py",

@@ -15,6 +15,7 @@ from connectors.conversation_store import (
 )
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.etf import get_etf_by_ticker
+from services.etf_analyzer_v2 import ETFAnalyzerV2
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.semantic_analysis_cache import SemanticAnalysisCache
 from utils.visual_stream import VisualAnswerStreamSplitter
@@ -36,8 +37,9 @@ def v2_cache_ticker(normalized_ticker: str) -> str:
 
 
 class AnalyzeV2StreamService:
-    def __init__(self, analyzer: FinancialAnalyzerV2) -> None:
+    def __init__(self, analyzer: FinancialAnalyzerV2, etf_analyzer: ETFAnalyzerV2) -> None:
         self._analyzer = analyzer
+        self._etf_analyzer = etf_analyzer
 
     async def stream(
         self,
@@ -69,14 +71,6 @@ class AnalyzeV2StreamService:
 
         append_user_message(anon_user_id, storage_ticker, conv_id, question)
         yield {"type": "conversation", "body": {"conversationId": conv_id}}
-
-        if is_etf:
-            yield {
-                "type": "error",
-                "code": "not_supported",
-                "body": "ETF analysis is not supported on v2 yet",
-            }
-            return
 
         assistant_output_buffer: list[str] = []
         last_sources_payload: dict | list | None = None
@@ -136,7 +130,9 @@ class AnalyzeV2StreamService:
 
         visual_splitter = VisualAnswerStreamSplitter()
         try:
-            analyzer_generator = self._analyzer.analyze_question(
+            # ETFs share the stock path end to end: buffer, visual splitter, v2:{TICKER} cache, retrieval_failed.
+            analyzer = self._etf_analyzer if is_etf else self._analyzer
+            analyzer_generator = analyzer.analyze_question(
                 normalized_ticker or ticker,
                 question,
                 use_url_context=use_url_context,

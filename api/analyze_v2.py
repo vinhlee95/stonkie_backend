@@ -1,4 +1,4 @@
-"""HTTP route for stock analyze v2."""
+"""HTTP route for stock and ETF analyze v2."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.chat_limit import limit_chat
 from services.analyze_v2_stream import AnalyzeV2StreamService
+from services.etf_analyzer_v2 import ETFAnalyzerV2
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.search_decision_engine import SearchDecisionEngine
 
@@ -20,7 +21,8 @@ router = APIRouter()
 
 search_decision_engine_v2 = SearchDecisionEngine()
 financial_analyzer_v2 = FinancialAnalyzerV2(search_decision_engine=search_decision_engine_v2)
-analyze_v2_stream_service = AnalyzeV2StreamService(financial_analyzer_v2)
+etf_analyzer_v2 = ETFAnalyzerV2()
+analyze_v2_stream_service = AnalyzeV2StreamService(financial_analyzer_v2, etf_analyzer_v2)
 
 
 @router.post("/api/v2/companies/{ticker}/analyze", dependencies=[Depends(limit_chat)])
