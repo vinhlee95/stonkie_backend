@@ -39,8 +39,9 @@ blank line (no `data:` prefix).
 
 Filter specific SSE event types from the stream:
 
-- **Routing / search path**: `| grep "thinking_status"` — "Found X data in our database" (search off) vs
-  "Searching for the latest X data..." then `Searching for "<query>"...` (search on). The server log line
+- **Routing / search path**: `| grep "thinking_status"` — always starts with "Understanding your question..." and
+  ends with "Writing your answer..." (with "from N sources: <publishers>" when web sources were used); a
+  `Searching for "<query>"...` step in between means search was on. The server log line
   `QuestionRouter <secs>: type=... data=... search=... reason=... queries=... standalone=...` (or
   `QuestionRouter ETF ...`) shows the full routing decision; `QuestionRouter failed ... falling back to default routing`
   means the router call failed.

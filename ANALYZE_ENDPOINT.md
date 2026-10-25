@@ -99,7 +99,7 @@ Each event is one JSON object followed by a blank line. Roughly in order:
 |---|---|
 | `conversation` | always first: `{"conversationId": ...}` |
 | `attachment_url` | a URL in the question, or the 10-Q/10-K used for a filing summary |
-| `thinking_status` | progress lines with `phase`/`step`: database vs "Searching for the latest…", `Searching for "<query>"…`, trusted publishers read, data loading, analysis |
+| `thinking_status` | progress lines with `phase` and `step` (numbered 1, 2, 3… per request, no `total_steps`); see below |
 | `debug_prompt_context` | only with `debugPromptContext: true`: the final prompt and the retrieved sources/passages |
 | `answer` | streamed answer text |
 | `answer_visual_start` / `answer_visual_delta` / `answer_visual_done` / `answer_visual_error` | a fenced HTML/visual block split out of the answer |
@@ -109,6 +109,24 @@ Each event is one JSON object followed by a blank line. Roughly in order:
 | `related_question` | follow-up suggestions (generated while the answer streams) |
 | `cache_meta` | cache replays only: `{"semantic_cache_hit": true}` |
 | `error` | `retrieval_failed` (Brave error) or `url_ingest_failed` |
+
+### `thinking_status` sequence
+
+Every request starts with `Understanding your question...` (sent before the DB lookups and the router call) and the
+last status before the first `answer` token is `Writing your answer...`, which names what the answer is grounded on
+when there are web sources (`Writing your answer from 3 sources: Reuters, CNBC...`). Between them, depending on the
+path:
+
+- `Searching for "<first query>"...` when search is on (router queries, or the question itself after a router
+  failure);
+- `Loading <TICKER> annual|quarterly|annual and quarterly financial reports...` for statement data with search off,
+  `Analyzing <TICKER> financials...` while a search started during the DB fetch is still running;
+- `Reading the <TICKER> 10-Q|10-K filing...` for filing summaries, `Reading the attached document...` for URLs;
+- comparisons: `Loading financial data for A, B...`, `Searching the web for A, B...`;
+- conversation fallbacks end with `Writing your answer from our conversation...` (or `No <TICKER> financials found,
+  writing your answer from our conversation...`).
+
+A non-SEC PDF in the question sends only `Reading the attached document...` and skips routing.
 
 ---
 
