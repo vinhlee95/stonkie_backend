@@ -16,17 +16,21 @@ from ai_models.model_name import ModelName
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
 from services.analysis_progress import AnalysisPhase, thinking_status
-from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 from services.question_analyzer.handlers_v2 import (
     CompanyGeneralHandlerV2,
     CompanySpecificFinanceHandlerV2,
     GeneralFinanceHandlerV2,
 )
-from services.question_analyzer.router import QuestionRouter, RoutingResult, apply_fast_paths
+from services.question_analyzer.router import (
+    QuestionRouter,
+    RoutingResult,
+    apply_fast_paths,
+    default_routing,
+    downgrade_unresolved_comparison,
+)
 from services.question_analyzer.ticker_extractor import StockTickerExtractor
 from services.question_analyzer.types import QuestionType
-from services.search_decision_engine import SearchDecision, SearchDecisionEngine
 from utils.chat_prompt import extract_answer_text
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
@@ -34,12 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 class FinancialAnalyzerV2:
-    """Main v2 analyzer; dispatches by classifier output to v2 handlers."""
+    """Main v2 analyzer; dispatches by the QuestionRouter's routing to v2 handlers."""
 
     def __init__(
         self,
-        classifier: Optional[QuestionClassifier] = None,
-        search_decision_engine: Optional[SearchDecisionEngine] = None,
         company_connector: Optional[CompanyConnector] = None,
         company_financial_connector: Optional[CompanyFinancialConnector] = None,
         company_general_handler: Optional[CompanyGeneralHandlerV2] = None,
@@ -49,8 +51,6 @@ class FinancialAnalyzerV2:
         router: Optional[QuestionRouter] = None,
         ticker_extractor: Optional[StockTickerExtractor] = None,
     ):
-        self.classifier = classifier or QuestionClassifier()
-        self.search_decision_engine = search_decision_engine or SearchDecisionEngine()
         self.router = router or QuestionRouter()
         self.ticker_extractor = ticker_extractor or StockTickerExtractor()
         self.company_connector = company_connector or CompanyConnector()
@@ -67,7 +67,7 @@ class FinancialAnalyzerV2:
         pdf_url: str,
         preferred_model: ModelName = ModelName.Auto,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Non-SEC PDF path — mirrors v1 FinancialAnalyzer._handle_pdf_url_question."""
+        """Non-SEC PDF path: the model reads the PDF URL directly (no retrieval)."""
         try:
             clean_question = strip_url_from_text(question, pdf_url)
             company_data = self.company_connector.get_fundamental_data(ticker)
@@ -154,11 +154,11 @@ class FinancialAnalyzerV2:
         available_periods: dict[str, list] | None,
         available_metrics: list[str] | None,
         force_google_search_reason: str | None,
-    ) -> tuple[Optional[str], Optional[list[str]], SearchDecision, Optional[RoutingResult]]:
+    ) -> tuple[str, Optional[list[str]], RoutingResult]:
         """One router LLM call, concurrent with the regex-gated comparison pre-check.
 
-        Returns (classification, comparison_tickers, search_decision, routing). routing is None when the
-        router failed and the legacy calls (classifier + search decision engine) decided instead.
+        Returns (classification, comparison_tickers, routing). A failed router call falls back to
+        default_routing (no LLM call), so there is always a RoutingResult.
         """
         router_task = asyncio.ensure_future(
             self.router.route(
@@ -177,40 +177,29 @@ class FinancialAnalyzerV2:
                 comparison_tickers = await self.ticker_extractor.extract_tickers(question, current_ticker=ticker)
             except Exception as e:
                 logger.error("Error in ticker extraction, continuing without comparison: %s", e)
-            routing = await router_task
+            routed = await router_task
         except BaseException:
             router_task.cancel()
             raise
 
         is_comparison = len(comparison_tickers) >= 2
-        if routing is not None and not is_comparison and routing.question_type == QuestionType.COMPANY_COMPARISON.value:
-            # Comparisons need the extractor's 2+ resolved tickers (legacy rule); let the legacy calls decide.
-            logger.info(
-                "Router said comparison but the ticker extractor found %s; using legacy routing", comparison_tickers
+        if routed is None:
+            routing = default_routing(
+                question=question, ticker=normalized_ticker, force_google_search_reason=force_google_search_reason
             )
-            routing = None
+        else:
+            if not is_comparison and routed.question_type == QuestionType.COMPANY_COMPARISON.value:
+                # Comparisons need the extractor's 2+ resolved tickers; keep the rest of the router's decision.
+                logger.info(
+                    "Router said comparison but the ticker extractor found %s; downgrading the question type",
+                    comparison_tickers,
+                )
+                routed = downgrade_unresolved_comparison(routed, ticker=normalized_ticker)
+            routing = apply_fast_paths(routed, question=question, force_google_search_reason=force_google_search_reason)
 
-        if routing is None:
-            decide_coro = self.search_decision_engine.decide(
-                question=question,
-                ticker=normalized_ticker,
-                is_etf=False,
-                force_google_search_reason=force_google_search_reason,
-                available_periods=available_periods,
-                available_metrics=available_metrics,
-            )
-            if is_comparison:
-                return QuestionType.COMPANY_COMPARISON.value, comparison_tickers, await decide_coro, None
-            decision, (classification, legacy_tickers) = await asyncio.gather(
-                decide_coro,
-                self.classifier.classify_question_type(question, ticker, conversation_messages=conversation_messages),
-            )
-            return classification, legacy_tickers, decision, None
-
-        routing = apply_fast_paths(routing, question=question, force_google_search_reason=force_google_search_reason)
         if is_comparison:
-            return QuestionType.COMPANY_COMPARISON.value, comparison_tickers, routing.search_decision, routing
-        return routing.question_type, None, routing.search_decision, routing
+            return QuestionType.COMPANY_COMPARISON.value, comparison_tickers, routing
+        return routing.question_type, None, routing
 
     @observe(
         name="financial_analyzer_v2.analyze_question",
@@ -284,7 +273,7 @@ class FinancialAnalyzerV2:
                     e,
                 )
 
-        classification, comparison_tickers, decision, routing = await self._route(
+        classification, comparison_tickers, routing = await self._route(
             question=question,
             ticker=ticker,
             normalized_ticker=normalized_ticker,
@@ -294,6 +283,7 @@ class FinancialAnalyzerV2:
             force_google_search_reason=force_google_search_reason,
         )
 
+        decision = routing.search_decision
         status_ticker = normalized_ticker if normalized_ticker != "none" else None
         if decision.use_google_search:
             body = (
@@ -304,10 +294,6 @@ class FinancialAnalyzerV2:
         else:
             body = f"Found {status_ticker} data in our database" if status_ticker else "Using data from our database"
         yield thinking_status(body, phase=AnalysisPhase.SEARCH, step=2)
-
-        if not classification:
-            yield {"type": "answer", "body": "❌ Unable to classify question type"}
-            return
 
         request_id = str(uuid.uuid4())
 
@@ -343,7 +329,6 @@ class FinancialAnalyzerV2:
                 deep_analysis=deep_analysis,
                 preferred_model=preferred_model,
                 conversation_messages=conversation_messages,
-                available_metrics=available_metrics,
                 request_id=request_id,
                 debug_prompt_context=debug_prompt_context,
                 routing=routing,

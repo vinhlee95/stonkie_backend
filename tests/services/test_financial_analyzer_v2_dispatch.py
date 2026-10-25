@@ -1,32 +1,17 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from ai_models.model_name import ModelName
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.question_analyzer.types import QuestionType
-from services.search_decision_engine import SearchDecision
-from tests.services.routing_fakes import legacy_routing
+from tests.services.routing_fakes import FakeRouter, FakeTickerExtractor, make_routing
 
 
-def _decision() -> SearchDecision:
-    return SearchDecision(
-        use_google_search=False,
-        reason_code="stable",
-        confidence=0.9,
-        decision_model="test",
-        decision_fallback="none",
-    )
-
-
-def _make_analyzer(*, classification: str | None, comparison_tickers: list[str] | None = None):
-    classifier = MagicMock()
-    classifier.classify_question_type = AsyncMock(return_value=(classification, comparison_tickers or []))
-    sd_engine = MagicMock()
-    sd_engine.decide = AsyncMock(return_value=_decision())
-
+def _make_analyzer(*, classification: str, comparison_tickers: list[str] | None = None):
+    router = FakeRouter(make_routing(classification))
     fin_conn = MagicMock()
     fin_conn.get_available_periods.return_value = {}
     fin_conn.get_available_metrics.return_value = ["Revenue"]
@@ -45,9 +30,8 @@ def _make_analyzer(*, classification: str | None, comparison_tickers: list[str] 
     comparison.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=classifier,
-        search_decision_engine=sd_engine,
+        router=router,
+        ticker_extractor=FakeTickerExtractor(comparison_tickers),
         company_financial_connector=fin_conn,
         company_general_handler=company_general,
         general_finance_handler=general_finance,
@@ -108,7 +92,8 @@ async def test_dispatch_company_specific_finance():
     ]
     assert any(e.get("type") == "answer" for e in events)
     h["company_specific"].handle.assert_called_once()
-    assert h["company_specific"].handle.call_args.kwargs.get("available_metrics") == ["Revenue"]
+    routing = h["company_specific"].handle.call_args.kwargs["routing"]
+    assert routing.question_type == QuestionType.COMPANY_SPECIFIC_FINANCE.value
 
 
 @pytest.mark.asyncio
@@ -130,8 +115,8 @@ async def test_dispatch_comparison():
 
 
 @pytest.mark.asyncio
-async def test_unknown_classification_returns_error_answer():
-    analyzer, h = _make_analyzer(classification=None)
+async def test_unsupported_question_type_returns_error_answer():
+    analyzer, h = _make_analyzer(classification="not-a-question-type")
     events = [
         e
         async for e in analyzer.analyze_question(
@@ -140,6 +125,6 @@ async def test_unknown_classification_returns_error_answer():
             preferred_model=ModelName.Auto,
         )
     ]
-    error_answers = [e for e in events if e["type"] == "answer" and "Unable" in e.get("body", "")]
+    error_answers = [e for e in events if e["type"] == "answer" and "Unsupported question type" in e.get("body", "")]
     assert len(error_answers) == 1
     h["company_general"].handle.assert_not_called()

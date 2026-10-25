@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
-from services.question_analyzer.router import QuestionRouter, RoutingResult
+from services.question_analyzer.router import QuestionRouter, RoutingResult, default_routing
 from services.question_analyzer.types import FinancialDataRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
 from tests.services.routing_fakes import FakeRouter, FakeTickerExtractor
@@ -50,26 +50,12 @@ def _handler() -> MagicMock:
     return handler
 
 
-def _analyzer(router, extractor=None, classification="company-general"):
-    classifier = MagicMock()
-    classifier.classify_question_type = AsyncMock(return_value=(classification, None))
-    engine = MagicMock()
-    engine.decide = AsyncMock(
-        return_value=SearchDecision(
-            use_google_search=False,
-            reason_code="legacy",
-            confidence=1.0,
-            decision_model="legacy",
-            decision_fallback="none",
-        )
-    )
+def _analyzer(router, extractor=None):
     connector = MagicMock()
     connector.get_available_periods.return_value = {"annual": [2025], "quarterly": []}
     connector.get_available_metrics.return_value = ["Revenue"]
     handlers = {name: _handler() for name in ("general", "finance", "specific", "comparison")}
     analyzer = FinancialAnalyzerV2(
-        classifier=classifier,
-        search_decision_engine=engine,
         company_financial_connector=connector,
         company_general_handler=handlers["general"],
         general_finance_handler=handlers["finance"],
@@ -78,7 +64,7 @@ def _analyzer(router, extractor=None, classification="company-general"):
         router=router,
         ticker_extractor=extractor or FakeTickerExtractor(),
     )
-    return analyzer, classifier, engine, handlers
+    return analyzer, handlers
 
 
 async def _events(analyzer, **kwargs) -> list[dict]:
@@ -88,16 +74,14 @@ async def _events(analyzer, **kwargs) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_router_result_drives_dispatch_without_legacy_calls():
+async def test_router_result_drives_dispatch():
     routing = _routing()
     router = FakeRouter(routing)
-    analyzer, classifier, engine, handlers = _analyzer(router)
+    analyzer, handlers = _analyzer(router)
     history = [{"role": "user", "content": "Tell me about Nvidia"}, {"role": "assistant", "content": "Sure"}]
 
     events = await _events(analyzer, ticker="nvda", conversation_messages=history)
 
-    classifier.classify_question_type.assert_not_called()
-    engine.decide.assert_not_called()
     assert router.calls == [
         {
             "question": "What was the data center revenue last quarter?",
@@ -114,27 +98,49 @@ async def test_router_result_drives_dispatch_without_legacy_calls():
 
 
 @pytest.mark.asyncio
-async def test_router_failure_falls_back_to_legacy_calls():
-    analyzer, classifier, engine, handlers = _analyzer(FakeRouter(None), classification="company-general")
+async def test_router_failure_uses_default_routing():
+    question = "What was the data center revenue last quarter?"
+    analyzer, handlers = _analyzer(FakeRouter(None))
 
-    await _events(analyzer)
+    events = await _events(analyzer, question=question)
 
-    classifier.classify_question_type.assert_awaited_once()
-    engine.decide.assert_awaited_once()
     (call,) = handlers["general"].calls
-    assert call["routing"] is None
-    assert call["search_decision"].decision_model == "legacy"
+    assert call["routing"] == default_routing(question=question, ticker="NVDA")
+    assert call["search_decision"].use_google_search is True
+    assert call["search_decision"].reason_code == "ambiguous_default_on"
+    assert call["routing"].search_queries == [question]
+    assert events[0]["body"] == "Searching for the latest NVDA data..."
+
+
+@pytest.mark.asyncio
+async def test_router_failure_without_ticker_routes_to_general_finance():
+    analyzer, handlers = _analyzer(FakeRouter(None))
+
+    await _events(analyzer, ticker="", question="What is a P/E ratio?")
+
+    (call,) = handlers["finance"].calls
+    assert call["routing"].question_type == QuestionType.GENERAL_FINANCE.value
+    assert handlers["general"].calls == []
+
+
+@pytest.mark.asyncio
+async def test_router_failure_keeps_forced_search_for_sec_urls():
+    analyzer, handlers = _analyzer(FakeRouter(None))
+
+    await _events(analyzer, question="Who founded Nvidia? https://www.sec.gov/Archives/edgar/data/1045810/x.htm")
+
+    decision = handlers["general"].calls[0]["search_decision"]
+    assert decision.use_google_search is True
+    assert decision.reason_code == "sec_url"
 
 
 @pytest.mark.asyncio
 async def test_extractor_tickers_make_a_comparison_with_router_decision():
     routing = _routing(question_type=QuestionType.COMPANY_GENERAL.value)
-    analyzer, classifier, engine, handlers = _analyzer(FakeRouter(routing), FakeTickerExtractor(["NVDA", "AMD"]))
+    analyzer, handlers = _analyzer(FakeRouter(routing), FakeTickerExtractor(["NVDA", "AMD"]))
 
     await _events(analyzer, question="How does that compare with AMD?")
 
-    classifier.classify_question_type.assert_not_called()
-    engine.decide.assert_not_called()
     (call,) = handlers["comparison"].calls
     assert call["tickers"] == ["NVDA", "AMD"]
     assert call["routing"] == routing
@@ -142,32 +148,93 @@ async def test_extractor_tickers_make_a_comparison_with_router_decision():
 
 
 @pytest.mark.asyncio
-async def test_router_comparison_without_extractor_tickers_uses_legacy_routing():
-    routing = _routing(question_type=QuestionType.COMPANY_COMPARISON.value, comparison_tickers=["NVDA", "AMD"])
-    analyzer, classifier, engine, handlers = _analyzer(FakeRouter(routing), FakeTickerExtractor([]))
+@pytest.mark.parametrize(
+    ("data_requirement", "handler", "expected_type"),
+    [
+        (FinancialDataRequirement.DETAILED, "specific", QuestionType.COMPANY_SPECIFIC_FINANCE.value),
+        (FinancialDataRequirement.NONE, "general", QuestionType.COMPANY_GENERAL.value),
+    ],
+)
+async def test_router_comparison_without_extractor_tickers_is_downgraded(data_requirement, handler, expected_type):
+    routing = _routing(
+        question_type=QuestionType.COMPANY_COMPARISON.value,
+        comparison_tickers=["NVDA", "AMD"],
+        data_requirement=data_requirement,
+    )
+    analyzer, handlers = _analyzer(FakeRouter(routing), FakeTickerExtractor([]))
 
     await _events(analyzer)
 
-    classifier.classify_question_type.assert_awaited_once()
-    engine.decide.assert_awaited_once()
     assert handlers["comparison"].calls == []
-    assert handlers["general"].calls[0]["routing"] is None
+    (call,) = handlers[handler].calls
+    assert call["routing"].question_type == expected_type
+    assert call["routing"].search_queries == routing.search_queries
+    assert call["routing"].standalone_question == routing.standalone_question
+    assert call["search_decision"] == routing.search_decision
 
 
 @pytest.mark.asyncio
-async def test_extractor_comparison_with_failed_router_skips_legacy_classifier():
-    analyzer, classifier, engine, handlers = _analyzer(FakeRouter(None), FakeTickerExtractor(["NVDA", "AMD"]))
+async def test_router_comparison_without_ticker_or_extractor_tickers_is_general_finance():
+    routing = _routing(question_type=QuestionType.COMPANY_COMPARISON.value, comparison_tickers=["NVDA", "AMD"])
+    analyzer, handlers = _analyzer(FakeRouter(routing), FakeTickerExtractor([]))
+
+    await _events(analyzer, ticker="")
+
+    assert handlers["comparison"].calls == []
+    assert handlers["finance"].calls[0]["routing"].question_type == QuestionType.GENERAL_FINANCE.value
+
+
+@pytest.mark.asyncio
+async def test_extractor_comparison_with_failed_router_uses_default_routing():
+    analyzer, handlers = _analyzer(FakeRouter(None), FakeTickerExtractor(["NVDA", "AMD"]))
 
     await _events(analyzer, question="NVDA vs AMD")
 
-    classifier.classify_question_type.assert_not_called()
-    engine.decide.assert_awaited_once()
-    assert handlers["comparison"].calls[0]["tickers"] == ["NVDA", "AMD"]
+    (call,) = handlers["comparison"].calls
+    assert call["tickers"] == ["NVDA", "AMD"]
+    assert call["routing"].standalone_question == "NVDA vs AMD"
+    assert call["search_decision"].reason_code == "ambiguous_default_on"
+
+
+_VALID_ROUTER_OUTPUT = json.dumps(
+    {
+        "standalone_question": "What was Nvidia's data center revenue last quarter?",
+        "question_type": "company-specific-finance",
+        "comparison_tickers": [],
+        "data_requirement": "detailed",
+        "period_requirement": None,
+        "relevant_statements": None,
+        "use_web_search": True,
+        "reason_code": "latest_info",
+        "search_queries": ["Nvidia data center revenue"],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("llm_output", "handler"),
+    [(_VALID_ROUTER_OUTPUT, "specific"), ("not json", "general")],
+    ids=["router-ok", "router-fails"],
+)
+async def test_each_request_makes_exactly_one_routing_llm_call(llm_output, handler):
+    prompts: list[str] = []
+
+    def llm(prompt: str) -> str:
+        prompts.append(prompt)
+        return llm_output
+
+    analyzer, handlers = _analyzer(QuestionRouter(llm=llm))
+
+    await _events(analyzer)
+
+    assert len(prompts) == 1
+    assert len(handlers[handler].calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_static_fact_fast_path_overrides_router_search():
-    analyzer, _, _, handlers = _analyzer(FakeRouter(_routing(question_type=QuestionType.COMPANY_GENERAL.value)))
+    analyzer, handlers = _analyzer(FakeRouter(_routing(question_type=QuestionType.COMPANY_GENERAL.value)))
 
     events = await _events(analyzer, question="Who founded Nvidia?")
 
@@ -203,7 +270,7 @@ async def test_router_runs_concurrently_with_blocking_ticker_extractor():
             time.sleep(0.3)  # today's extractor calls the LLM synchronously
             return []
 
-    analyzer, _, _, handlers = _analyzer(QuestionRouter(llm=slow_llm), BlockingExtractor())
+    analyzer, handlers = _analyzer(QuestionRouter(llm=slow_llm), BlockingExtractor())
 
     start = time.perf_counter()
     await _events(analyzer)

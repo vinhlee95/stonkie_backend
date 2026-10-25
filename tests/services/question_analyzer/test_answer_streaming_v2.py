@@ -15,8 +15,9 @@ from services.question_analyzer.handlers_v2 import (
     GeneralFinanceHandlerV2,
     _iter_answer_chunks,
 )
-from services.question_analyzer.types import FinancialDataRequirement
+from services.question_analyzer.types import FinancialDataRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import make_routing
 
 _CITATION = {"type": "url_citation", "url": "https://example.com/a", "title": "a"}
 
@@ -75,27 +76,40 @@ def _company_connector() -> MagicMock:
 
 def _general_finance():
     handler = GeneralFinanceHandlerV2()
-    kwargs = dict(question="What is a P/E ratio?", use_url_context=False, conversation_messages=None)
+    kwargs = dict(
+        question="What is a P/E ratio?",
+        use_url_context=False,
+        conversation_messages=None,
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value),
+    )
     return handler, kwargs
 
 
 def _company_general():
     handler = CompanyGeneralHandlerV2(company_connector=_company_connector())
-    kwargs = dict(ticker="AAPL", question="What does Apple do?", use_url_context=False, conversation_messages=None)
+    kwargs = dict(
+        ticker="AAPL",
+        question="What does Apple do?",
+        use_url_context=False,
+        conversation_messages=None,
+        routing=make_routing(QuestionType.COMPANY_GENERAL.value),
+    )
     return handler, kwargs
 
 
 def _company_specific():
-    classifier = MagicMock()
-    classifier.classify_data_and_period_requirement = AsyncMock(
-        return_value=(FinancialDataRequirement.BASIC, None, None)
-    )
     optimizer = MagicMock()
     optimizer.fetch_optimized_data = AsyncMock(return_value=({"Name": "Apple Inc."}, [], []))
-    handler = CompanySpecificFinanceHandlerV2(
-        company_connector=_company_connector(), classifier=classifier, data_optimizer=optimizer
+    handler = CompanySpecificFinanceHandlerV2(company_connector=_company_connector(), data_optimizer=optimizer)
+    kwargs = dict(
+        ticker="AAPL",
+        question="What's Apple's revenue?",
+        use_url_context=False,
+        conversation_messages=None,
+        routing=make_routing(
+            QuestionType.COMPANY_SPECIFIC_FINANCE.value, data_requirement=FinancialDataRequirement.BASIC
+        ),
     )
-    kwargs = dict(ticker="AAPL", question="What's Apple's revenue?", use_url_context=False, conversation_messages=None)
     return handler, kwargs
 
 

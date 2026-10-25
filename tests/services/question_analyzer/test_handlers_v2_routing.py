@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -82,8 +82,6 @@ async def _no_related(*_a, **_k):
 def _specific_handler(*, fundamental=None, fetch_delay: float = 0.0):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    classifier = MagicMock()
-    classifier.classify_data_and_period_requirement = AsyncMock()
     optimizer = MagicMock()
     calls: list[str] = []
 
@@ -93,11 +91,9 @@ def _specific_handler(*, fundamental=None, fetch_delay: float = 0.0):
         return fundamental, [{"period_end_year": 2025}], []
 
     optimizer.fetch_optimized_data = fetch
-    handler = CompanySpecificFinanceHandlerV2(
-        company_connector=MagicMock(), classifier=classifier, data_optimizer=optimizer
-    )
+    handler = CompanySpecificFinanceHandlerV2(company_connector=MagicMock(), data_optimizer=optimizer)
     handler._generate_related_questions = _no_related  # type: ignore[attr-defined]
-    return handler, classifier, calls
+    return handler, calls
 
 
 @pytest.mark.asyncio
@@ -113,7 +109,7 @@ async def test_company_specific_uses_router_plan_and_searches_during_db_fetch(mo
         return _retrieval_result()
 
     mock_retrieve.side_effect = slow_retrieve
-    handler, classifier, fetch_calls = _specific_handler(fetch_delay=0.3)
+    handler, fetch_calls = _specific_handler(fetch_delay=0.3)
     routing = _routing()
 
     start = time.perf_counter()
@@ -131,7 +127,6 @@ async def test_company_specific_uses_router_plan_and_searches_during_db_fetch(mo
     ]
     elapsed = time.perf_counter() - start
 
-    classifier.classify_data_and_period_requirement.assert_not_called()
     assert fetch_calls == ["fetch"]
     assert elapsed < 0.5, f"DB fetch and Brave ran serially ({elapsed:.2f}s)"
     kwargs = mock_retrieve.call_args.kwargs
@@ -152,7 +147,7 @@ async def test_company_specific_uses_router_plan_and_searches_during_db_fetch(mo
 async def test_company_specific_basic_searches_after_fetch_with_fundamentals_market(mock_agent_cls, mock_retrieve):
     mock_agent_cls.return_value = _agent()
     mock_retrieve.return_value = _retrieval_result()
-    handler, _, _ = _specific_handler(fundamental={"Name": "FPT Corp", "Country": "Vietnam"})
+    handler, _ = _specific_handler(fundamental={"Name": "FPT Corp", "Country": "Vietnam"})
     routing = _routing(FinancialDataRequirement.BASIC, period_requirement=None)
 
     events = [
@@ -180,7 +175,7 @@ async def test_company_specific_basic_searches_after_fetch_with_fundamentals_mar
 @patch(f"{_HANDLERS}.MultiAgent")
 async def test_company_specific_search_off_never_retrieves(mock_agent_cls, mock_retrieve):
     mock_agent_cls.return_value = _agent()
-    handler, classifier, _ = _specific_handler()
+    handler, _ = _specific_handler()
     routing = _routing(search_decision=_decision(False), search_queries=[])
 
     events = [
@@ -191,7 +186,6 @@ async def test_company_specific_search_off_never_retrieves(mock_agent_cls, mock_
     ]
 
     mock_retrieve.assert_not_called()
-    classifier.classify_data_and_period_requirement.assert_not_called()
     assert not any(e["type"] == "sources" for e in events)
 
 

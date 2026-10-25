@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from typing import Any, AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from services.financial_analyzer_v2 import FinancialAnalyzerV2
+from services.question_analyzer.router import RoutingResult
 from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecision
-from tests.services.routing_fakes import legacy_routing
+from tests.services.routing_fakes import FakeRouter, FakeTickerExtractor, make_routing
 
 
 def _stub_financial_connector() -> MagicMock:
@@ -15,20 +17,6 @@ def _stub_financial_connector() -> MagicMock:
     fc.get_available_periods.return_value = None
     fc.get_available_metrics.return_value = None
     return fc
-
-
-class _FakeClassifier:
-    async def classify_question_type(self, question: str, ticker: str, conversation_messages=None):
-        _ = (question, ticker, conversation_messages)
-        return "company-general", None
-
-
-class _FakeSearchDecisionEngine:
-    def __init__(self, decision: SearchDecision):
-        self._decision = decision
-
-    async def decide(self, **_kwargs) -> SearchDecision:
-        return self._decision
 
 
 class _CapturingHandler:
@@ -45,9 +33,10 @@ class _CapturingHandler:
         conversation_messages,
         request_id: str,
         debug_prompt_context: bool = False,
-        routing=None,
+        *,
+        routing: RoutingResult,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        _ = (debug_prompt_context, routing)
+        _ = debug_prompt_context
         self.calls.append(
             {
                 "ticker": ticker,
@@ -55,6 +44,7 @@ class _CapturingHandler:
                 "search_decision": search_decision,
                 "use_url_context": use_url_context,
                 "request_id": request_id,
+                "routing": routing,
             }
         )
         yield {"type": "thinking_status", "body": "Analyzing...", "phase": "analyze", "step": 3}
@@ -62,38 +52,37 @@ class _CapturingHandler:
         yield {"type": "model_used", "body": "test-model"}
 
 
+def _analyzer(router: FakeRouter, *, financial_connector=None, extractor=None, **kwargs) -> FinancialAnalyzerV2:
+    return FinancialAnalyzerV2(
+        router=router,
+        ticker_extractor=extractor or FakeTickerExtractor(),
+        company_financial_connector=financial_connector or _stub_financial_connector(),
+        **kwargs,
+    )
+
+
+def _handlers(company_general) -> dict[str, Any]:
+    return {
+        "company_general_handler": company_general,
+        "general_finance_handler": MagicMock(),
+        "company_specific_finance_handler": MagicMock(),
+        "comparison_handler": MagicMock(),
+    }
+
+
 @pytest.mark.asyncio
 async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_search_decision():
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    decision = SearchDecision(
-        use_google_search=False,
-        reason_code="stable_concept",
-        confidence=0.9,
-        decision_model="test",
-        decision_fallback="none",
-    )
+    routing = make_routing(use_search=False, reason_code="stable_concept", standalone_question="What does Apple do?")
     handler = _CapturingHandler()
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_FakeClassifier(),
-        search_decision_engine=_FakeSearchDecisionEngine(decision),
-        company_general_handler=handler,
-        general_finance_handler=MagicMock(),
-        company_specific_finance_handler=MagicMock(),
-        comparison_handler=MagicMock(),
-        company_financial_connector=_stub_financial_connector(),
-    )
+    analyzer = _analyzer(FakeRouter(routing), **_handlers(handler))
 
     events: list[dict[str, Any]] = []
-    async for event in analyzer.analyze_question(
-        ticker="AAPL",
-        question="What does Apple do?",
-    ):
+    async for event in analyzer.analyze_question(ticker="AAPL", question="What does Apple do?"):
         events.append(event)
 
     assert handler.calls
-    assert handler.calls[0]["search_decision"] == decision
+    assert handler.calls[0]["search_decision"] == routing.search_decision
+    assert handler.calls[0]["routing"] == routing
     assert handler.calls[0]["ticker"] == "AAPL"
     assert [event["type"] for event in events] == [
         "thinking_status",
@@ -111,27 +100,9 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
         (False, "Found AAPL data in our database"),
     ],
 )
-async def test_analyzer_v2_emits_v1_style_search_thinking_status_after_decide(use_search, expected_body):
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    decision = SearchDecision(
-        use_google_search=use_search,
-        reason_code="test",
-        confidence=0.9,
-        decision_model="test",
-        decision_fallback="none",
-    )
+async def test_analyzer_v2_emits_search_thinking_status_after_routing(use_search, expected_body):
     handler = _CapturingHandler()
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_FakeClassifier(),
-        search_decision_engine=_FakeSearchDecisionEngine(decision),
-        company_general_handler=handler,
-        general_finance_handler=MagicMock(),
-        company_specific_finance_handler=MagicMock(),
-        comparison_handler=MagicMock(),
-        company_financial_connector=_stub_financial_connector(),
-    )
+    analyzer = _analyzer(FakeRouter(make_routing(use_search=use_search)), **_handlers(handler))
 
     events: list[dict[str, Any]] = []
     async for event in analyzer.analyze_question(ticker="AAPL", question="What does Apple do?"):
@@ -142,182 +113,45 @@ async def test_analyzer_v2_emits_v1_style_search_thinking_status_after_decide(us
 
 
 @pytest.mark.asyncio
-async def test_analyzer_v2_emits_classifier_error_when_unclassified():
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    class _NoneClassifier:
-        async def classify_question_type(self, question: str, ticker: str, conversation_messages=None):
-            _ = (question, ticker, conversation_messages)
-            return None, None
-
-    decision = SearchDecision(
-        use_google_search=False,
-        reason_code="stable_concept",
-        confidence=0.9,
-        decision_model="test",
-        decision_fallback="none",
-    )
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_NoneClassifier(),
-        search_decision_engine=_FakeSearchDecisionEngine(decision),
-        company_financial_connector=_stub_financial_connector(),
-    )
-
-    events: list[dict[str, Any]] = []
-    async for event in analyzer.analyze_question(
-        ticker="AAPL",
-        question="?",
-    ):
-        events.append(event)
-
-    assert events[-1]["type"] == "answer"
-    assert "Unable to classify question type" in events[-1]["body"]
-
-
-@pytest.mark.asyncio
-async def test_decide_receives_available_periods_and_metrics_for_valid_ticker():
-    """SearchDecisionEngine.decide must get DB hints like v1 (parity with FinancialAnalyzer)."""
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
+async def test_router_receives_available_periods_and_metrics_for_valid_ticker():
     periods = {"annual": ["2023"]}
     metrics = ["Revenue", "EBITDA"]
     financial_connector = MagicMock()
     financial_connector.get_available_periods.return_value = periods
     financial_connector.get_available_metrics.return_value = metrics
-
-    captured: dict[str, Any] = {}
-
-    async def decide_side_effect(**kwargs: Any) -> SearchDecision:
-        captured.clear()
-        captured.update(kwargs)
-        return SearchDecision(
-            use_google_search=False,
-            reason_code="stable_concept",
-            confidence=0.9,
-            decision_model="m",
-            decision_fallback="none",
-        )
-
-    sd = MagicMock()
-    sd.decide = AsyncMock(side_effect=decide_side_effect)
-
-    class _Clf:
-        async def classify_question_type(self, question: str, ticker: str, conversation_messages=None):
-            _ = (question, ticker, conversation_messages)
-            return QuestionType.COMPANY_GENERAL.value, None
-
-    handler = MagicMock()
-
-    async def _gen():
-        yield {"type": "answer", "body": "x"}
-
-    handler.handle = MagicMock(return_value=_gen())
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_Clf(),
-        search_decision_engine=sd,
-        company_general_handler=handler,
-        company_financial_connector=financial_connector,
-    )
+    router = FakeRouter(make_routing())
+    analyzer = _analyzer(router, financial_connector=financial_connector, **_handlers(_CapturingHandler()))
 
     async for _ in analyzer.analyze_question(ticker="AAPL", question="What is Apple?"):
         pass
 
-    assert captured.get("available_periods") == periods
-    assert captured.get("available_metrics") == metrics
-    assert captured.get("force_google_search_reason") is None
+    (call,) = router.calls
+    assert call["available_periods"] == periods
+    assert call["available_metrics"] == metrics
     financial_connector.get_available_periods.assert_called_once_with("AAPL")
     financial_connector.get_available_metrics.assert_called_once_with("AAPL")
 
 
 @pytest.mark.asyncio
 async def test_no_db_hint_fetch_when_ticker_is_none_placeholder():
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
     financial_connector = MagicMock()
-    captured: dict[str, Any] = {}
-
-    async def decide_side_effect(**kwargs: Any) -> SearchDecision:
-        captured.update(kwargs)
-        return SearchDecision(
-            use_google_search=False,
-            reason_code="stable_concept",
-            confidence=0.9,
-            decision_model="m",
-            decision_fallback="none",
-        )
-
-    sd = MagicMock()
-    sd.decide = AsyncMock(side_effect=decide_side_effect)
-
-    class _Clf:
-        async def classify_question_type(self, question: str, ticker: str, conversation_messages=None):
-            return QuestionType.COMPANY_GENERAL.value, None
-
-    handler = MagicMock()
-
-    async def _gen():
-        yield {"type": "answer", "body": "x"}
-
-    handler.handle = MagicMock(return_value=_gen())
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_Clf(),
-        search_decision_engine=sd,
-        company_general_handler=handler,
-        company_financial_connector=financial_connector,
-    )
+    router = FakeRouter(make_routing())
+    analyzer = _analyzer(router, financial_connector=financial_connector, **_handlers(_CapturingHandler()))
 
     async for _ in analyzer.analyze_question(ticker="none", question="Macro question"):
         pass
 
     financial_connector.get_available_periods.assert_not_called()
     financial_connector.get_available_metrics.assert_not_called()
-    assert captured.get("available_periods") is None
-    assert captured.get("available_metrics") is None
+    (call,) = router.calls
+    assert call["available_periods"] is None
+    assert call["available_metrics"] is None
 
 
 @pytest.mark.asyncio
-async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_before_decide_stream():
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    financial_connector = _stub_financial_connector()
-    captured: dict[str, Any] = {}
-
-    async def decide_side_effect(**kwargs: Any) -> SearchDecision:
-        captured.update(kwargs)
-        return SearchDecision(
-            use_google_search=True,
-            reason_code="sec_url",
-            confidence=1.0,
-            decision_model="m",
-            decision_fallback="none",
-        )
-
-    sd = MagicMock()
-    sd.decide = AsyncMock(side_effect=decide_side_effect)
-
-    class _Clf:
-        async def classify_question_type(self, question: str, ticker: str, conversation_messages=None):
-            return QuestionType.COMPANY_GENERAL.value, None
-
-    handler = MagicMock()
-
-    async def _gen():
-        yield {"type": "answer", "body": "ok"}
-
-    handler.handle = MagicMock(return_value=_gen())
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_Clf(),
-        search_decision_engine=sd,
-        company_general_handler=handler,
-        company_financial_connector=financial_connector,
-    )
+async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_before_routing_status():
+    handler = _CapturingHandler()
+    analyzer = _analyzer(FakeRouter(make_routing(use_search=False)), **_handlers(handler))
 
     sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm"
     question = f"Summarize this filing {sec_url}"
@@ -327,7 +161,9 @@ async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_bef
 
     assert events[0]["type"] == "attachment_url"
     assert events[0]["body"] == sec_url
-    assert captured.get("force_google_search_reason") == "sec_url"
+    decision = handler.calls[0]["search_decision"]
+    assert decision.use_google_search is True
+    assert decision.reason_code == "sec_url"
     assert any(e["type"] == "thinking_status" and "Searching for the latest" in str(e.get("body", "")) for e in events)
 
 
@@ -336,23 +172,16 @@ async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_bef
     "services.financial_analyzer_v2.validate_pdf_url",
     return_value=(False, "not a real pdf"),
 )
-async def test_invalid_non_sec_pdf_url_returns_error_without_decide(_mock_validate):
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    sd = MagicMock()
-    sd.decide = AsyncMock()
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        search_decision_engine=sd,
-        company_financial_connector=_stub_financial_connector(),
-    )
+async def test_invalid_non_sec_pdf_url_returns_error_without_routing(_mock_validate):
+    router = FakeRouter(make_routing())
+    analyzer = _analyzer(router)
 
     question = "Review https://example.com/doc.pdf"
     events: list[dict[str, Any]] = []
     async for e in analyzer.analyze_question(ticker="AAPL", question=question):
         events.append(e)
 
-    sd.decide.assert_not_called()
+    assert router.calls == []
     assert any(e["type"] == "answer" and "not a real pdf" in e["body"] for e in events)
     assert not any(e["type"] == "search_decision_meta" for e in events)
 
@@ -360,26 +189,8 @@ async def test_invalid_non_sec_pdf_url_returns_error_without_decide(_mock_valida
 @pytest.mark.asyncio
 @patch("services.financial_analyzer_v2.validate_pdf_url", return_value=(False, "not a real pdf"))
 async def test_use_url_context_allows_non_pdf_url_to_reach_handler(_mock_validate):
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    decision = SearchDecision(
-        use_google_search=True,
-        reason_code="latest_info",
-        confidence=0.9,
-        decision_model="test",
-        decision_fallback="none",
-    )
     handler = _CapturingHandler()
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_FakeClassifier(),
-        search_decision_engine=_FakeSearchDecisionEngine(decision),
-        company_general_handler=handler,
-        general_finance_handler=MagicMock(),
-        company_specific_finance_handler=MagicMock(),
-        comparison_handler=MagicMock(),
-        company_financial_connector=_stub_financial_connector(),
-    )
+    analyzer = _analyzer(FakeRouter(make_routing(use_search=True)), **_handlers(handler))
 
     events: list[dict[str, Any]] = []
     async for event in analyzer.analyze_question(
@@ -398,10 +209,6 @@ async def test_use_url_context_allows_non_pdf_url_to_reach_handler(_mock_validat
 @pytest.mark.asyncio
 @patch("services.financial_analyzer_v2.MultiAgent")
 async def test_valid_non_sec_pdf_short_circuits_through_pdf_handler(mock_ma_cls):
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    sd = MagicMock()
-    sd.decide = AsyncMock()
     mock_agent = MagicMock()
     mock_agent.model_name = "m1"
     mock_agent.generate_content_with_pdf_url.return_value = iter(["chunk-a"])
@@ -409,13 +216,8 @@ async def test_valid_non_sec_pdf_short_circuits_through_pdf_handler(mock_ma_cls)
 
     company_connector = MagicMock()
     company_connector.get_fundamental_data.return_value = None
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        search_decision_engine=sd,
-        company_connector=company_connector,
-        company_financial_connector=_stub_financial_connector(),
-    )
+    router = FakeRouter(make_routing())
+    analyzer = _analyzer(router, company_connector=company_connector)
 
     with patch("services.financial_analyzer_v2.validate_pdf_url", return_value=(True, "")):
         events: list[dict[str, Any]] = []
@@ -425,100 +227,20 @@ async def test_valid_non_sec_pdf_short_circuits_through_pdf_handler(mock_ma_cls)
         ):
             events.append(e)
 
-    sd.decide.assert_not_called()
+    assert router.calls == []
     assert any(e["type"] == "answer" and e["body"] == "chunk-a" for e in events)
     assert any(e["type"] == "model_used" for e in events)
 
 
 @pytest.mark.asyncio
-async def test_company_specific_handler_receives_available_metrics():
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    metrics_list = ["Revenue", "NetIncome"]
-    financial_connector = MagicMock()
-    financial_connector.get_available_periods.return_value = {}
-    financial_connector.get_available_metrics.return_value = metrics_list
-
-    sd = MagicMock()
-    sd.decide = AsyncMock(
-        return_value=SearchDecision(
-            use_google_search=False,
-            reason_code="stable_concept",
-            confidence=0.9,
-            decision_model="m",
-            decision_fallback="none",
-        )
-    )
-
-    cs = MagicMock()
-
-    async def _gen():
-        yield {"type": "answer", "body": "ok"}
-
-    cs.handle = MagicMock(return_value=_gen())
-
-    class _ClfSpec:
-        async def classify_question_type(self, question, ticker, conversation_messages=None):
-            _ = (question, ticker, conversation_messages)
-            return QuestionType.COMPANY_SPECIFIC_FINANCE.value, None
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_ClfSpec(),
-        search_decision_engine=sd,
-        company_specific_finance_handler=cs,
-        company_financial_connector=financial_connector,
-    )
-
-    async for _ in analyzer.analyze_question(ticker="MSFT", question="What was revenue?"):
-        pass
-
-    kw = cs.handle.call_args.kwargs
-    assert kw.get("available_metrics") == metrics_list
-
-
-@pytest.mark.asyncio
-async def test_classifier_receives_raw_ticker_matching_v1():
-    """v1 FinancialAnalyzer passes original `ticker` to classify_question_type, not normalized."""
-    from services.financial_analyzer_v2 import FinancialAnalyzerV2
-
-    received_ticker: dict[str, str] = {}
-
-    class _CapturingClf:
-        async def classify_question_type(self, question, ticker_arg, conversation_messages=None):
-            _ = (question, conversation_messages)
-            received_ticker["value"] = ticker_arg
-            return QuestionType.COMPANY_GENERAL.value, None
-
-    sd = MagicMock()
-    sd.decide = AsyncMock(
-        return_value=SearchDecision(
-            use_google_search=False,
-            reason_code="stable_concept",
-            confidence=0.9,
-            decision_model="m",
-            decision_fallback="none",
-        )
-    )
-    handler = MagicMock()
-
-    async def _gen():
-        yield {"type": "answer", "body": "x"}
-
-    handler.handle = MagicMock(return_value=_gen())
-
-    analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=_CapturingClf(),
-        search_decision_engine=sd,
-        company_general_handler=handler,
-        company_financial_connector=_stub_financial_connector(),
-    )
+async def test_extractor_gets_raw_ticker_and_router_gets_normalized_ticker():
+    router = FakeRouter(make_routing(QuestionType.COMPANY_GENERAL.value))
+    extractor = FakeTickerExtractor()
+    analyzer = _analyzer(router, extractor=extractor, **_handlers(_CapturingHandler()))
 
     raw_ticker = "  msft  "
     async for _ in analyzer.analyze_question(ticker=raw_ticker, question="Overview?"):
         pass
 
-    assert received_ticker["value"] == raw_ticker
-    sd.decide.assert_awaited_once()
-    assert sd.decide.await_args.kwargs["ticker"] == "MSFT"
+    assert extractor.calls == [("Overview?", raw_ticker)]
+    assert router.calls[0]["ticker"] == "MSFT"

@@ -9,9 +9,13 @@ import pytest
 
 from core.financial_statement_type import FinancialStatementType
 from services.question_analyzer.router import (
+    MAX_QUERY_CHARS,
+    MAX_QUERY_WORDS,
     QuestionRouter,
     apply_fast_paths,
     build_router_prompt,
+    default_routing,
+    downgrade_unresolved_comparison,
     parse_routing_response,
 )
 from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
@@ -246,3 +250,90 @@ async def test_route_returns_none_on_timeout():
     start = time.perf_counter()
     assert await QuestionRouter(llm=slow_llm, timeout_seconds=0.05).route(question="q", ticker="NVDA") is None
     assert time.perf_counter() - start < 0.25
+
+
+@pytest.mark.parametrize(
+    ("ticker", "expected_type"),
+    [
+        ("NVDA", QuestionType.COMPANY_GENERAL.value),
+        ("none", QuestionType.GENERAL_FINANCE.value),
+        ("", QuestionType.GENERAL_FINANCE.value),
+    ],
+)
+def test_default_routing_searches_the_question_without_an_llm_call(ticker, expected_type):
+    question = "What is the outlook for chip demand?"
+
+    result = default_routing(question=question, ticker=ticker)
+
+    assert result.question_type == expected_type
+    assert result.comparison_tickers == []
+    assert result.data_requirement == FinancialDataRequirement.NONE
+    assert result.period_requirement is None
+    assert result.relevant_statements is None
+    assert result.search_decision.use_google_search is True
+    assert result.search_decision.reason_code == "ambiguous_default_on"
+    assert result.standalone_question == question
+    assert result.search_queries == [question]
+
+
+def test_default_routing_applies_fast_paths():
+    static = default_routing(question="Who founded Nvidia?", ticker="NVDA")
+    assert static.search_decision.use_google_search is False
+    assert static.search_decision.reason_code == "stable_concept"
+    assert static.search_queries == []
+
+    report = default_routing(question="Summarize the latest quarterly report", ticker="NVDA")
+    assert report.data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY
+
+    forced = default_routing(question="Who founded Nvidia?", ticker="NVDA", force_google_search_reason="sec_url")
+    assert forced.search_decision.use_google_search is True
+    assert forced.search_decision.reason_code == "sec_url"
+    assert forced.search_queries == ["Who founded Nvidia?"]
+
+
+def test_default_routing_caps_the_search_query():
+    question = " ".join(["word"] * 80)
+
+    result = default_routing(question=question, ticker="NVDA")
+
+    (query,) = result.search_queries
+    assert len(query.split()) <= MAX_QUERY_WORDS
+    assert len(query) <= MAX_QUERY_CHARS
+
+
+@pytest.mark.parametrize(
+    ("data_requirement", "ticker", "expected_type"),
+    [
+        ("detailed", "NVDA", QuestionType.COMPANY_SPECIFIC_FINANCE.value),
+        ("none", "NVDA", QuestionType.COMPANY_GENERAL.value),
+        ("none", "none", QuestionType.GENERAL_FINANCE.value),
+        ("detailed", "", QuestionType.GENERAL_FINANCE.value),
+    ],
+)
+def test_unresolved_comparison_is_downgraded_and_keeps_the_router_result(data_requirement, ticker, expected_type):
+    routed = parse_routing_response(
+        json.dumps(
+            _payload(
+                question_type="company-comparison",
+                comparison_tickers=["NVDA", "AMD"],
+                data_requirement=data_requirement,
+            )
+        ),
+        question="q",
+        ticker="NVDA",
+        model_name="m",
+    )
+
+    result = downgrade_unresolved_comparison(routed, ticker=ticker)
+
+    assert result.question_type == expected_type
+    assert result.data_requirement == routed.data_requirement
+    assert result.search_decision == routed.search_decision
+    assert result.search_queries == routed.search_queries
+    assert result.standalone_question == routed.standalone_question
+
+
+def test_downgrade_leaves_non_comparisons_alone():
+    routed = parse_routing_response(json.dumps(_payload()), question="q", ticker="NVDA", model_name="m")
+
+    assert downgrade_unresolved_comparison(routed, ticker="NVDA") is routed

@@ -15,12 +15,10 @@ from api.chat_limit import limit_chat
 from services.analyze_v2_stream import AnalyzeV2StreamService
 from services.etf_analyzer_v2 import ETFAnalyzerV2
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
-from services.search_decision_engine import SearchDecisionEngine
 
 router = APIRouter()
 
-search_decision_engine_v2 = SearchDecisionEngine()
-financial_analyzer_v2 = FinancialAnalyzerV2(search_decision_engine=search_decision_engine_v2)
+financial_analyzer_v2 = FinancialAnalyzerV2()
 etf_analyzer_v2 = ETFAnalyzerV2()
 analyze_v2_stream_service = AnalyzeV2StreamService(financial_analyzer_v2, etf_analyzer_v2)
 

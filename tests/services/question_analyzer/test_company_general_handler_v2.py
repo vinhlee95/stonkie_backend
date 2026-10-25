@@ -9,6 +9,7 @@ from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
 from services.analyze_retrieval.url_ingest import UrlIngestResult
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import make_routing
 
 
 def _event_types(events: list[dict]) -> list[str]:
@@ -74,6 +75,7 @@ async def test_use_url_context_ingests_user_url_and_skips_brave(
         ticker="AAPL",
         question="Analyze https://example.com/report",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=True,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -142,6 +144,7 @@ async def test_no_search_emits_v1_like_sequence(mock_company_connector_cls, mock
         ticker="AAPL",
         question="What does Apple do?",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -192,6 +195,7 @@ async def test_no_search_never_emits_sources_event(mock_company_connector_cls, m
         ticker="AAPL",
         question="What does Apple do?",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -265,6 +269,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
         ticker="AAPL",
         question="What changed?",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -273,9 +278,10 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
         events.append(event)
 
     thinking_events = [event for event in events if event["type"] == "thinking_status"]
-    assert len(thinking_events) == 2
-    assert "Reuters" in thinking_events[1]["body"]
-    assert "Example Blog" not in thinking_events[1]["body"]
+    assert len(thinking_events) == 3
+    assert thinking_events[1]["body"].startswith("Searching for ")
+    assert "Reuters" in thinking_events[2]["body"]
+    assert "Example Blog" not in thinking_events[2]["body"]
     assert mock_retrieve_for_analyze.call_count == 1
 
     answer_events = [event for event in events if event["type"] == "answer"]
@@ -350,6 +356,7 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(
         ticker="AAPL",
         question="What changed?",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -357,7 +364,7 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(
     ):
         events.append(event)
 
-    publisher_status = [event for event in events if event["type"] == "thinking_status"][1]["body"]
+    publisher_status = [event for event in events if event["type"] == "thinking_status"][-1]["body"]
     assert publisher_status.count("Reuters") == 1
 
 
@@ -416,6 +423,7 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
         ticker="AAPL",
         question="What changed?",
         search_decision=decision,
+        routing=make_routing(use_search=decision.use_google_search, search_decision=decision),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,

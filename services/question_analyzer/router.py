@@ -1,9 +1,9 @@
 """Single-call question router for the v2 analyze flow.
 
-One structured-JSON LLM call replaces classify_question_type + SearchDecisionEngine +
-classify_data_and_period_requirement + QueryReformulator. It also sees the recent conversation, so
-follow-ups are rewritten into a standalone question used for retrieval. On parse failure or timeout
-`QuestionRouter.route` returns None and the caller falls back to the old calls.
+One structured-JSON LLM call decides the question type, data/period requirement, web search on/off
+and the search queries. It also sees the recent conversation, so follow-ups are rewritten into a
+standalone question used for retrieval. On parse failure or timeout `QuestionRouter.route` returns
+None and the caller uses `default_routing` (no LLM call).
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from core.financial_statement_type import FinancialStatementType
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.search_decision_engine import SearchDecision, is_static_fact
 
-from .classifier import QuestionClassifier
 from .context_builders.components import PromptComponents
 from .types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 
@@ -73,6 +72,24 @@ _ETF_MIN_REQUIREMENT = {
     ETFQuestionType.ETF_OVERVIEW: ETFDataRequirement.BASIC,
     ETFQuestionType.ETF_DETAILED_ANALYSIS: ETFDataRequirement.DETAILED,
 }
+
+# Keywords that force a filing summary (deterministic fast path, see apply_fast_paths).
+QUARTERLY_REPORT_KEYWORDS = (
+    "quarterly report",
+    "quarterly earnings",
+    "quarterly filing",
+    "earnings report",
+    "10-q",
+    "10q",
+)
+ANNUAL_REPORT_KEYWORDS = (
+    "annual report",
+    "annual filing",
+    "10-k",
+    "10k",
+    "yearly report",
+    "annual earnings",
+)
 
 
 @dataclass(frozen=True)
@@ -261,7 +278,7 @@ def _parse_period(block: object, data_requirement: FinancialDataRequirement) -> 
 def _parse_statements(
     raw: object, data_requirement: FinancialDataRequirement
 ) -> Optional[list[FinancialStatementType]]:
-    """Same contract as QuestionClassifier: DETAILED always gets a non-empty ordered list, else None."""
+    """DETAILED always gets a non-empty ordered list of statements, everything else None."""
     if data_requirement != FinancialDataRequirement.DETAILED:
         return None
     deduped: list[FinancialStatementType] = []
@@ -345,7 +362,7 @@ def parse_routing_response(raw: str, *, question: str, ticker: str, model_name: 
         raise ValueError("Missing standalone_question")
     standalone = " ".join(standalone.split())[:_MAX_STANDALONE_CHARS]
 
-    # Same guard as the old classifier prompt: no company-specific analysis without a ticker.
+    # No company-specific analysis without a ticker.
     if question_type == QuestionType.COMPANY_SPECIFIC_FINANCE.value and not _has_valid_ticker(ticker):
         question_type = QuestionType.GENERAL_FINANCE.value
 
@@ -387,13 +404,13 @@ def apply_fast_paths(
     period_requirement = result.period_requirement
     relevant_statements = result.relevant_statements
     question_lower = question.lower()
-    if any(k in question_lower for k in QuestionClassifier.QUARTERLY_REPORT_KEYWORDS):
+    if any(k in question_lower for k in QUARTERLY_REPORT_KEYWORDS):
         data_requirement, period_requirement, relevant_statements = (
             FinancialDataRequirement.QUARTERLY_SUMMARY,
             None,
             None,
         )
-    elif any(k in question_lower for k in QuestionClassifier.ANNUAL_REPORT_KEYWORDS):
+    elif any(k in question_lower for k in ANNUAL_REPORT_KEYWORDS):
         data_requirement, period_requirement, relevant_statements = FinancialDataRequirement.ANNUAL_SUMMARY, None, None
 
     search_queries = result.search_queries
@@ -410,6 +427,45 @@ def apply_fast_paths(
         relevant_statements=relevant_statements,
         search_queries=search_queries,
     )
+
+
+def default_routing(*, question: str, ticker: str, force_google_search_reason: str | None = None) -> RoutingResult:
+    """Routing used when the router fails: no LLM call, search on with the question as the query."""
+    question_type = QuestionType.COMPANY_GENERAL if _has_valid_ticker(ticker) else QuestionType.GENERAL_FINANCE
+    query = trim_search_query(question)
+    result = RoutingResult(
+        question_type=question_type.value,
+        comparison_tickers=[],
+        data_requirement=FinancialDataRequirement.NONE,
+        period_requirement=None,
+        relevant_statements=None,
+        search_decision=SearchDecision(
+            use_google_search=True,
+            reason_code="ambiguous_default_on",
+            confidence=0.5,
+            decision_model="default_routing",
+            decision_fallback="router_fail_safe_on",
+        ),
+        search_queries=[query] if query else [],
+        standalone_question=question,
+    )
+    return apply_fast_paths(result, question=question, force_google_search_reason=force_google_search_reason)
+
+
+def downgrade_unresolved_comparison(result: RoutingResult, *, ticker: str) -> RoutingResult:
+    """A router comparison the ticker extractor could not back with 2+ tickers becomes a single-company type.
+
+    Everything else the router decided (search, queries, standalone question, data requirement) is kept.
+    """
+    if result.question_type != QuestionType.COMPANY_COMPARISON.value:
+        return result
+    if not _has_valid_ticker(ticker):
+        question_type = QuestionType.GENERAL_FINANCE
+    elif result.data_requirement != FinancialDataRequirement.NONE:
+        question_type = QuestionType.COMPANY_SPECIFIC_FINANCE
+    else:
+        question_type = QuestionType.COMPANY_GENERAL
+    return replace(result, question_type=question_type.value)
 
 
 def _format_etf_db_context(
@@ -519,7 +575,7 @@ def parse_etf_routing_response(raw: str, *, question: str, ticker: str, model_na
         raise ValueError("Missing standalone_question")
     standalone = " ".join(standalone.split())[:_MAX_STANDALONE_CHARS]
 
-    # Same guard as the v1 ETF classifier: no fund-specific analysis without a ticker.
+    # No fund-specific analysis without a ticker.
     if not _has_valid_ticker(ticker):
         question_type, data_requirement = ETFQuestionType.GENERAL_ETF, ETFDataRequirement.NONE
     elif data_requirement == ETFDataRequirement.NONE and question_type in _ETF_MIN_REQUIREMENT:
@@ -621,7 +677,7 @@ class QuestionRouter:
             result = parse_routing_response(raw, question=question, ticker=ticker, model_name=self.model_name.value)
         except Exception as e:
             logger.warning(
-                "QuestionRouter failed after %.2fs (falling back to legacy routing): %s: %s",
+                "QuestionRouter failed after %.2fs (falling back to default routing): %s: %s",
                 time.perf_counter() - t_start,
                 type(e).__name__,
                 e,

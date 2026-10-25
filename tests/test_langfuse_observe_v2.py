@@ -1,20 +1,13 @@
 """Verify Langfuse @observe on FinancialAnalyzerV2.analyze_question captures only question as input, concatenated answer text as output, and TTFT."""
 
 import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
-from services.search_decision_engine import SearchDecision
-from tests.services.routing_fakes import legacy_routing
+from tests.services.routing_fakes import FakeRouter, FakeTickerExtractor, make_routing
 from utils.chat_prompt import extract_answer_text
-
-
-def _make_search_decision():
-    return SearchDecision(
-        use_google_search=False, reason_code="test", confidence=1.0, decision_model="test", decision_fallback=""
-    )
 
 
 def _make_analyzer(classification="company-general", handler_chunks=None):
@@ -31,12 +24,6 @@ def _make_analyzer(classification="company-general", handler_chunks=None):
         for c in handler_chunks:
             yield c
 
-    classifier = MagicMock()
-    classifier.classify_question_type = AsyncMock(return_value=(classification, None))
-
-    search_engine = MagicMock()
-    search_engine.decide = AsyncMock(return_value=_make_search_decision())
-
     company_financial_connector = MagicMock()
     company_financial_connector.get_available_periods.return_value = None
     company_financial_connector.get_available_metrics.return_value = None
@@ -45,9 +32,8 @@ def _make_analyzer(classification="company-general", handler_chunks=None):
     handler_mock.handle = fake_handler
 
     analyzer = FinancialAnalyzerV2(
-        **legacy_routing(),
-        classifier=classifier,
-        search_decision_engine=search_engine,
+        router=FakeRouter(make_routing(classification)),
+        ticker_extractor=FakeTickerExtractor(),
         company_financial_connector=company_financial_connector,
         company_general_handler=handler_mock,
         general_finance_handler=handler_mock,

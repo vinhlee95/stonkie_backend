@@ -6,13 +6,14 @@ Fakes only: no LLM, DB or Brave calls.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
 
 from services.etf_analyzer_v2 import ETFAnalyzerV2
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
-from services.question_analyzer.router import ETFRoutingResult
+from services.question_analyzer.router import ETFRoutingResult, QuestionRouter
 from services.search_decision_engine import SearchDecision
 from tests.services.etf_question_analyzer.etf_fakes import make_etf
 from tests.services.routing_fakes import FakeTickerExtractor
@@ -170,6 +171,34 @@ async def test_router_failure_uses_default_overview_routing_with_search_on():
     assert routing.search_queries == []
     assert handlers["overview"].calls[0]["etf_data"] == make_etf()
     assert events[0]["body"] == "Searching for the latest SXR8 data..."
+
+
+_VALID_ETF_ROUTER_OUTPUT = json.dumps(
+    {
+        "standalone_question": "What is the TER of the iShares Core S&P 500 UCITS ETF?",
+        "question_type": "etf_overview",
+        "data_requirement": "basic",
+        "use_web_search": False,
+        "reason_code": "db_data_sufficient",
+        "search_queries": [],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_output", [_VALID_ETF_ROUTER_OUTPUT, "not json"], ids=["router-ok", "router-fails"])
+async def test_each_request_makes_exactly_one_routing_llm_call(llm_output):
+    prompts: list[str] = []
+
+    def llm(prompt: str) -> str:
+        prompts.append(prompt)
+        return llm_output
+
+    analyzer, handlers = _analyzer(router=QuestionRouter(llm=llm))
+    await _events(analyzer)
+
+    assert len(prompts) == 1
+    assert _called(handlers) == ["overview"]
 
 
 @pytest.mark.asyncio

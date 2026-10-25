@@ -10,7 +10,7 @@ from services.search_decision_engine import SearchDecision
 
 
 class FakeRouter:
-    """Returns a fixed RoutingResult; None makes the analyzer fall back to the legacy calls."""
+    """Returns a fixed RoutingResult; None makes the analyzer fall back to default_routing."""
 
     def __init__(self, result: RoutingResult | None = None):
         self.result = result
@@ -29,11 +29,6 @@ class FakeTickerExtractor:
     async def extract_tickers(self, question: str, current_ticker: str | None = None) -> list[str]:
         self.calls.append((question, current_ticker))
         return list(self.tickers)
-
-
-def legacy_routing() -> dict[str, Any]:
-    """Analyzer kwargs that force the legacy classifier + search-decision path (router fails)."""
-    return {"router": FakeRouter(None), "ticker_extractor": FakeTickerExtractor()}
 
 
 def make_routing(
