@@ -67,6 +67,19 @@ class CompanyFinancialConnector:
                 .all()
             )
 
+    def get_statement_line_items(self, ticker: str, statement: FinancialStatementType) -> list[dict[str, Any]]:
+        """Stored quarterly + annual line items of one statement, used as unit references for a new scrape."""
+        with SessionLocal() as db:
+            rows = [
+                *db.query(CompanyQuarterlyFinancialStatement)
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+                *db.query(CompanyFinancialStatement)
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+            ]
+            return [values for row in rows if isinstance(values := getattr(row, statement.value), dict)]
+
     def upsert_annual_statement(
         self, ticker: str, statement: FinancialStatementType, period: AnnualPeriod, max_retries: int = 3
     ) -> bool:

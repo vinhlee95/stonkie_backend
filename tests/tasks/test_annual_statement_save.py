@@ -8,8 +8,13 @@ from tasks.financial_crawler import _save_to_database
 class InMemoryAnnualConnector:
     """Fake repository applying the same row-update rules as CompanyFinancialConnector."""
 
-    def __init__(self, rows: dict[int, dict] | None = None):
+    def __init__(self, rows: dict[int, dict] | None = None, quarterly: list[dict] | None = None):
         self.rows = rows or {}
+        self.quarterly = quarterly or []
+
+    def get_statement_line_items(self, ticker, statement: FinancialStatementType) -> list[dict]:
+        annual = [row[statement.value] for row in self.rows.values() if isinstance(row.get(statement.value), dict)]
+        return [*self.quarterly, *annual]
 
     def upsert_annual_statement(self, ticker, statement: FinancialStatementType, period: AnnualPeriod) -> bool:
         row = self.rows.get(period.period_end_year)
@@ -61,6 +66,27 @@ def test_ttm_never_overwrites_fiscal_year_row():
 
     assert ok is True
     assert connector.rows[2026] == {"is_ttm": False, "income_statement": {"Total Revenue": 1}}
+
+
+def test_full_unit_scrape_is_rescaled_to_stored_thousands():
+    # The LLM sometimes returns Yahoo's figures in full units; stored rows are in thousands.
+    connector = InMemoryAnnualConnector(
+        {
+            2023: {"is_ttm": False, "income_statement": {"Total Revenue": 383285000}},
+            2024: {"is_ttm": False, "income_statement": {"Total Revenue": 391035000}},
+        },
+        quarterly=[{"Total Revenue": 94930000}, {"Total Revenue": 124300000}],
+    )
+
+    _save_to_database(
+        "AAPL",
+        "income_statement",
+        scraped((2025, 416160000000), (2024, 391040000000), (2023, 383290000000)),
+        connector=connector,
+    )
+
+    assert connector.rows[2025]["income_statement"] == {"Total Revenue": 416160000}
+    assert connector.rows[2023]["income_statement"] == {"Total Revenue": 383290000}
 
 
 def test_returns_false_when_connector_fails():

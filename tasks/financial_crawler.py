@@ -143,6 +143,8 @@ def _save_to_database(
     connector = connector or CompanyFinancialConnector()
     try:
         st = FinancialStatementType(statement_type)
+        # Rows are now overwritten, so a full-unit scrape must be brought back to the stored thousands first.
+        data = normalize_periods(data, connector.get_statement_line_items(ticker, st))
         for period in label_annual_periods(data):
             if not connector.upsert_annual_statement(ticker, st, period):
                 logger.warning(

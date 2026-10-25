@@ -36,6 +36,7 @@ from agent.agent import Agent
 from connectors.company_financial import CompanyFinancialConnector
 from core.annual_periods import label_annual_periods
 from core.financial_statement_type import FinancialStatementType
+from core.statement_units import normalize_periods
 from services.company import CompanyConnector
 
 load_dotenv()
@@ -50,6 +51,7 @@ def save_to_database(ticker, statement_type, data):
     """
     try:
         st = FinancialStatementType(statement_type)
+        data = normalize_periods(data, company_financial_connector.get_statement_line_items(ticker, st))
         for period in label_annual_periods(data):
             if company_financial_connector.upsert_annual_statement(ticker, st, period):
                 print(f"🔄 Saved {ticker} {st.value} {period.period_end_year} (ttm={period.is_ttm})")

@@ -11,6 +11,7 @@ from connectors.company_financial import CompanyFinancialConnector
 from core.annual_periods import AnnualPeriod
 from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
+from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
@@ -25,6 +26,7 @@ CASH_FLOW = FinancialStatementType.CASH_FLOW
 def annual_engine():
     engine = create_engine(TEST_DATABASE_URL)
     CompanyFinancialStatement.__table__.create(engine, checkfirst=True)
+    CompanyQuarterlyFinancialStatement.__table__.create(engine, checkfirst=True)
     yield engine
     engine.dispose()
 
@@ -37,7 +39,11 @@ def connector(annual_engine, monkeypatch):
         yield CompanyFinancialConnector()
     finally:
         with annual_engine.begin() as connection:
-            connection.execute(text("TRUNCATE TABLE company_financial_statement RESTART IDENTITY"))
+            connection.execute(
+                text(
+                    "TRUNCATE TABLE company_financial_statement, company_quarterly_financial_statement RESTART IDENTITY"
+                )
+            )
 
 
 def rows_by_year(connector, ticker):
@@ -81,3 +87,18 @@ def test_refuses_ttm_onto_fiscal_year_row(connector):
     row = rows_by_year(connector, "AAPL")[2026]
     assert row.is_ttm is False
     assert row.income_statement == {"Total Revenue": 440000000}
+
+
+def test_statement_line_items_include_quarterly_and_annual_of_that_statement(connector, annual_engine):
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2025, False, {"Total Revenue": 416161000}))
+    connector.upsert_annual_statement("AAPL", CASH_FLOW, AnnualPeriod(2025, False, {"Free Cash Flow": 1}))
+    with annual_engine.begin() as connection:
+        connection.execute(
+            CompanyQuarterlyFinancialStatement.__table__.insert(),
+            [{"company_symbol": "AAPL", "period_end_quarter": "6/30/2026", "income_statement": {"Total Revenue": 94}}],
+        )
+
+    assert sorted(connector.get_statement_line_items("aapl", INCOME), key=str) == [
+        {"Total Revenue": 416161000},
+        {"Total Revenue": 94},
+    ]
