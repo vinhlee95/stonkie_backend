@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -6,10 +7,52 @@ from typing import Optional
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector
+from services.question_analyzer.ticker_extractor import FINANCE_ACRONYM_STOPWORDS, _is_or_operand
 
 from .context_builders.components import ETFPromptComponents
 
 logger = logging.getLogger(__name__)
+
+# Upper-case tokens that look like tickers in ETF questions but are fund/finance acronyms, currencies,
+# regions or index families. They never count as tickers for the comparison gate.
+ETF_ACRONYM_STOPWORDS = FINANCE_ACRONYM_STOPWORDS | {
+    "ETFS",
+    "ETC",
+    "ETN",
+    "TER",
+    "OCF",
+    "NAV",
+    "AUM",
+    "UCITS",
+    "ACC",
+    "DIST",
+    "ISIN",
+    "KID",
+    "KIID",
+    "ESG",
+    "SRI",
+    "REIT",
+    "REITS",
+    "YTD",
+    "CAGR",
+    "USA",
+    "UK",
+    "EU",
+    "EM",
+    "EUR",
+    "GBP",
+    "CHF",
+    "JPY",
+    "MSCI",
+    "FTSE",
+    "STOXX",
+    "DAX",
+    "NASDAQ",
+    "NYSE",
+    "SP",
+    "IRA",
+    "ISA",
+}
 
 # Regex pattern detecting comparison intent in a question
 _COMPARISON_PATTERN = re.compile(
@@ -18,28 +61,61 @@ _COMPARISON_PATTERN = re.compile(
     | \bagainst\b | \bhead[\s-]to[\s-]head\b | \bbetter\s+than\b
     | \bworse\s+than\b | \bstronger\s+than\b | \bweaker\s+than\b
     | \boutperform | \bunderperform | \brelative\s+to\b
-    | \bor\b(?=\s+(?:[A-Z]{1,5}\b))
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+# "X or Y" counts only when Y is an upper-case ticker-like token (case-sensitive, so "buy or sell" does not).
+_OR_TICKER_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Z0-9]{1,5})\b")
+_TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{1,5}\b")
+# Most distinct candidate tokens validated against the DB per question (bounds lookups for long questions).
+MAX_REGEX_LOOKUPS = 10
+_MAX_COMPARISON_TICKERS = 4
+# "VWCE or the Vanguard FTSE All-World", "SXR8 or iShares Core MSCI World": a ticker before "or" and a fund
+# name (optionally after an article) after it.
+_TICKER_OR_NAME_PATTERN = re.compile(r"\b([A-Z][A-Z0-9]{1,5})\s+(?i:or)\s+(?:(?i:the|a|an)\s+)?([A-Za-z][\w&-]*)")
+
+
+def _is_ticker_like(token: str) -> bool:
+    return token.upper() not in ETF_ACRONYM_STOPWORDS
+
+
+def _is_fund_name_operand(word: str) -> bool:
+    """A fund/issuer name after "or" (stock rule: not a verb or finance word), and not an ETF acronym."""
+    return _is_or_operand(word) and word.upper() not in ETF_ACRONYM_STOPWORDS
+
+
+def dedupe_tickers(tickers: list[str]) -> list[str]:
+    """Upper-cased, order-preserving de-duplication ("it" rewritten to the viewed ticker can repeat it)."""
+    return list(dict.fromkeys(t.strip().upper() for t in tickers if t and t.strip()))
 
 
 def _has_comparison_signals(question: str) -> bool:
     """Fast check: does the question contain comparison language or multiple ticker-like tokens?"""
     if _COMPARISON_PATTERN.search(question):
         return True
-    ticker_like = re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", question)
+    if any(_is_ticker_like(m.group(1)) for m in _OR_TICKER_PATTERN.finditer(question)):
+        return True
+    if any(
+        _is_ticker_like(ticker) and _is_fund_name_operand(name)
+        for ticker, name in _TICKER_OR_NAME_PATTERN.findall(question)
+    ):
+        return True
+    ticker_like = [t for t in _TICKER_LIKE_PATTERN.findall(question) if _is_ticker_like(t)]
     return len(ticker_like) >= 2
 
 
 class ETFTickerExtractor:
     """Extract 2-4 ETF tickers from comparison questions using hybrid approach."""
 
-    def __init__(self):
-        self.connector = ETFFundamentalConnector()
-        self.agent = MultiAgent(model_name=ModelName.Gemini31FlashLite)
+    def __init__(self, connector: Optional[ETFFundamentalConnector] = None, agent: Optional[MultiAgent] = None):
+        self.connector = connector or ETFFundamentalConnector()
+        self.agent = agent or MultiAgent(model_name=ModelName.Gemini31FlashLite)
 
     async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
+        """Blocking LLM call, run in a worker thread so the event loop keeps serving other streams."""
+        return await asyncio.to_thread(self._preprocess_question_with_context_sync, question, current_ticker)
+
+    def _preprocess_question_with_context_sync(self, question: str, current_ticker: str) -> str:
         """
         Use AI to resolve contextual references in the question.
 
@@ -121,7 +197,7 @@ Return ONLY the rewritten question, no explanation."""
                     logger.info(f"Context resolved: '{question}' → '{processed_question}'")
 
             # Stage 1: Try regex extraction (fast, free)
-            regex_tickers = self._extract_via_regex(processed_question)
+            regex_tickers = await asyncio.to_thread(self._extract_via_regex, processed_question)
             if len(regex_tickers) >= 2:
                 logger.info(f"Extracted {len(regex_tickers)} tickers via regex: {regex_tickers}")
                 return regex_tickers
@@ -151,21 +227,26 @@ Return ONLY the rewritten question, no explanation."""
         Returns:
             List of validated tickers found in question
         """
-        # Find potential tickers: 2-6 consecutive uppercase letters and digits
-        pattern = r"\b[A-Z][A-Z0-9]{1,5}\b"
-        potential_tickers = re.findall(pattern, question)
+        # Find potential tickers: 2-6 consecutive uppercase letters and digits. Distinct, non-acronym candidates
+        # only, at most MAX_REGEX_LOOKUPS of them, so a long question can't fan out into unbounded DB reads.
+        candidates = [t for t in dedupe_tickers(_TICKER_LIKE_PATTERN.findall(question)) if _is_ticker_like(t)]
 
         # Validate against database
-        valid_tickers = []
-        for ticker in potential_tickers:
-            etf = self.connector.get_by_ticker(ticker)
-            if etf:
+        valid_tickers: list[str] = []
+        for ticker in candidates[:MAX_REGEX_LOOKUPS]:
+            if self.connector.get_by_ticker(ticker):
                 valid_tickers.append(ticker)
+                if len(valid_tickers) == _MAX_COMPARISON_TICKERS:
+                    break
 
-        # Return 2-4 tickers (comparison range)
-        return valid_tickers[:4] if len(valid_tickers) >= 2 else []
+        # Return 2-4 distinct tickers (comparison range); a duplicate-only match falls through to AI extraction
+        return valid_tickers if len(valid_tickers) >= 2 else []
 
     async def _extract_via_ai(self, question: str) -> list[str]:
+        """Blocking LLM call + DB lookups, run in a worker thread so the event loop keeps serving other streams."""
+        return await asyncio.to_thread(self._extract_via_ai_sync, question)
+
+    def _extract_via_ai_sync(self, question: str) -> list[str]:
         """
         Extract tickers using AI to handle ETF names.
 
@@ -219,7 +300,8 @@ Return only the JSON object, no other text."""
                     resolved_tickers.append(ticker)
 
             # Return 2-4 tickers
-            return resolved_tickers[:4] if len(resolved_tickers) >= 2 else []
+            resolved_tickers = dedupe_tickers(resolved_tickers)
+            return resolved_tickers[:_MAX_COMPARISON_TICKERS] if len(resolved_tickers) >= 2 else []
 
         except Exception as e:
             logger.error(f"AI extraction failed: {e}")

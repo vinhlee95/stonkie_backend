@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource
-from services.analyze_retrieval.source_policy import Market, registrable_domain, tier_for
+from services.analyze_retrieval.source_policy import AssetClass, Market, registrable_domain, tier_for
 from services.market_recap.schemas import Candidate
 
 _RECENCY_WINDOW_DAYS = 90
@@ -44,14 +44,14 @@ def _is_recent(published_date: datetime | None, now: datetime) -> bool:
     return normalized >= now - timedelta(days=_RECENCY_WINDOW_DAYS)
 
 
-def rank_for_chat(candidates: list[Candidate], market: Market) -> list[Candidate]:
+def rank_for_chat(candidates: list[Candidate], market: Market, asset_class: AssetClass = "stock") -> list[Candidate]:
     if not candidates:
         return []
 
     now = datetime.now(UTC)
 
     def sort_key(item: Candidate) -> tuple[int, int, int, float, str]:
-        tier = tier_for(item.url, market)
+        tier = tier_for(item.url, market, asset_class)
         tier_order = {1: 0, 2: 1, None: 2}[tier]
         recency_order = 0 if _is_recent(item.published_date, now) else 1
         content_len_order = -len(item.raw_content)

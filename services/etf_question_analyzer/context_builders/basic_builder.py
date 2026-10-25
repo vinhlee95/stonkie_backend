@@ -12,7 +12,7 @@ class BasicETFBuilder(ETFContextBuilder):
     def build(self, input: ETFContextBuilderInput) -> str:
         """Build context for basic ETF info questions."""
         base_context = ETFPromptComponents.base_context(input.ticker, input.question)
-        source_instructions = ETFPromptComponents.source_instructions()
+        source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else input.grounding
         formatting = ETFPromptComponents.etf_data_formatting()
 
         # Extract core metadata
@@ -42,7 +42,9 @@ class BasicETFBuilder(ETFContextBuilder):
 
         incomplete_warning = ""
         if not data_complete:
-            incomplete_warning = "\n\nNOTE: Some ETF data may be incomplete. Use Google Search to supplement if needed."
+            incomplete_warning = "\n\nNOTE: Some ETF data may be incomplete."
+            if input.grounding is None:
+                incomplete_warning += " Use Google Search to supplement if needed."
 
         return f"""
             {base_context}

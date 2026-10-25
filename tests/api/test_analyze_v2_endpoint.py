@@ -92,31 +92,164 @@ def test_v2_analyze_passes_previous_conversation_context_to_financial_analyzer()
     assert captured_kwargs["anon_user_id"] == "anon-existing"
 
 
-def test_v2_analyze_streams_not_supported_for_etf_until_phase_7_5():
-    async def analyzer_should_not_run(*_args, **_kwargs):
-        raise AssertionError("FinancialAnalyzerV2 should not run for ETF tickers before phase 7.5")
+def test_v2_analyze_streams_etf_analyzer_events_under_etf_conversation_namespace(monkeypatch):
+    monkeypatch.setenv(SEMANTIC_CACHE_ENABLED_ENV, "true")
+    captured: dict = {}
+
+    async def stock_analyzer_should_not_run(*_args, **_kwargs):
+        raise AssertionError("FinancialAnalyzerV2 must not run for ETF tickers")
         yield  # pragma: no cover
 
+    async def fake_etf_analyze(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        yield {"type": "thinking_status", "body": "Searching for the latest SPY data..."}
+        yield {"type": "answer", "body": "SPY tracks the S&P 500.\n\n```html\n<div>chart</div>\n```\n"}
+        yield {"type": "sources", "body": [{"source_id": "s_1", "url": "https://www.justetf.com/x"}]}
+        yield {"type": "model_used", "body": "test-model"}
+        yield {"type": "related_question", "body": "What is SPY's TER?"}
+
+    prior = [{"role": "user", "content": "What is SPY?"}, {"role": "assistant", "content": "An S&P 500 ETF."}]
     with (
-        patch("services.analyze_v2_stream.append_user_message"),
-        patch("services.analyze_v2_stream.append_assistant_message"),
-        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.append_user_message") as append_user,
+        patch("services.analyze_v2_stream.append_assistant_message") as append_assistant,
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=prior) as history,
         patch("services.analyze_v2_stream.get_etf_by_ticker", return_value={"ticker": "SPY"}),
-        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=analyzer_should_not_run),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=stock_analyzer_should_not_run),
+        patch("api.analyze_v2.etf_analyzer_v2.analyze_question", side_effect=fake_etf_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None) as lookup,
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store") as schedule_store,
     ):
         with TestClient(main_module.app) as client:
             with client.stream(
                 "POST",
-                "/api/v2/companies/SPY/analyze",
-                json={"question": "Compare this ETF", "conversationId": "conv-etf"},
+                "/api/v2/companies/spy/analyze",
+                cookies={"anon_user_id": "anon-etf"},
+                json={"question": "What is its TER?", "conversationId": "conv-etf"},
             ) as response:
                 assert response.status_code == 200
                 body = response.read()
 
     events = _parse_sse(body)
+    types = [event["type"] for event in events]
     assert events[0] == {"type": "conversation", "body": {"conversationId": "conv-etf"}}
+    assert "error" not in types
+    assert events[1] == {"type": "thinking_status", "body": "Searching for the latest SPY data..."}
+    assert {"type": "answer", "body": "SPY tracks the S&P 500.\n\n"} in events
+    assert "answer_visual_done" in types  # same visual splitter as stocks
+    assert types[-3:] == ["sources", "model_used", "related_question"]
+
+    assert captured["args"][:2] == ("SPY", "What is its TER?")
+    assert captured["kwargs"]["conversation_messages"] == prior
+    assert captured["kwargs"]["conversation_id"] == "conv-etf"
+    history.assert_called_once_with("anon-etf", "etf_SPY", "conv-etf")
+    append_user.assert_called_once_with("anon-etf", "etf_SPY", "conv-etf", "What is its TER?")
+    append_assistant.assert_called_once_with(
+        "anon-etf", "etf_SPY", "conv-etf", "SPY tracks the S&P 500.\n\n```html\n<div>chart</div>\n```\n"
+    )
+    lookup.assert_called_once_with("v2:SPY", "What is its TER?")
+    kwargs = schedule_store.call_args.kwargs
+    assert kwargs["cache_ticker"] == "v2:SPY"
+    assert kwargs["last_sources_payload"] == [{"source_id": "s_1", "url": "https://www.justetf.com/x"}]
+    assert kwargs["last_model_used"] == "test-model"
+    assert kwargs["related_questions"] == ["What is SPY's TER?"]
+
+
+def test_v2_analyze_etf_cache_hit_replays_without_running_the_etf_analyzer(monkeypatch):
+    monkeypatch.setenv(SEMANTIC_CACHE_ENABLED_ENV, "true")
+    entry = MagicMock()
+    entry.answer_text = "cached ETF answer"
+    entry.sources = None
+    entry.model_used = "model-x"
+    entry.related_questions = ["one?", "two?", "three?"]
+
+    async def analyzer_should_not_run(*_args, **_kwargs):
+        raise AssertionError("analyzer should not run on v2 ETF cache hit")
+        yield  # pragma: no cover
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message") as append_assistant,
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value={"ticker": "SPY"}),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=analyzer_should_not_run),
+        patch("api.analyze_v2.etf_analyzer_v2.analyze_question", side_effect=analyzer_should_not_run),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=entry) as lookup,
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/SPY/analyze",
+                cookies={"anon_user_id": "anon-etf"},
+                json={"question": "What is the TER?", "conversationId": "conv-etf-cache"},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    lookup.assert_called_once_with("v2:SPY", "What is the TER?")
+    append_assistant.assert_called_once_with("anon-etf", "etf_SPY", "conv-etf-cache", "cached ETF answer")
+    events = _parse_sse(body)
+    assert events[0] == {"type": "conversation", "body": {"conversationId": "conv-etf-cache"}}
+    assert "cache_meta" in [event["type"] for event in events]
+
+
+def test_v2_analyze_etf_brave_retrieval_error_maps_to_retrieval_failed():
+    async def fake_etf_analyze(*_args, **_kwargs):
+        raise BraveRetrievalError("brave is down")
+        yield  # pragma: no cover
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message") as append_assistant,
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value={"ticker": "SPY"}),
+        patch("api.analyze_v2.etf_analyzer_v2.analyze_question", side_effect=fake_etf_analyze),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/SPY/analyze",
+                json={"question": "Latest SPY flows?", "conversationId": "conv-etf-brave"},
+            ) as response:
+                assert response.status_code == 200
+                body = response.read()
+
+    events = _parse_sse(body)
     assert events[1]["type"] == "error"
-    assert events[1]["code"] == "not_supported"
+    assert events[1]["code"] == "retrieval_failed"
+    append_assistant.assert_not_called()
+
+
+def test_v2_analyze_stock_ticker_does_not_run_the_etf_analyzer():
+    async def fake_analyze(*_args, **_kwargs):
+        yield {"type": "answer", "body": "stock answer"}
+
+    async def etf_should_not_run(*_args, **_kwargs):
+        raise AssertionError("ETFAnalyzerV2 must not run for stock tickers")
+        yield  # pragma: no cover
+
+    with (
+        patch("services.analyze_v2_stream.append_user_message"),
+        patch("services.analyze_v2_stream.append_assistant_message") as append_assistant,
+        patch("services.analyze_v2_stream.get_conversation_history_for_prompt", return_value=[]),
+        patch("services.analyze_v2_stream.get_etf_by_ticker", return_value=None),
+        patch("api.analyze_v2.financial_analyzer_v2.analyze_question", side_effect=fake_analyze),
+        patch("api.analyze_v2.etf_analyzer_v2.analyze_question", side_effect=etf_should_not_run),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.lookup_hit", return_value=None),
+        patch("services.analyze_v2_stream.SemanticAnalysisCache.schedule_background_store"),
+    ):
+        with TestClient(main_module.app) as client:
+            with client.stream(
+                "POST",
+                "/api/v2/companies/AAPL/analyze",
+                cookies={"anon_user_id": "anon-stock"},
+                json={"question": "Revenue?", "conversationId": "conv-stock"},
+            ) as response:
+                assert response.status_code == 200
+                response.read()
+
+    append_assistant.assert_called_once_with("anon-stock", "AAPL", "conv-stock", "stock answer")
 
 
 def test_v2_analyze_translates_brave_retrieval_error_to_sse_error():

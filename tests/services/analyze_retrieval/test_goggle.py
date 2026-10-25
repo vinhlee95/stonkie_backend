@@ -47,3 +47,19 @@ def test_build_chat_goggle_omits_path_prefix_discards() -> None:
     output = build_chat_goggle("GLOBAL")
     assert "$discard=reddit.com" in output
     assert "tradingview.com/ideas" not in output
+
+
+def test_build_chat_goggle_etf_boosts_etf_extension() -> None:
+    output = build_chat_goggle("GLOBAL", asset_class="etf")
+    assert "$boost=4,site=justetf.com" in output
+    assert "$boost=4,site=ishares.com" in output
+    assert "$boost=4,site=etf.dws.com" in output
+    assert "$boost=2,site=ishares.com" not in output
+    assert "$boost=2,site=morningstar.com" in output
+    assert "$boost=4,site=reuters.com" in output
+
+
+def test_build_chat_goggle_stock_default_is_unchanged() -> None:
+    assert build_chat_goggle("GLOBAL") == build_chat_goggle("GLOBAL", asset_class="stock")
+    assert "justetf.com" not in build_chat_goggle("GLOBAL")
+    assert "$boost=2,site=ishares.com" in build_chat_goggle("GLOBAL")

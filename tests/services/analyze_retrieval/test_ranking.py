@@ -110,3 +110,31 @@ def test_rank_for_chat_uses_url_as_final_tiebreaker() -> None:
         "https://example.com/a",
         "https://example.com/b",
     ]
+
+
+def test_rank_for_chat_etf_asset_class_promotes_etf_issuer_sites() -> None:
+    now = datetime.now(UTC)
+    candidates = [
+        _candidate(
+            url="https://investing.com/etfs/spy",
+            published_date=now - timedelta(days=1),
+            raw_content="x" * 500,
+            score=10.0,
+        ),
+        _candidate(
+            url="https://www.justetf.com/en/etf-profile.html",
+            published_date=now - timedelta(days=1),
+            raw_content="x" * 10,
+            score=1.0,
+        ),
+    ]
+
+    assert [item.url for item in rank_for_chat(candidates, market="GLOBAL", asset_class="etf")] == [
+        "https://www.justetf.com/en/etf-profile.html",
+        "https://investing.com/etfs/spy",
+    ]
+    # Stock ranking is unchanged: justetf is untrusted there.
+    assert [item.url for item in rank_for_chat(candidates, market="GLOBAL")] == [
+        "https://investing.com/etfs/spy",
+        "https://www.justetf.com/en/etf-profile.html",
+    ]
