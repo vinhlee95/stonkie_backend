@@ -22,7 +22,12 @@ from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.query_reformulator import PrecomputedQueryReformulator
 from services.analyze_retrieval.retrieval import BraveSearchClient, build_company_aware_query, retrieve_for_analyze
-from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
+from services.analyze_retrieval.schemas import (
+    AnalyzePassage,
+    AnalyzeRetrievalResult,
+    AnalyzeSource,
+    BraveRetrievalError,
+)
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
@@ -133,19 +138,37 @@ class _ETFHandlerV2Base:
         if use_search:
             queries = _etf_search_queries(routing, ticker=ticker, etf_name=etf_name)
             yield _searching_status(queries[0])
-            retrieval_result = await asyncio.to_thread(
-                self._retrieve,
-                routing.standalone_question,
-                queries,
-                ticker=ticker,
-                etf_name=etf_name,
-                request_id=request_id,
-            )
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            status_event = _trusted_publisher_status(retrieved_sources, passage_count=len(selected_passages))
-            if status_event is not None:
-                yield status_event
+            try:
+                retrieval_result = await asyncio.to_thread(
+                    self._retrieve,
+                    routing.standalone_question,
+                    queries,
+                    ticker=ticker,
+                    etf_name=etf_name,
+                    request_id=request_id,
+                )
+            except BraveRetrievalError:
+                if routing.search_decision.use_google_search:
+                    raise  # the router asked for search: the stream service reports retrieval_failed
+                # The handler forced search to fill DB gaps; the DB row can still answer.
+                logger.warning(
+                    "ETF forced search failed; answering from the database",
+                    exc_info=True,
+                    extra={"request_id": request_id, "ticker": ticker},
+                )
+                retrieval_result = None
+                yield thinking_status(
+                    "No web sources found — answering from our database",
+                    phase=AnalysisPhase.SEARCH,
+                    step=2,
+                    total_steps=4,
+                )
+            if retrieval_result is not None:
+                retrieved_sources = retrieval_result.sources
+                selected_passages = retrieval_result.selected_passages
+                status_event = _trusted_publisher_status(retrieved_sources, passage_count=len(selected_passages))
+                if status_event is not None:
+                    yield status_event
 
         prompt = (
             build_prompt(retrieved_sources)

@@ -335,3 +335,44 @@ async def test_answer_failure_cancels_related_questions_task():
     await asyncio.sleep(0)
     assert started == [True]
     assert cancelled == [True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler_cls", "question_type", "etf"),
+    [
+        (ETFOverviewHandlerV2, ETFQuestionType.ETF_OVERVIEW, make_etf(ter_percent=None)),
+        (ETFDetailedAnalysisHandlerV2, ETFQuestionType.ETF_DETAILED_ANALYSIS, make_etf(holdings=[])),
+    ],
+)
+async def test_forced_search_failure_answers_from_the_database(handler_cls, question_type, etf):
+    retriever = FakeRetriever(result=BraveRetrievalError("down"))
+    handler, _, agent = _make(handler_cls, retriever=retriever)
+    routing = _routing(question_type, search=False, reason="db_data_sufficient")
+
+    events = await _run(handler, routing=routing, etf_data=etf)
+
+    assert len(retriever.calls) == 1
+    assert len(agent.prompts) == 1
+    assert GROUNDING_RULES in agent.prompts[0]
+    assert "Sources:\nSource 1" not in agent.prompts[0]
+    assert "error" not in _types(events)
+    assert any("answering from our database" in s for s in _statuses(events))
+    _assert_tail_order(events, with_sources=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler_cls", "question_type", "etf"),
+    [
+        (ETFOverviewHandlerV2, ETFQuestionType.ETF_OVERVIEW, make_etf(ter_percent=None)),
+        (ETFDetailedAnalysisHandlerV2, ETFQuestionType.ETF_DETAILED_ANALYSIS, make_etf(holdings=[])),
+        (GeneralETFHandlerV2, ETFQuestionType.GENERAL_ETF, None),
+    ],
+)
+async def test_router_requested_search_failure_still_raises(handler_cls, question_type, etf):
+    retriever = FakeRetriever(result=BraveRetrievalError("down"))
+    handler, _, agent = _make(handler_cls, retriever=retriever)
+    with pytest.raises(BraveRetrievalError):
+        await _run(handler, routing=_routing(question_type, search=True), etf_data=etf)
+    assert agent.prompts == []
