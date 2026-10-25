@@ -35,9 +35,9 @@ Stay inside the task the user asked for. Applies equally to review feedback (`/m
 ## Gotchas
 
 ### `agent.generate_content()` returns mixed types
-`MultiAgent.generate_content()` / `OpenRouterClient.stream_chat()` yields `Union[str, dict]` — text chunks AND url_citation annotation dicts (when `:online` model used). Code iterating over it MUST either:
-- Pass through `_process_source_tags()` (preferred — extracts text, collects citations)
-- Guard with `if not isinstance(chunk, str): continue` (drops citations)
+`MultiAgent.generate_content()` / `OpenRouterClient.stream_chat()` yields `Union[str, dict]` — text chunks AND url_citation annotation dicts (when `:online` model used). Code iterating over it MUST drop the dicts:
+- v2 analyze handlers: wrap it in `_iter_answer_chunks()` (`services/question_analyzer/handlers_v2.py`). Sources come from Brave retrieval via `build_sources_event`, not from citations.
+- Elsewhere: guard with `if not isinstance(chunk, str): continue`.
 
 ### Celery memory management
 Workers use `worker_max_tasks_per_child=1` (restart after each task) — required for Playwright memory cleanup. Don't change without understanding implications.
