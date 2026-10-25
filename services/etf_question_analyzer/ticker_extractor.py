@@ -67,6 +67,9 @@ _COMPARISON_PATTERN = re.compile(
 # "X or Y" counts only when Y is an upper-case ticker-like token (case-sensitive, so "buy or sell" does not).
 _OR_TICKER_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Z0-9]{1,5})\b")
 _TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{1,5}\b")
+# Most distinct candidate tokens validated against the DB per question (bounds lookups for long questions).
+MAX_REGEX_LOOKUPS = 10
+_MAX_COMPARISON_TICKERS = 4
 # "VWCE or the Vanguard FTSE All-World", "SXR8 or iShares Core MSCI World": a ticker before "or" and a fund
 # name (optionally after an article) after it.
 _TICKER_OR_NAME_PATTERN = re.compile(r"\b([A-Z][A-Z0-9]{1,5})\s+(?i:or)\s+(?:(?i:the|a|an)\s+)?([A-Za-z][\w&-]*)")
@@ -224,19 +227,20 @@ Return ONLY the rewritten question, no explanation."""
         Returns:
             List of validated tickers found in question
         """
-        # Find potential tickers: 2-6 consecutive uppercase letters and digits
-        pattern = r"\b[A-Z][A-Z0-9]{1,5}\b"
-        potential_tickers = re.findall(pattern, question)
+        # Find potential tickers: 2-6 consecutive uppercase letters and digits. Distinct, non-acronym candidates
+        # only, at most MAX_REGEX_LOOKUPS of them, so a long question can't fan out into unbounded DB reads.
+        candidates = [t for t in dedupe_tickers(_TICKER_LIKE_PATTERN.findall(question)) if _is_ticker_like(t)]
 
         # Validate against database
-        valid_tickers = []
-        for ticker in potential_tickers:
-            etf = self.connector.get_by_ticker(ticker)
-            if etf:
+        valid_tickers: list[str] = []
+        for ticker in candidates[:MAX_REGEX_LOOKUPS]:
+            if self.connector.get_by_ticker(ticker):
                 valid_tickers.append(ticker)
+                if len(valid_tickers) == _MAX_COMPARISON_TICKERS:
+                    break
 
-        # Return 2-4 tickers (comparison range)
-        return valid_tickers[:4] if len(valid_tickers) >= 2 else []
+        # Return 2-4 distinct tickers (comparison range); a duplicate-only match falls through to AI extraction
+        return valid_tickers if len(valid_tickers) >= 2 else []
 
     async def _extract_via_ai(self, question: str) -> list[str]:
         """Blocking LLM call + DB lookups, run in a worker thread so the event loop keeps serving other streams."""
@@ -296,7 +300,8 @@ Return only the JSON object, no other text."""
                     resolved_tickers.append(ticker)
 
             # Return 2-4 tickers
-            return resolved_tickers[:4] if len(resolved_tickers) >= 2 else []
+            resolved_tickers = dedupe_tickers(resolved_tickers)
+            return resolved_tickers[:_MAX_COMPARISON_TICKERS] if len(resolved_tickers) >= 2 else []
 
         except Exception as e:
             logger.error(f"AI extraction failed: {e}")
