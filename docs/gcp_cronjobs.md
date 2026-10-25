@@ -16,7 +16,7 @@ All scheduled jobs run as Cloud Run jobs in `europe-north1`, triggered by Cloud 
 
 ## weekly-market-recap
 
-Generates weekly market recaps for US (Tavily) and VN (Brave) markets and persists them to the `market_recap` table.
+Generates weekly market recaps for US, VN and FI markets (Brave retrieval) and persists them to the `market_recap` table.
 
 | Attribute | Value |
 |-----------|-------|

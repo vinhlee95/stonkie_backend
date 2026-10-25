@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -29,6 +29,9 @@ from services.question_analyzer.handlers_v2 import (
     _build_sources_block,
     _iter_answer_chunks,
     _trusted_publisher_status,
+    generate_related_questions,
+    related_questions_result,
+    start_related_questions,
 )
 from services.question_analyzer.router import RoutingResult
 from services.search_decision_engine import SearchDecision
@@ -57,26 +60,10 @@ class CompanyComparisonHandlerV2:
         self.financial_connector = financial_connector or CompanyFinancialConnector()
         self.builder = ComparisonCompanyBuilder()
 
-    async def _generate_related_questions(
-        self,
-        original_question: str,
-        preferred_model: ModelName,
-        short_analysis: bool = False,
-    ) -> AsyncGenerator[Dict[str, str], None]:
-        prompt = f"""
-Based on this comparison question: "{original_question}"
-Generate {2 if short_analysis else 3} follow-up comparison questions, one per line.
-        """.strip()
-        agent = MultiAgent(model_name=preferred_model)
-        for q in agent.generate_content_by_lines(
-            prompt=prompt,
-            use_google_search=False,
-            max_lines=2 if short_analysis else 3,
-            min_line_length=10,
-            strip_numbering=True,
-            strip_markdown=True,
-        ):
-            yield {"type": "related_question", "body": q}
+    def _generate_related_questions(
+        self, original_question: str, short_analysis: bool = False
+    ) -> AsyncIterator[Dict[str, str]]:
+        return generate_related_questions(original_question, comparison=True, count=2 if short_analysis else 3)
 
     async def _fetch_companies_parallel(self, tickers: list[str]) -> list[CompanyComparisonData]:
         async def fetch_single(ticker: str) -> CompanyComparisonData:
@@ -259,20 +246,24 @@ Generate {2 if short_analysis else 3} follow-up comparison questions, one per li
                 selected_passages=flat_passages,
             )
 
-        agent = MultiAgent(model_name=preferred_model)
-        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-            yield {"type": "answer", "body": chunk}
+        related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
+        try:
+            agent = MultiAgent(model_name=preferred_model)
+            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+                yield {"type": "answer", "body": chunk}
 
-        if flat_sources or use_google_search:
-            yield build_sources_event(flat_sources)
+            if flat_sources or use_google_search:
+                yield build_sources_event(flat_sources)
 
-        yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.model_name}
 
-        # v1 provenance event preserved alongside v2 sources
-        yield {
-            "type": "data_sources",
-            "body": [{"name": c.ticker, "source": c.data_source} for c in companies_data],
-        }
+            # v1 provenance event preserved alongside v2 sources
+            yield {
+                "type": "data_sources",
+                "body": [{"name": c.ticker, "source": c.data_source} for c in companies_data],
+            }
 
-        async for related_q in self._generate_related_questions(question, preferred_model, short_analysis):
-            yield related_q
+            for related_q in await related_questions_result(related_task):
+                yield related_q
+        finally:
+            related_task.cancel()

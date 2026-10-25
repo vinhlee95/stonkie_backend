@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, Iterable, Iterator, List, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -79,6 +79,64 @@ def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
     for chunk in chunks:
         if isinstance(chunk, str):
             yield chunk
+
+
+_RELATED_QUESTIONS_MODEL = ModelName.Gemini31FlashLite
+
+
+def _related_questions_sync(prompt: str, max_lines: int) -> list[str]:
+    agent = MultiAgent(model_name=_RELATED_QUESTIONS_MODEL)
+    return list(
+        agent.generate_content_by_lines(
+            prompt=prompt,
+            use_google_search=False,
+            max_lines=max_lines,
+            min_line_length=10,
+            strip_numbering=True,
+            strip_markdown=True,
+        )
+    )
+
+
+async def generate_related_questions(
+    original_question: str, *, comparison: bool = False, count: int = 3
+) -> AsyncGenerator[Dict[str, str], None]:
+    """Follow-up questions for every v2 handler; the LLM call runs in a worker thread."""
+    if comparison:
+        prompt = f"""
+Based on this comparison question: "{original_question}"
+Generate {count} follow-up comparison questions, one per line.
+        """.strip()
+    else:
+        prompt = f"""
+Based on this original question: "{original_question}"
+Generate exactly {count} high-quality follow-up questions, one per line.
+Do not add numbering.
+        """.strip()
+    for question in await asyncio.to_thread(_related_questions_sync, prompt, count):
+        yield {"type": "related_question", "body": question}
+
+
+async def start_related_questions(events: AsyncIterator[Dict[str, str]]) -> asyncio.Task:
+    """Run the related-questions generator concurrently with the answer; await the task after model_used.
+
+    Callers must cancel the task (no-op once done) when the answer fails or the client disconnects.
+    """
+
+    async def _collect() -> list[Dict[str, str]]:
+        return [event async for event in events]
+
+    task = asyncio.ensure_future(_collect())
+    await asyncio.sleep(0)  # let it hand its LLM call to a worker thread before the answer stream blocks the loop
+    return task
+
+
+async def related_questions_result(task: asyncio.Task) -> list[Dict[str, str]]:
+    try:
+        return await task
+    except Exception:
+        logger.warning("Related questions generation failed", exc_info=True)
+        return []
 
 
 _FILING_REQUIREMENTS = (FinancialDataRequirement.QUARTERLY_SUMMARY, FinancialDataRequirement.ANNUAL_SUMMARY)
@@ -159,25 +217,8 @@ class CompanyGeneralHandlerV2:
     def __init__(self, company_connector: Optional[CompanyConnector] = None):
         self.company_connector = company_connector or CompanyConnector()
 
-    async def _generate_related_questions(
-        self, original_question: str, preferred_model: ModelName
-    ) -> AsyncGenerator[Dict[str, str], None]:
-        prompt = f"""
-Based on this original question: "{original_question}"
-Generate exactly 3 high-quality follow-up questions, one per line.
-Do not add numbering.
-        """.strip()
-
-        agent = MultiAgent(model_name=preferred_model)
-        for question in agent.generate_content_by_lines(
-            prompt=prompt,
-            use_google_search=False,
-            max_lines=3,
-            min_line_length=10,
-            strip_numbering=True,
-            strip_markdown=True,
-        ):
-            yield {"type": "related_question", "body": question}
+    def _generate_related_questions(self, original_question: str) -> AsyncIterator[Dict[str, str]]:
+        return generate_related_questions(original_question)
 
     async def handle(
         self,
@@ -308,17 +349,21 @@ Use short paragraphs and bullet points for readability.
                 selected_passages=selected_passages,
             )
 
-        agent = MultiAgent(model_name=preferred_model)
-        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-            yield {"type": "answer", "body": chunk}
+        related_task = await start_related_questions(self._generate_related_questions(question))
+        try:
+            agent = MultiAgent(model_name=preferred_model)
+            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+                yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources and not is_url_grounded:
-            yield build_sources_event(retrieved_sources)
+            if retrieved_sources and not is_url_grounded:
+                yield build_sources_event(retrieved_sources)
 
-        yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.model_name}
 
-        async for related_q in self._generate_related_questions(question, preferred_model):
-            yield related_q
+            for related_q in await related_questions_result(related_task):
+                yield related_q
+        finally:
+            related_task.cancel()
 
 
 def _trusted_publisher_status(
@@ -401,25 +446,8 @@ def _build_sources_block(
 class GeneralFinanceHandlerV2:
     """General-finance v2 handler (Brave-grounded when search_decision allows)."""
 
-    async def _generate_related_questions(
-        self, original_question: str, preferred_model: ModelName
-    ) -> AsyncGenerator[Dict[str, str], None]:
-        prompt = f"""
-Based on this original question: "{original_question}"
-Generate exactly 3 high-quality follow-up questions, one per line.
-Do not add numbering.
-        """.strip()
-
-        agent = MultiAgent(model_name=preferred_model)
-        for question in agent.generate_content_by_lines(
-            prompt=prompt,
-            use_google_search=False,
-            max_lines=3,
-            min_line_length=10,
-            strip_numbering=True,
-            strip_markdown=True,
-        ):
-            yield {"type": "related_question", "body": question}
+    def _generate_related_questions(self, original_question: str) -> AsyncIterator[Dict[str, str]]:
+        return generate_related_questions(original_question)
 
     async def handle(
         self,
@@ -548,17 +576,21 @@ Keep the answer under 150 words. Break into short paragraphs.
                 selected_passages=selected_passages,
             )
 
-        agent = MultiAgent(model_name=preferred_model)
-        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-            yield {"type": "answer", "body": chunk}
+        related_task = await start_related_questions(self._generate_related_questions(question))
+        try:
+            agent = MultiAgent(model_name=preferred_model)
+            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+                yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources and not is_url_grounded:
-            yield build_sources_event(retrieved_sources)
+            if retrieved_sources and not is_url_grounded:
+                yield build_sources_event(retrieved_sources)
 
-        yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.model_name}
 
-        async for related_q in self._generate_related_questions(question, preferred_model):
-            yield related_q
+            for related_q in await related_questions_result(related_task):
+                yield related_q
+        finally:
+            related_task.cancel()
 
 
 class CompanySpecificFinanceHandlerV2:
@@ -574,24 +606,8 @@ class CompanySpecificFinanceHandlerV2:
         self.classifier = classifier or QuestionClassifier()
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
 
-    async def _generate_related_questions(
-        self, original_question: str, preferred_model: ModelName
-    ) -> AsyncGenerator[Dict[str, str], None]:
-        prompt = f"""
-Based on this original question: "{original_question}"
-Generate exactly 3 high-quality follow-up questions, one per line.
-Do not add numbering.
-        """.strip()
-        agent = MultiAgent(model_name=preferred_model)
-        for question in agent.generate_content_by_lines(
-            prompt=prompt,
-            use_google_search=False,
-            max_lines=3,
-            min_line_length=10,
-            strip_numbering=True,
-            strip_markdown=True,
-        ):
-            yield {"type": "related_question", "body": question}
+    def _generate_related_questions(self, original_question: str) -> AsyncIterator[Dict[str, str]]:
+        return generate_related_questions(original_question)
 
     async def _stream_fallback_answer(
         self,
@@ -613,15 +629,17 @@ Current question: {question}
 IMPORTANT: Always respond in the same language as the CURRENT question above.
 Provide a helpful, general answer that builds on what we discussed before."""
 
-        agent = MultiAgent(model_name=preferred_model)
-        for chunk in agent.generate_content(prompt=prompt, use_google_search=False):
-            if not isinstance(chunk, str):
-                continue
-            yield {"type": "answer", "body": chunk}
-        yield {"type": "model_used", "body": agent.model_name}
+        related_task = await start_related_questions(self._generate_related_questions(question))
+        try:
+            agent = MultiAgent(model_name=preferred_model)
+            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+                yield {"type": "answer", "body": chunk}
+            yield {"type": "model_used", "body": agent.model_name}
 
-        async for related_q in self._generate_related_questions(question, preferred_model):
-            yield related_q
+            for related_q in await related_questions_result(related_task):
+                yield related_q
+        finally:
+            related_task.cancel()
 
     async def handle(
         self,
@@ -911,14 +929,18 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 selected_passages=selected_passages,
             )
 
-        agent = MultiAgent(model_name=preferred_model)
-        for chunk in _iter_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
-            yield {"type": "answer", "body": chunk}
+        related_task = await start_related_questions(self._generate_related_questions(question))
+        try:
+            agent = MultiAgent(model_name=preferred_model)
+            for chunk in _iter_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
+                yield {"type": "answer", "body": chunk}
 
-        if retrieved_sources and not is_url_grounded:
-            yield build_sources_event(retrieved_sources)
+            if retrieved_sources and not is_url_grounded:
+                yield build_sources_event(retrieved_sources)
 
-        yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.model_name}
 
-        async for related_q in self._generate_related_questions(question, preferred_model):
-            yield related_q
+            for related_q in await related_questions_result(related_task):
+                yield related_q
+        finally:
+            related_task.cancel()
