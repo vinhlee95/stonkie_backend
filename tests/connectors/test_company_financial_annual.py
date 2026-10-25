@@ -1,0 +1,83 @@
+"""CompanyFinancialConnector.upsert_annual_statement against the local Postgres test DB (row lock + overwrite)."""
+
+import os
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+import connectors.company_financial as company_financial_module
+from connectors.company_financial import CompanyFinancialConnector
+from core.annual_periods import AnnualPeriod
+from core.financial_statement_type import FinancialStatementType
+from models.company_financial_statement import CompanyFinancialStatement
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/stonkie_test",
+)
+
+INCOME = FinancialStatementType.INCOME_STATEMENT
+CASH_FLOW = FinancialStatementType.CASH_FLOW
+
+
+@pytest.fixture(scope="module")
+def annual_engine():
+    engine = create_engine(TEST_DATABASE_URL)
+    CompanyFinancialStatement.__table__.create(engine, checkfirst=True)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture()
+def connector(annual_engine, monkeypatch):
+    session_local = sessionmaker(bind=annual_engine, autocommit=False, autoflush=False)
+    monkeypatch.setattr(company_financial_module, "SessionLocal", session_local)
+    try:
+        yield CompanyFinancialConnector()
+    finally:
+        with annual_engine.begin() as connection:
+            connection.execute(text("TRUNCATE TABLE company_financial_statement RESTART IDENTITY"))
+
+
+def rows_by_year(connector, ticker):
+    return {row.period_end_year: row for row in connector.get_company_financial_statements(ticker)}
+
+
+def test_creates_row_with_upper_cased_symbol(connector):
+    assert connector.upsert_annual_statement("aapl", INCOME, AnnualPeriod(2026, False, {"Total Revenue": 1})) is True
+
+    row = rows_by_year(connector, "AAPL")[2026]
+    assert row.is_ttm is False
+    assert row.income_statement == {"Total Revenue": 1}
+
+
+def test_overwrites_stale_fiscal_year_figures(connector):
+    # AAPL 2025 in prod held FY2024 revenue; a re-crawl must replace it.
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2025, False, {"Total Revenue": 391035000}))
+
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2025, False, {"Total Revenue": 416161000}))
+
+    assert rows_by_year(connector, "AAPL")[2025].income_statement == {"Total Revenue": 416161000}
+
+
+def test_fiscal_year_flips_ttm_row_and_clears_other_ttm_statements(connector):
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2026, True, {"Total Revenue": 435617000}))
+    connector.upsert_annual_statement("AAPL", CASH_FLOW, AnnualPeriod(2026, True, {"Free Cash Flow": 1}))
+
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2026, False, {"Total Revenue": 440000000}))
+
+    row = rows_by_year(connector, "AAPL")[2026]
+    assert row.is_ttm is False
+    assert row.income_statement == {"Total Revenue": 440000000}
+    assert row.cash_flow is None
+
+
+def test_refuses_ttm_onto_fiscal_year_row(connector):
+    connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2026, False, {"Total Revenue": 440000000}))
+
+    assert connector.upsert_annual_statement("AAPL", INCOME, AnnualPeriod(2026, True, {"Total Revenue": 1})) is False
+
+    row = rows_by_year(connector, "AAPL")[2026]
+    assert row.is_ttm is False
+    assert row.income_statement == {"Total Revenue": 440000000}
