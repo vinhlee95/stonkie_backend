@@ -169,10 +169,12 @@ async def test_company_specific_basic_searches_after_fetch_with_fundamentals_mar
     kwargs = mock_retrieve.call_args.kwargs
     assert kwargs["market"] == "VN"
     assert kwargs["company_name"] == "FPT Corp"
+    # BASIC searches only after the fundamentals fetch (it needs the market), so nothing else is in flight.
     statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
-    assert statuses.index('Searching for "Nvidia data center revenue Q3 2026"...') > statuses.index(
-        "Analyzing FPT financials..."
-    )
+    assert statuses == [
+        'Searching for "Nvidia data center revenue Q3 2026"...',
+        "Writing your answer from 1 source: Reuters...",
+    ]
 
 
 @pytest.mark.asyncio

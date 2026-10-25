@@ -12,7 +12,7 @@ from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
 from connectors.company_financial import CompanyFinancialConnector
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import QueryReformulator
@@ -28,7 +28,7 @@ from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
-    _trusted_publisher_status,
+    _writing_status,
     generate_related_questions,
     related_questions_result,
     start_related_questions,
@@ -134,31 +134,13 @@ class CompanyComparisonHandlerV2:
         # into retrieval, and into the prompt when there is history to resolve.
         retrieval_question = routing.standalone_question if routing is not None else question
         prompt_question = retrieval_question if conversation_messages else question
-        tickers_str = ", ".join(tickers)
-        yield thinking_status(
-            f"Loading financial data for {tickers_str}...",
-            phase=AnalysisPhase.DATA_FETCH,
-            step=3,
-            total_steps=5,
-        )
+        progress = ThinkingProgress()
+        yield progress.status(f"Loading financial data for {', '.join(tickers)}...", phase=AnalysisPhase.DATA_FETCH)
 
         companies_data = await self._fetch_companies_parallel(tickers)
         if len(companies_data) < 2:
             yield {"type": "error", "body": "Need at least 2 companies for comparison."}
             return
-
-        source_labels = {
-            "database": "our database",
-            "training_data": "general knowledge",
-            "google_search": "web search",
-        }
-        origin_parts = [f"{c.ticker} from {source_labels.get(c.data_source, c.data_source)}" for c in companies_data]
-        yield thinking_status(
-            f"Comparing {', '.join(origin_parts)}",
-            phase=AnalysisPhase.ANALYZE,
-            step=4,
-            total_steps=5,
-        )
 
         google_search_tickers = [c.ticker for c in companies_data if c.data_source == "google_search"]
         use_google_search = search_decision.use_google_search or bool(google_search_tickers)
@@ -166,6 +148,9 @@ class CompanyComparisonHandlerV2:
         retrieved_per_ticker: list[tuple[str, list[AnalyzeSource], list[AnalyzePassage]]] = []
         failed_tickers: list[str] = []
         if use_google_search:
+            yield progress.status(
+                f"Searching the web for {', '.join(c.ticker for c in companies_data)}...", phase=AnalysisPhase.SEARCH
+            )
             sem = asyncio.Semaphore(_CONCURRENCY_CAP)
             country_by_ticker: dict[str, Optional[str]] = {}
             for c in companies_data:
@@ -206,20 +191,6 @@ class CompanyComparisonHandlerV2:
             flat_sources.extend(sources)
             flat_passages.extend(passages)
 
-        if flat_sources:
-            successful_tickers = [t for t, _sources, _passages in retrieved_per_ticker]
-            status_event = _trusted_publisher_status(flat_sources, ticker_list=successful_tickers)
-            if status_event is not None:
-                yield status_event
-
-        if failed_tickers:
-            yield thinking_status(
-                f"Web retrieval failed for {', '.join(failed_tickers)} — proceeding with the rest",
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=5,
-            )
-
         builder_input = ComparisonCompanyBuilderInput(
             tickers=[c.ticker for c in companies_data],
             question=prompt_question,
@@ -246,6 +217,12 @@ class CompanyComparisonHandlerV2:
                 selected_passages=flat_passages,
             )
 
+        yield _writing_status(
+            progress,
+            flat_sources,
+            ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
+            lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
+        )
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
             agent = MultiAgent(model_name=preferred_model)

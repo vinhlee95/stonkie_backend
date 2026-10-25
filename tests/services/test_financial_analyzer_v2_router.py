@@ -110,7 +110,7 @@ async def test_router_result_drives_dispatch_without_legacy_calls():
     (call,) = handlers["specific"].calls
     assert call["routing"] == routing
     assert call["search_decision"] == routing.search_decision
-    assert events[0]["body"] == "Searching for the latest NVDA data..."
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 
 @pytest.mark.asyncio
@@ -175,7 +175,7 @@ async def test_static_fact_fast_path_overrides_router_search():
     assert decision.use_google_search is False
     assert decision.reason_code == "stable_concept"
     assert handlers["general"].calls[0]["routing"].search_queries == []
-    assert events[0]["body"] == "Found NVDA data in our database"
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 
 @pytest.mark.asyncio
