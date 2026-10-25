@@ -51,6 +51,9 @@ class _Agent:
         "Should I buy or sell this ETF?",
         "What is the AUM in USD and EUR?",
         "Does it track the FTSE All-World or the MSCI ACWI index?",
+        "Should I buy or sell SXR8?",
+        "What is the TER or the AUM of SXR8?",
+        "Is SXR8 accumulating or distributing?",
     ],
 )
 def test_acronyms_are_not_comparison_signals(question):
@@ -64,6 +67,9 @@ def test_acronyms_are_not_comparison_signals(question):
         "Compare this with VUSA",
         "Should I pick SXR8 or VUSA?",
         "SXR8 CSPX which one has the lower TER?",
+        "VWCE or the Vanguard FTSE All-World?",
+        "SXR8 or the iShares Core MSCI World?",
+        "Should I get VWCE or Vanguard's S&P 500 fund?",
     ],
 )
 def test_real_comparisons_still_pass_the_gate(question):

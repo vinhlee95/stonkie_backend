@@ -21,7 +21,7 @@ from services.etf_question_analyzer.handlers_v2 import (
     ETFOverviewHandlerV2,
     GeneralETFHandlerV2,
 )
-from services.etf_question_analyzer.ticker_extractor import ETFTickerExtractor
+from services.etf_question_analyzer.ticker_extractor import ETFTickerExtractor, dedupe_tickers
 from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.question_analyzer.router import (
     ETFRoutingResult,
@@ -94,6 +94,8 @@ class ETFAnalyzerV2:
             router_task.cancel()
             raise
 
+        # The context rewrite can repeat the viewed fund ("Compare it with SXR8" on SXR8 -> [SXR8, SXR8]).
+        comparison_tickers = dedupe_tickers(comparison_tickers)
         if routing is None:
             routing = default_etf_routing(question=question, ticker=ticker)
         else:

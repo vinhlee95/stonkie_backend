@@ -30,6 +30,7 @@ from services.question_analyzer.router import ETFRoutingResult
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 from .handlers_v2 import AgentFactory, Retriever, _ETFHandlerV2Base, _fund_query
+from .ticker_extractor import dedupe_tickers
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
         # The router's standalone question carries a follow-up's topic into retrieval, and into the prompt
         # when there is history to resolve (same as CompanyComparisonHandlerV2).
         retrieval_question = routing.standalone_question
+        tickers = dedupe_tickers(tickers)  # guard: never compare a fund with itself or retrieve it twice
         prompt_question = retrieval_question if conversation_messages else question
 
         yield thinking_status(

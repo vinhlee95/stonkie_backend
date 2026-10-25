@@ -236,3 +236,26 @@ async def test_comparison_queries_are_short_fund_name_ticker_plus_trimmed_questi
         assert len(query) <= MAX_QUERY_CHARS
         assert len(query.split()) <= MAX_QUERY_WORDS
         assert query.startswith(f"{ETFS[call['ticker']].name} {call['ticker']} Compare SXR8 vs VUSA")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_tickers_are_compared_and_retrieved_once():
+    connector = FakeETFConnector()
+    retriever = _per_company_retriever()
+    handler, agent = _handler(connector=connector, retriever=retriever)
+    events = await _run(handler, tickers=["SXR8", "VUSA", "sxr8"])
+
+    assert connector.calls == ["SXR8", "VUSA"]
+    assert sorted(c["ticker"] for c in retriever.calls) == ["SXR8", "VUSA"]
+    assert "Comparing SXR8, VUSA..." in _statuses(events)
+    assert agent.prompts[0].count("### ") == 2
+
+
+@pytest.mark.asyncio
+async def test_a_fund_compared_with_itself_is_an_error():
+    retriever = _per_company_retriever()
+    handler, agent = _handler(retriever=retriever)
+    events = await _run(handler, tickers=["SXR8", "SXR8"])
+    assert events[-1]["type"] == "error"
+    assert retriever.calls == []
+    assert agent.prompts == []

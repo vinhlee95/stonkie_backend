@@ -7,7 +7,7 @@ from typing import Optional
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector
-from services.question_analyzer.ticker_extractor import FINANCE_ACRONYM_STOPWORDS
+from services.question_analyzer.ticker_extractor import FINANCE_ACRONYM_STOPWORDS, _is_or_operand
 
 from .context_builders.components import ETFPromptComponents
 
@@ -67,10 +67,23 @@ _COMPARISON_PATTERN = re.compile(
 # "X or Y" counts only when Y is an upper-case ticker-like token (case-sensitive, so "buy or sell" does not).
 _OR_TICKER_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Z0-9]{1,5})\b")
 _TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{1,5}\b")
+# "VWCE or the Vanguard FTSE All-World", "SXR8 or iShares Core MSCI World": a ticker before "or" and a fund
+# name (optionally after an article) after it.
+_TICKER_OR_NAME_PATTERN = re.compile(r"\b([A-Z][A-Z0-9]{1,5})\s+(?i:or)\s+(?:(?i:the|a|an)\s+)?([A-Za-z][\w&-]*)")
 
 
 def _is_ticker_like(token: str) -> bool:
     return token.upper() not in ETF_ACRONYM_STOPWORDS
+
+
+def _is_fund_name_operand(word: str) -> bool:
+    """A fund/issuer name after "or" (stock rule: not a verb or finance word), and not an ETF acronym."""
+    return _is_or_operand(word) and word.upper() not in ETF_ACRONYM_STOPWORDS
+
+
+def dedupe_tickers(tickers: list[str]) -> list[str]:
+    """Upper-cased, order-preserving de-duplication ("it" rewritten to the viewed ticker can repeat it)."""
+    return list(dict.fromkeys(t.strip().upper() for t in tickers if t and t.strip()))
 
 
 def _has_comparison_signals(question: str) -> bool:
@@ -78,6 +91,11 @@ def _has_comparison_signals(question: str) -> bool:
     if _COMPARISON_PATTERN.search(question):
         return True
     if any(_is_ticker_like(m.group(1)) for m in _OR_TICKER_PATTERN.finditer(question)):
+        return True
+    if any(
+        _is_ticker_like(ticker) and _is_fund_name_operand(name)
+        for ticker, name in _TICKER_OR_NAME_PATTERN.findall(question)
+    ):
         return True
     ticker_like = [t for t in _TICKER_LIKE_PATTERN.findall(question) if _is_ticker_like(t)]
     return len(ticker_like) >= 2

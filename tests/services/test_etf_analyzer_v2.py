@@ -251,3 +251,18 @@ async def test_missing_db_row_still_routes_and_dispatches():
     await _events(analyzer)
     assert router.calls[0]["etf_name"] is None
     assert handlers["overview"].calls[0]["etf_data"] is None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_extracted_tickers_are_not_a_comparison():
+    analyzer, handlers = _analyzer(extractor=FakeTickerExtractor(["SXR8", "SXR8"]))
+    await _events(analyzer, question="Compare it with SXR8")
+    assert _called(handlers) == ["overview"]
+
+
+@pytest.mark.asyncio
+async def test_extracted_tickers_are_deduplicated_in_order_before_comparison():
+    analyzer, handlers = _analyzer(extractor=FakeTickerExtractor(["SXR8", "CSPX", "sxr8"]))
+    await _events(analyzer, question="Is it cheaper than CSPX, and does it hold more Apple?")
+    assert _called(handlers) == ["comparison"]
+    assert handlers["comparison"].calls[0]["tickers"] == ["SXR8", "CSPX"]
