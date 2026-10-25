@@ -74,8 +74,7 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
         events.append(event)
 
     thinking_bodies = [e["body"] for e in events if e["type"] == "thinking_status"]
-    assert any("data you need" in b for b in thinking_bodies)
-    assert any("Analyzing AAPL" in b for b in thinking_bodies)
+    assert thinking_bodies == ["Figuring out what AAPL data you need...", "Writing your answer..."]
     assert all(e["type"] != "sources" for e in events)
     assert [e["type"] for e in events].count("answer") == 2
 
@@ -178,7 +177,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
     ):
         events.append(event)
 
-    publisher_status = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]]
+    publisher_status = [e for e in events if e["type"] == "thinking_status" and "Writing your answer from" in e["body"]]
     assert len(publisher_status) == 1
     assert "Reuters" in publisher_status[0]["body"]
     assert "Example Blog" not in publisher_status[0]["body"]
@@ -252,7 +251,9 @@ async def test_search_on_dedupes_trusted_publishers(mock_multi_agent_cls, mock_r
     ):
         events.append(event)
 
-    publisher_status = [e for e in events if e["type"] == "thinking_status" and "Reading" in e["body"]][0]["body"]
+    publisher_status = [
+        e for e in events if e["type"] == "thinking_status" and "Writing your answer from" in e["body"]
+    ][0]["body"]
     assert publisher_status.count("Reuters") == 1
 
 
