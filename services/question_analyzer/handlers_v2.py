@@ -17,15 +17,10 @@ from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
-from services.analyze_retrieval.query_reformulator import (
-    PrecomputedQueryReformulator,
-    QueryReformulator,
-    ReformulationResult,
-)
+from services.analyze_retrieval.query_reformulator import PrecomputedQueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage
 from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
-from services.question_analyzer.classifier import QuestionClassifier
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
@@ -220,32 +215,6 @@ def _retrieve_routed(
             finished.set()
 
 
-def _reformulate(question: str, *, ticker: str | None, company_name: str | None) -> ReformulationResult:
-    """Legacy (no router) query reformulation, run before Brave so the search status names the real query."""
-    return QueryReformulator().reformulate(question, ticker=ticker, company_name=company_name or "")
-
-
-def _retrieve_reformulated(
-    reformulation: ReformulationResult,
-    *,
-    question: str,
-    market,
-    request_id: str,
-    ticker: str | None,
-    company_name: str | None = None,
-):
-    """Brave retrieval for queries already reformulated by ``_reformulate``. Blocking."""
-    return retrieve_for_analyze(
-        question=question,
-        market=market,
-        request_id=request_id,
-        brave_client=BraveClient(api_key=os.getenv("BRAVE_API_KEY", "")),
-        ticker=ticker,
-        company_name=company_name,
-        query_reformulator=PrecomputedQueryReformulator(reformulation.queries, reasoning=reformulation.reasoning),
-    )
-
-
 def _consume_task_exception(task: asyncio.Future) -> None:
     if not task.cancelled():
         task.exception()
@@ -310,7 +279,8 @@ class CompanyGeneralHandlerV2:
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
-        routing: Optional[RoutingResult] = None,
+        *,
+        routing: RoutingResult,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         progress = ThinkingProgress()
         company = self.company_connector.get_by_ticker(ticker)
@@ -339,28 +309,11 @@ class CompanyGeneralHandlerV2:
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search and routing is not None:
+        elif search_decision.use_google_search:
             yield _searching_status(progress, routing.search_queries[0])
             retrieval_result = await asyncio.to_thread(
                 _retrieve_routed,
                 routing,
-                market=resolve_market(getattr(company, "country", None), question),
-                request_id=request_id,
-                ticker=ticker.upper(),
-                company_name=company_name,
-            )
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
-        elif search_decision.use_google_search:
-            reformulation = await asyncio.to_thread(
-                _reformulate, question, ticker=ticker.upper(), company_name=company_name
-            )
-            yield _searching_status(progress, reformulation.queries[0])
-            retrieval_result = await asyncio.to_thread(
-                _retrieve_reformulated,
-                reformulation,
-                question=question,
                 market=resolve_market(getattr(company, "country", None), question),
                 request_id=request_id,
                 ticker=ticker.upper(),
@@ -486,7 +439,8 @@ class GeneralFinanceHandlerV2:
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
-        routing: Optional[RoutingResult] = None,
+        *,
+        routing: RoutingResult,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         progress = ThinkingProgress()
         conversation_context = ""
@@ -518,25 +472,11 @@ class GeneralFinanceHandlerV2:
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search and routing is not None:
+        elif search_decision.use_google_search:
             yield _searching_status(progress, routing.search_queries[0])
             retrieval_result = await asyncio.to_thread(
                 _retrieve_routed,
                 routing,
-                market=resolve_market(None, question),
-                request_id=request_id,
-                ticker=None,
-            )
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
-        elif search_decision.use_google_search:
-            reformulation = await asyncio.to_thread(_reformulate, question, ticker=None, company_name=None)
-            yield _searching_status(progress, reformulation.queries[0])
-            retrieval_result = await asyncio.to_thread(
-                _retrieve_reformulated,
-                reformulation,
-                question=question,
                 market=resolve_market(None, question),
                 request_id=request_id,
                 ticker=None,
@@ -597,11 +537,9 @@ class CompanySpecificFinanceHandlerV2:
     def __init__(
         self,
         company_connector: Optional[CompanyConnector] = None,
-        classifier: Optional[QuestionClassifier] = None,
         data_optimizer: Optional[FinancialDataOptimizer] = None,
     ):
         self.company_connector = company_connector or CompanyConnector()
-        self.classifier = classifier or QuestionClassifier()
         self.data_optimizer = data_optimizer or FinancialDataOptimizer()
 
     def _generate_related_questions(self, original_question: str) -> AsyncIterator[Dict[str, str]]:
@@ -648,10 +586,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
         deep_analysis: bool = False,
         preferred_model: ModelName = ModelName.Auto,
         conversation_messages: Optional[List[Dict[str, str]]] = None,
-        available_metrics: Optional[list[str]] = None,
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
-        routing: Optional[RoutingResult] = None,
+        *,
+        routing: RoutingResult,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         progress = ThinkingProgress()
         ticker_norm = (ticker or "").lower().strip()
@@ -665,21 +603,9 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 yield event
             return
 
-        if routing is not None:
-            data_requirement = routing.data_requirement
-            period_requirement = routing.period_requirement
-            relevant_statements = routing.relevant_statements
-        else:
-            yield progress.status(
-                f"Figuring out what {ticker_norm.upper()} data you need...", phase=AnalysisPhase.CLASSIFY
-            )
-            (
-                data_requirement,
-                period_requirement,
-                relevant_statements,
-            ) = await self.classifier.classify_data_and_period_requirement(
-                ticker_norm, question, available_metrics=available_metrics
-            )
+        data_requirement = routing.data_requirement
+        period_requirement = routing.period_requirement
+        relevant_statements = routing.relevant_statements
 
         user_url = extract_first_url(question) if use_url_context else None
 
@@ -688,8 +614,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         search_task: Optional[asyncio.Future] = None
         search_finished = threading.Event()  # set in the worker thread; the task only notices once the loop runs
         if (
-            routing is not None
-            and search_decision.use_google_search
+            search_decision.use_google_search
             and not user_url
             and data_requirement not in _FILING_REQUIREMENTS
             and data_requirement != FinancialDataRequirement.BASIC
@@ -837,7 +762,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search and routing is not None:
+        elif search_decision.use_google_search:
             if search_task is None:
                 country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
                 yield _searching_status(progress, routing.search_queries[0])
@@ -851,25 +776,6 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 )
             else:
                 retrieval_result = await search_task
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_block = _build_sources_block(retrieved_sources, selected_passages)
-        elif search_decision.use_google_search:
-            country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
-            company_name = (company_fundamental or {}).get("Name") or ticker_norm.upper()
-            reformulation = await asyncio.to_thread(
-                _reformulate, question, ticker=ticker_norm.upper(), company_name=company_name
-            )
-            yield _searching_status(progress, reformulation.queries[0])
-            retrieval_result = await asyncio.to_thread(
-                _retrieve_reformulated,
-                reformulation,
-                question=question,
-                market=resolve_market(country, question),
-                request_id=request_id,
-                ticker=ticker_norm.upper(),
-                company_name=company_name,
-            )
             retrieved_sources = retrieval_result.sources
             selected_passages = retrieval_result.selected_passages
             sources_block = _build_sources_block(retrieved_sources, selected_passages)

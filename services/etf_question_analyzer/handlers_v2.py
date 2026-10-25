@@ -286,7 +286,7 @@ class ETFOverviewHandlerV2(_ETFHandlerV2Base):
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        # v1 rule: missing core metadata forces search, overriding the router's search-off. The fund's row was
+        # Missing core metadata forces search, overriding the router's search-off. The fund's row was
         # loaded by the analyzer before routing, so there is no separate loading status here.
         data_complete = bool(etf_data and etf_data.name and etf_data.ter_percent is not None and etf_data.fund_provider)
 
@@ -342,7 +342,7 @@ class ETFDetailedAnalysisHandlerV2(_ETFHandlerV2Base):
         has_holdings = bool(etf_data and etf_data.holdings)
         has_sectors = bool(etf_data and etf_data.sector_allocation)
         has_countries = bool(etf_data and etf_data.country_allocation)
-        # v1 rule: any empty array forces search, overriding the router's search-off.
+        # Any empty array forces search, overriding the router's search-off.
         arrays_empty = not has_holdings or not has_sectors or not has_countries
 
         def build_prompt(_retrieved_sources: List[AnalyzeSource]) -> str:

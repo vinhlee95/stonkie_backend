@@ -11,7 +11,6 @@ MINUTE, DAY = WINDOWS
 LIMITED_PATHS = [
     "/api/v2/companies/AAPL/analyze",
     "/api/recaps/1/analyze",
-    "/api/companies/AAPL/analyze",
     "/api/companies/AAPL/files/analyze",
     "/api/companies/AAPL/reports/analyze",
 ]

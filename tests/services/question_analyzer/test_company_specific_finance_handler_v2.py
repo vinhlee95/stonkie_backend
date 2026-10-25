@@ -8,8 +8,10 @@ import pytest
 from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
 from services.analyze_retrieval.url_ingest import UrlIngestError, UrlIngestResult
-from services.question_analyzer.types import FinancialDataRequirement
+from services.question_analyzer.router import RoutingResult
+from services.question_analyzer.types import FinancialDataRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import make_routing
 
 
 def _decision(use_search: bool) -> SearchDecision:
@@ -25,17 +27,32 @@ def _decision(use_search: bool) -> SearchDecision:
 _UNSET = object()
 
 
+class _Plan:
+    """The router's data plan for the handler; routing(decision) is what FinancialAnalyzerV2 would pass."""
+
+    def __init__(self, data_requirement: FinancialDataRequirement, period):
+        self.data_requirement = data_requirement
+        self.period = period
+
+    def routing(self, decision: SearchDecision) -> RoutingResult:
+        return make_routing(
+            QuestionType.COMPANY_SPECIFIC_FINANCE.value,
+            use_search=decision.use_google_search,
+            data_requirement=self.data_requirement,
+            period_requirement=self.period,
+            search_decision=decision,
+        )
+
+
 def _make_handler_deps(
     *, data_requirement=FinancialDataRequirement.BASIC, period=None, fundamental=_UNSET, annual=None, quarterly=None
 ):
     company_connector = MagicMock()
     company_connector.get_by_ticker.return_value = SimpleNamespace(name="Apple Inc.", country="United States")
-    classifier = MagicMock()
-    classifier.classify_data_and_period_requirement = AsyncMock(return_value=(data_requirement, period, None))
     optimizer = MagicMock()
     fundamental_value = {"Name": "Apple Inc."} if fundamental is _UNSET else fundamental
     optimizer.fetch_optimized_data = AsyncMock(return_value=(fundamental_value, annual or [], quarterly or []))
-    return company_connector, classifier, optimizer
+    return company_connector, _Plan(data_requirement, period), optimizer
 
 
 @pytest.mark.asyncio
@@ -43,7 +60,7 @@ def _make_handler_deps(
 async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
 
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
@@ -52,7 +69,6 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -67,6 +83,7 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
         ticker="AAPL",
         question="What's Apple's revenue?",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -74,7 +91,8 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
         events.append(event)
 
     thinking_bodies = [e["body"] for e in events if e["type"] == "thinking_status"]
-    assert thinking_bodies == ["Figuring out what AAPL data you need...", "Writing your answer..."]
+    # The router planned the data, so there is no "Figuring out what AAPL data you need..." step.
+    assert thinking_bodies == ["Writing your answer..."]
     assert all(e["type"] != "sources" for e in events)
     assert [e["type"] for e in events].count("answer") == 2
 
@@ -84,7 +102,7 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
 async def test_no_search_never_emits_sources_event(mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
     mock_agent.generate_content.return_value = iter(["Answer"])
@@ -92,7 +110,6 @@ async def test_no_search_never_emits_sources_event(mock_multi_agent_cls):
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -107,6 +124,7 @@ async def test_no_search_never_emits_sources_event(mock_multi_agent_cls):
         ticker="AAPL",
         question="q",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -122,7 +140,7 @@ async def test_no_search_never_emits_sources_event(mock_multi_agent_cls):
 async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_multi_agent_cls, mock_retrieve):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     sources = [
         AnalyzeSource(
             id="s_1",
@@ -155,7 +173,6 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -170,6 +187,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
         ticker="AAPL",
         question="What changed?",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -198,7 +216,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
 async def test_search_on_dedupes_trusted_publishers(mock_multi_agent_cls, mock_retrieve):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     mock_retrieve.return_value = AnalyzeRetrievalResult(
         sources=[
             AnalyzeSource(
@@ -229,7 +247,6 @@ async def test_search_on_dedupes_trusted_publishers(mock_multi_agent_cls, mock_r
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -244,6 +261,7 @@ async def test_search_on_dedupes_trusted_publishers(mock_multi_agent_cls, mock_r
         ticker="AAPL",
         question="q",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -265,7 +283,7 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
 ):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     mock_retrieve.return_value = AnalyzeRetrievalResult(
         sources=[
             AnalyzeSource(
@@ -288,7 +306,6 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -303,6 +320,7 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
         ticker="AAPL",
         question="q",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -339,7 +357,7 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
         content="Revenue grew 6%.",
     )
     mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[passage])
-    company_connector, classifier, optimizer = _make_handler_deps(
+    company_connector, plan, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
         quarterly=[
             {
@@ -355,7 +373,6 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -370,6 +387,7 @@ async def test_quarterly_report_uses_tavily_ingest_sources(mock_ingest_url, mock
         ticker="AAPL",
         question="latest 10Q?",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -432,7 +450,7 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
         content="Risk factors include demand volatility.",
     )
     mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[passage])
-    company_connector, classifier, optimizer = _make_handler_deps(
+    company_connector, plan, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.ANNUAL_SUMMARY,
         annual=[
             {
@@ -448,7 +466,6 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -463,6 +480,7 @@ async def test_annual_report_uses_tavily_ingest_sources(mock_ingest_url, mock_mu
         ticker="AAPL",
         question="latest 10K?",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -505,7 +523,7 @@ async def test_report_ingest_failure_emits_error_and_skips_llm(mock_ingest_url, 
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
     mock_ingest_url.side_effect = UrlIngestError("no chunks")
-    company_connector, classifier, optimizer = _make_handler_deps(
+    company_connector, plan, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
         quarterly=[
             {
@@ -516,7 +534,6 @@ async def test_report_ingest_failure_emits_error_and_skips_llm(mock_ingest_url, 
     )
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -525,6 +542,7 @@ async def test_report_ingest_failure_emits_error_and_skips_llm(mock_ingest_url, 
         ticker="AAPL",
         question="latest 10Q?",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -546,7 +564,7 @@ async def test_report_ingest_failure_emits_error_and_skips_llm(mock_ingest_url, 
 async def test_fallback_undefined_ticker_with_conversation(mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
     mock_agent.generate_content.return_value = iter(["Fallback answer"])
@@ -554,7 +572,6 @@ async def test_fallback_undefined_ticker_with_conversation(mock_multi_agent_cls)
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -569,6 +586,7 @@ async def test_fallback_undefined_ticker_with_conversation(mock_multi_agent_cls)
         ticker="undefined",
         question="based on that, what's next?",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=[
@@ -578,7 +596,6 @@ async def test_fallback_undefined_ticker_with_conversation(mock_multi_agent_cls)
     ):
         events.append(event)
 
-    classifier.classify_data_and_period_requirement.assert_not_called()
     optimizer.fetch_optimized_data.assert_not_called()
     assert [e["type"] for e in events].count("answer") == 1
     assert all(e["type"] != "sources" for e in events)
@@ -589,7 +606,7 @@ async def test_fallback_undefined_ticker_with_conversation(mock_multi_agent_cls)
 async def test_fallback_no_db_data_with_conversation(mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps(
+    company_connector, plan, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.BASIC,
         fundamental={},
         annual=[],
@@ -602,7 +619,6 @@ async def test_fallback_no_db_data_with_conversation(mock_multi_agent_cls):
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -617,6 +633,7 @@ async def test_fallback_no_db_data_with_conversation(mock_multi_agent_cls):
         ticker="ZZZZ",
         question="follow up?",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=[
@@ -626,7 +643,6 @@ async def test_fallback_no_db_data_with_conversation(mock_multi_agent_cls):
     ):
         events.append(event)
 
-    classifier.classify_data_and_period_requirement.assert_called_once()
     optimizer.fetch_optimized_data.assert_called_once()
     thinking_bodies = [e["body"] for e in events if e["type"] == "thinking_status"]
     assert any("No ZZZZ financials" in b or "conversation" in b.lower() for b in thinking_bodies)
@@ -639,7 +655,7 @@ async def test_fallback_no_db_data_with_conversation(mock_multi_agent_cls):
 async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, mock_retrieve):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps(
+    company_connector, plan, optimizer = _make_handler_deps(
         data_requirement=FinancialDataRequirement.BASIC,
         fundamental={"Name": "Apple Inc.", "MarketCap": "3T"},
     )
@@ -678,7 +694,6 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -692,6 +707,7 @@ async def test_search_on_stuffs_brave_after_db_context(mock_multi_agent_cls, moc
         ticker="AAPL",
         question="q",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -715,7 +731,7 @@ async def test_search_on_uses_brave_directive_and_drops_sources_json_instruction
     from services.question_analyzer.context_builders.components import PromptComponents
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
     mock_retrieve.return_value = AnalyzeRetrievalResult(
         sources=[
             AnalyzeSource(
@@ -740,7 +756,6 @@ async def test_search_on_uses_brave_directive_and_drops_sources_json_instruction
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -754,6 +769,7 @@ async def test_search_on_uses_brave_directive_and_drops_sources_json_instruction
         ticker="AAPL",
         question="q",
         search_decision=_decision(True),
+        routing=plan.routing(_decision(True)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -773,7 +789,7 @@ async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agen
     from services.question_analyzer.context_builders.components import PromptComponents
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
-    company_connector, classifier, optimizer = _make_handler_deps()
+    company_connector, plan, optimizer = _make_handler_deps()
 
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
@@ -782,7 +798,6 @@ async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agen
 
     handler = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer,
     )
 
@@ -796,6 +811,7 @@ async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agen
         ticker="AAPL",
         question="q",
         search_decision=_decision(False),
+        routing=plan.routing(_decision(False)),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,

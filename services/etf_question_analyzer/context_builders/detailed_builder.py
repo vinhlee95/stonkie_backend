@@ -26,14 +26,13 @@ class DetailedETFBuilder(ETFContextBuilder):
         section_structure = ETFPromptComponents.section_structure_template()
         example_structure = ETFPromptComponents.example_structure()
         etf_formatting = ETFPromptComponents.etf_data_formatting()
-        source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else input.grounding
         visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
 
         # Check data completeness
-        warnings_text = self._check_data_completeness(etf_context, search_hint=input.grounding is None)
+        warnings_text = self._check_data_completeness(etf_context)
 
         return f"""
             {base_context}
@@ -56,7 +55,7 @@ class DetailedETFBuilder(ETFContextBuilder):
 
             {etf_formatting}
 
-            {source_instructions}
+            {input.grounding}
 
             {visual_instructions}
 
@@ -67,20 +66,13 @@ class DetailedETFBuilder(ETFContextBuilder):
         """Build context for comprehensive, detailed analysis with structured sections."""
         base_context = ETFPromptComponents.base_context(input.ticker, input.question)
         etf_formatting = ETFPromptComponents.etf_data_formatting()
-        source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else input.grounding
         visual_instructions = ETFPromptComponents.visual_output_instructions()
 
         # Serialize ETF data
         etf_context = self._serialize_etf_data(input.etf_data)
 
         # Check data completeness
-        warnings_text = self._check_data_completeness(etf_context, search_hint=input.grounding is None)
-
-        search_rule = (
-            "- USE SEARCH WISELY: Get up-to-date context for market trends and competitive landscape"
-            if input.grounding is None
-            else ""
-        )
+        warnings_text = self._check_data_completeness(etf_context)
 
         return f"""
             {base_context}
@@ -116,11 +108,10 @@ class DetailedETFBuilder(ETFContextBuilder):
             - IDENTIFY DRIVERS: Explain the underlying investment strategy, market conditions, or structural decisions
             - CONNECT THE DOTS: Link ETF characteristics to investor goals, market positioning, and risk-return profile
             - NO DUPLICATION: Each sentence should add new information
-            {search_rule}
 
             {etf_formatting}
 
-            {source_instructions}
+            {input.grounding}
 
             {visual_instructions}
         """
@@ -143,19 +134,18 @@ class DetailedETFBuilder(ETFContextBuilder):
             else [],
         }
 
-    def _check_data_completeness(self, etf_context: Dict, search_hint: bool = True) -> str:
+    def _check_data_completeness(self, etf_context: Dict) -> str:
         """Check for missing data and generate warnings."""
         has_holdings = bool(etf_context.get("holdings"))
         has_sectors = bool(etf_context.get("sector_allocation"))
         has_countries = bool(etf_context.get("country_allocation"))
-        suffix = " - search online if needed" if search_hint else ""
 
         data_warnings = []
         if not has_holdings:
-            data_warnings.append(f"Holdings data unavailable{suffix}")
+            data_warnings.append("Holdings data unavailable")
         if not has_sectors:
-            data_warnings.append(f"Sector allocation unavailable{suffix}")
+            data_warnings.append("Sector allocation unavailable")
         if not has_countries:
-            data_warnings.append(f"Country allocation unavailable{suffix}")
+            data_warnings.append("Country allocation unavailable")
 
         return "\n".join([f"- {w}" for w in data_warnings]) if data_warnings else ""

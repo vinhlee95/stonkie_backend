@@ -1,6 +1,6 @@
 """Exact v2 thinking_status sequences, end to end through FinancialAnalyzerV2 with the real v2 handlers.
 
-Fakes only: router, classifier, DB fetch, Brave retrieval, URL ingest and the answer LLM are all faked.
+Fakes only: router, DB fetch, Brave retrieval, URL ingest and the answer LLM are all faked.
 Every sequence must number its steps 1, 2, 3, ... without total_steps and end with the "Writing your answer"
 status right before the first answer token.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -109,9 +109,6 @@ def _analyzer(
     *,
     routing: RoutingResult | None,
     extractor_tickers: list[str] | None = None,
-    legacy_classification: str = QuestionType.COMPANY_SPECIFIC_FINANCE.value,
-    legacy_decision: SearchDecision | None = None,
-    legacy_requirement=(FinancialDataRequirement.DETAILED, FinancialPeriodRequirement(period_type="annual"), None),
     optimizer: MagicMock | None = None,
     comparison_data: list[CompanyComparisonData] | None = None,
 ) -> FinancialAnalyzerV2:
@@ -122,17 +119,10 @@ def _analyzer(
     financial_connector.get_available_periods.return_value = None
     financial_connector.get_available_metrics.return_value = None
 
-    classifier = MagicMock()
-    classifier.classify_question_type = AsyncMock(return_value=(legacy_classification, None))
-    classifier.classify_data_and_period_requirement = AsyncMock(return_value=legacy_requirement)
-    engine = MagicMock()
-    engine.decide = AsyncMock(return_value=legacy_decision or _decision(True))
-
     general = CompanyGeneralHandlerV2(company_connector=company_connector)
     finance = GeneralFinanceHandlerV2()
     specific = CompanySpecificFinanceHandlerV2(
         company_connector=company_connector,
-        classifier=classifier,
         data_optimizer=optimizer or _optimizer(),
     )
     comparison = CompanyComparisonHandlerV2(company_connector=MagicMock(), financial_connector=MagicMock())
@@ -147,8 +137,6 @@ def _analyzer(
     return FinancialAnalyzerV2(
         router=FakeRouter(routing),
         ticker_extractor=FakeTickerExtractor(extractor_tickers),
-        classifier=classifier,
-        search_decision_engine=engine,
         company_connector=company_connector,
         company_financial_connector=financial_connector,
         company_general_handler=general,
@@ -255,7 +243,7 @@ async def test_router_search_off_loads_statements_with_human_period_wording(
 @pytest.mark.asyncio
 @patch(f"{_HANDLERS}.retrieve_for_analyze")
 @patch(f"{_HANDLERS}.MultiAgent")
-async def test_legacy_fallback_announces_the_real_query_before_brave(mock_agent_cls, mock_retrieve):
+async def test_router_failure_default_routing_announces_the_question_as_the_query(mock_agent_cls, mock_retrieve):
     mock_agent_cls.return_value = _agent()
     seen_before_retrieve: list[str] = []
     events: list[dict[str, Any]] = []
@@ -266,19 +254,35 @@ async def test_legacy_fallback_announces_the_real_query_before_brave(mock_agent_
         return _retrieval()
 
     mock_retrieve.side_effect = retrieve
-    analyzer = _analyzer(routing=None, optimizer=_optimizer(annual=[{"period_end_year": 2025}]))
+    analyzer = _analyzer(routing=None)
 
     async for event in analyzer.analyze_question(ticker="AAPL", question="How is Apple doing?"):
         events.append(event)
 
-    # The fake reformulator (conftest) echoes the question as the query.
+    # default_routing: company-general, search on, the question itself is the query.
     searching = 'Searching for "How is Apple doing?"...'
     assert seen_before_retrieve[-1] == searching
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
-        ("classify", "Figuring out what AAPL data you need..."),
-        ("data_fetch", "Loading AAPL annual financial reports..."),
         ("search", searching),
+        ("analyze", "Writing your answer from 1 source: Reuters..."),
+    ]
+
+
+@pytest.mark.asyncio
+@patch(f"{_HANDLERS}.retrieve_for_analyze")
+@patch(f"{_HANDLERS}.MultiAgent")
+async def test_unresolved_router_comparison_is_downgraded_and_keeps_the_status_sequence(mock_agent_cls, mock_retrieve):
+    mock_agent_cls.return_value = _agent()
+    mock_retrieve.return_value = _retrieval()
+    analyzer = _analyzer(routing=_routing(QuestionType.COMPANY_COMPARISON), extractor_tickers=[])
+
+    events = await _run(analyzer, question="How does Apple compare with its peers?")
+
+    # data NONE -> company-general with the router's query.
+    assert _sequence(events) == [
+        ("classify", "Understanding your question..."),
+        ("search", f'Searching for "{_QUERY}"...'),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -419,10 +423,7 @@ async def test_company_general_searches_before_writing(mock_agent_cls, mock_retr
     mock_agent_cls.return_value = _agent()
     mock_retrieve.return_value = _retrieval(_source("s_1", "Reuters"), _source("s_2", "Reuters"))
     question = "What is the latest news on Apple?"
-    analyzer = _analyzer(
-        routing=_routing(QuestionType.COMPANY_GENERAL) if routed else None,
-        legacy_classification=QuestionType.COMPANY_GENERAL.value,
-    )
+    analyzer = _analyzer(routing=_routing(QuestionType.COMPANY_GENERAL) if routed else None)  # None: default routing
 
     events = await _run(analyzer, question=question)
 
@@ -487,10 +488,7 @@ async def test_general_finance_with_search(mock_agent_cls, mock_retrieve, routed
     mock_agent_cls.return_value = _agent()
     mock_retrieve.return_value = _retrieval(_source("s_1", "Blog", trusted=False))
     question = "What are interest rates doing?"
-    analyzer = _analyzer(
-        routing=_routing(QuestionType.GENERAL_FINANCE) if routed else None,
-        legacy_classification=QuestionType.GENERAL_FINANCE.value,
-    )
+    analyzer = _analyzer(routing=_routing(QuestionType.GENERAL_FINANCE) if routed else None)  # None: default routing
 
     events = await _run(analyzer, ticker="none", question=question)
 

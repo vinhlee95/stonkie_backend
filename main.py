@@ -1,8 +1,6 @@
-import asyncio
 import json
 import logging
 import os
-import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -11,7 +9,6 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from ai_models.model_mapper import map_frontend_model_to_enum
 from api.analyze_v2 import router as analyze_v2_router
 from api.auth import router as auth_router
 from api.chat_limit import limit_chat
@@ -22,12 +19,6 @@ from api.portfolio import router as portfolio_router
 from api.quotes import router as quotes_router
 from api.recap_analyze import router as recap_analyze_router
 from api.tickers import router as tickers_router
-from connectors.conversation_store import (
-    append_assistant_message,
-    append_user_message,
-    generate_conversation_id,
-    get_conversation_history_for_prompt,
-)
 from core.financial_statement_type import FinancialStatementType
 from faq_generator import get_frequent_ask_questions_for_ticker_stream, get_general_frequent_ask_questions
 from services.company import (
@@ -42,12 +33,8 @@ from services.company_filings import analyze_financial_report, analyze_uploaded_
 from services.company_insight import InsightType, fetch_insights_for_ticker, get_insights_for_ticker
 from services.company_report import generate_detailed_report_for_insight, generate_dynamic_report_for_insight
 from services.etf import get_all_etfs, get_etf_by_ticker
-from services.etf_analyzer import ETFAnalyzer
-from services.financial_analyzer import FinancialAnalyzer
 from services.revenue_data import get_revenue_breakdown_for_company
 from services.revenue_insight import get_revenue_insights_for_company_product, get_revenue_insights_for_company_region
-from services.search_decision_engine import SearchDecisionEngine
-from services.semantic_analysis_cache import SemanticAnalysisCache
 from utils.logging import setup_local_logging, setup_production_logging
 
 load_dotenv()
@@ -71,13 +58,6 @@ if len(os.getenv("BACKEND_JWT_SECRET", "").encode()) < 32:
     logger.error("BACKEND_JWT_SECRET missing or shorter than 32 bytes; /api/me routes will return 503")
 if not os.getenv("GOOGLE_IOS_CLIENT_ID"):
     logger.warning("GOOGLE_IOS_CLIENT_ID missing; iOS sign-in (/api/auth/google) will return 503")
-
-# Shared search decision engine
-search_decision_engine = SearchDecisionEngine()
-
-# Initialize analyzers with shared search decision engine
-financial_analyzer = FinancialAnalyzer(search_decision_engine=search_decision_engine)
-etf_analyzer = ETFAnalyzer(search_decision_engine=search_decision_engine)
 
 # FastAPI application instance
 app = FastAPI()
@@ -207,209 +187,6 @@ async def get_revenue_insights_region(ticker: str):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate_insights(), media_type="text/event-stream")
-
-
-@app.post("/api/companies/{ticker}/analyze", dependencies=[Depends(limit_chat)])
-async def analyze_financial_data(ticker: str, request: Request):
-    """
-    Analyze financial statements for a given ticker symbol based on a specific question,
-    streaming the results using Server-Sent Events.
-    Automatically routes to ETF or company analyzer based on ticker type.
-
-    Args:
-        request (Request): FastAPI request object containing the question and ticker in body
-    Returns:
-        StreamingResponse: Server-sent events stream of analysis results
-    """
-    try:
-        body = await request.json()
-        question = body.get("question")
-        use_url_context = body.get("useUrlContext", False)
-        deep_analysis = body.get("deepAnalysis", False)
-        preferred_model_str = body.get("preferredModel", "fastest")
-        conversation_id = body.get("conversationId")
-
-        logger.info(f"📋 Request params: deepAnalysis={deep_analysis} (type: {type(deep_analysis)})")
-
-        # Map and validate the model name early
-        preferred_model = map_frontend_model_to_enum(preferred_model_str)
-
-        if not question:
-            raise HTTPException(status_code=400, detail="Question is required in request body")
-
-        # Normalize ticker: treat "undefined", "null", empty string as no ticker
-        normalized_ticker = ticker.strip().upper() if ticker else ""
-        if normalized_ticker in ["UNDEFINED", "NULL", ""]:
-            normalized_ticker = ""
-            logger.debug(f"🔧 Normalized ticker '{ticker}' to empty (no ticker context)")
-
-        # Check if ticker is an ETF
-        is_etf = False
-        if normalized_ticker:
-            etf_data = get_etf_by_ticker(normalized_ticker)
-            if etf_data:
-                is_etf = True
-                logger.info(f"🔍 Ticker {normalized_ticker} identified as ETF, routing to ETFAnalyzer")
-
-        # Get or create anonymous user ID from cookie
-        anon_user_id = request.cookies.get("anon_user_id")
-        if not anon_user_id:
-            anon_user_id = str(uuid.uuid4())
-            logger.info(f"🔐 Generated new anonymous user ID: {anon_user_id[:8]}...")
-        else:
-            logger.debug(f"🔐 Using existing anonymous user ID: {anon_user_id[:8]}...")
-
-        conv_id = conversation_id or generate_conversation_id()
-        if not conversation_id:
-            logger.info(f"💬 Generated new conversation ID: {conv_id} (ticker: {normalized_ticker or 'none'})")
-        else:
-            logger.info(f"💬 Using existing conversation ID: {conv_id} (ticker: {normalized_ticker or 'none'})")
-
-        storage_ticker = normalized_ticker or "none"
-        if is_etf and normalized_ticker:
-            storage_ticker = f"etf_{normalized_ticker}"
-
-        conversation_messages = get_conversation_history_for_prompt(anon_user_id, storage_ticker, conv_id)
-        if conversation_messages:
-            num_pairs = len(conversation_messages) // 2
-            logger.info(
-                f"📚 Retrieved {num_pairs} Q/A pair(s) from conversation history "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conv_id[:8]}...)"
-            )
-        else:
-            logger.info(
-                f"📚 No conversation history found (new conversation) "
-                f"(user: {anon_user_id[:8]}..., ticker: {ticker.upper()}, {'ETF' if is_etf else 'company'}, conv: {conv_id[:8]}...)"
-            )
-
-        async def generate_analysis():
-            try:
-                append_user_message(anon_user_id, storage_ticker, conv_id, question)
-                logger.debug(f"💾 Stored user message in conversation {conv_id[:8]}...")
-                yield json.dumps({"type": "conversation", "body": {"conversationId": conv_id}}) + "\n\n"
-
-                assistant_output_buffer: list[str] = []
-                last_sources_payload: dict | list | None = None
-                last_model_used: str | None = None
-                last_related_questions: list[str] = []
-
-                def append_assistant_output(event: dict) -> None:
-                    event_type = event.get("type")
-                    body = event.get("body", "")
-
-                    if event_type == "answer" and isinstance(body, str):
-                        assistant_output_buffer.append(body)
-                        return
-
-                    if event_type == "answer_visual_done" and isinstance(body, dict):
-                        lang = body.get("lang")
-                        content = body.get("content")
-                        if isinstance(lang, str) and isinstance(content, str):
-                            assistant_output_buffer.append(f"```{lang}\n{content}```")
-                        return
-
-                def track_stream_meta(event: dict) -> None:
-                    nonlocal last_sources_payload, last_model_used, last_related_questions
-                    et = event.get("type")
-                    body = event.get("body")
-                    if et == "sources" and isinstance(body, (dict, list)):
-                        last_sources_payload = body
-                    elif et == "sources_grouped" and isinstance(body, dict):
-                        last_sources_payload = body
-                    elif et == "model_used" and isinstance(body, str):
-                        last_model_used = body
-                    elif et == "related_question" and isinstance(body, str) and body.strip():
-                        last_related_questions.append(body.strip())
-
-                cache_ticker = normalized_ticker.strip().upper() if normalized_ticker else ""
-                use_semantic_cache = SemanticAnalysisCache.use_semantic_cache_enabled(
-                    cache_ticker,
-                    deep_analysis=deep_analysis,
-                    use_url_context=use_url_context,
-                    question=question,
-                )
-
-                cached_entry = None
-                if use_semantic_cache:
-                    cached_entry = await SemanticAnalysisCache.lookup_hit(cache_ticker, question)
-
-                if cached_entry is not None:
-                    # Persist assistant reply before streaming so a mid-stream disconnect does not
-                    # leave user message without a matching assistant turn in conversation store.
-                    answer_text = cached_entry.answer_text or ""
-                    if answer_text.strip():
-                        append_assistant_message(anon_user_id, storage_ticker, conv_id, answer_text)
-                        logger.debug(
-                            f"💾 Stored cached assistant response in conversation {conv_id[:8]}... "
-                            f"({len(answer_text)} chars)"
-                        )
-                    async for event in SemanticAnalysisCache.stream_hit_replay(request, cached_entry):
-                        if await request.is_disconnected():
-                            return
-                        yield json.dumps(event) + "\n\n"
-                    return
-
-                analyzer = etf_analyzer if is_etf else financial_analyzer
-                analyzer_generator = analyzer.analyze_question(
-                    normalized_ticker or ticker,
-                    question,
-                    use_url_context=use_url_context,
-                    deep_analysis=deep_analysis,
-                    preferred_model=preferred_model,
-                    conversation_messages=conversation_messages,
-                    conversation_id=conv_id,
-                    anon_user_id=anon_user_id,
-                )
-
-                async for chunk in analyzer_generator:
-                    if await request.is_disconnected():
-                        return
-
-                    append_assistant_output(chunk)
-                    track_stream_meta(chunk)
-                    yield json.dumps(chunk) + "\n\n"
-
-                if assistant_output_buffer:
-                    assistant_full_text = "".join(assistant_output_buffer)
-                    append_assistant_message(anon_user_id, storage_ticker, conv_id, assistant_full_text)
-                    logger.debug(
-                        f"💾 Stored assistant response in conversation {conv_id[:8]}... "
-                        f"({len(assistant_output_buffer)} chunks, {len(assistant_full_text)} chars)"
-                    )
-                    SemanticAnalysisCache.schedule_background_store(
-                        use_semantic_cache=use_semantic_cache,
-                        cache_ticker=cache_ticker,
-                        question=question,
-                        assistant_full_text=assistant_full_text,
-                        last_sources_payload=last_sources_payload,
-                        last_model_used=last_model_used,
-                        related_questions=last_related_questions or None,
-                    )
-
-            except asyncio.CancelledError:
-                logger.info("Client cancelled request to analyze financial data", {"ticker": ticker})
-                return
-
-        # Create response with cookie setting
-        response = StreamingResponse(generate_analysis(), media_type="text/event-stream")
-
-        # Set cookie if it wasn't present (for first-time users)
-        if not request.cookies.get("anon_user_id"):
-            # Determine cookie attributes based on environment
-            is_production = environment.lower() == "production"
-            response.set_cookie(
-                key="anon_user_id",
-                value=anon_user_id,
-                max_age=86400 * 365,  # 1 year
-                httponly=True,
-                samesite="None" if is_production else "Lax",
-                secure=is_production,  # Secure flag only in production
-            )
-
-        return response
-    except Exception as e:
-        logger.error(f"Error during analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail="Something went wrong. Please try again later.")
 
 
 @app.post("/api/companies/{ticker}/files/analyze", dependencies=[Depends(limit_chat)])

@@ -9,9 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ai_models.model_name import ModelName
+from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import make_routing
 
 _HANDLERS = "services.question_analyzer.handlers_v2"
+_ROUTING = make_routing(QuestionType.GENERAL_FINANCE.value)
 
 
 def _decision(use_search: bool = False) -> SearchDecision:
@@ -56,7 +59,9 @@ async def test_related_questions_generate_during_the_answer_and_follow_model_use
 
     start = time.perf_counter()
     stamps: list[tuple[str, float]] = []
-    async for e in handler.handle(question="What is P/E?", search_decision=_decision(False), use_url_context=False):
+    async for e in handler.handle(
+        question="What is P/E?", search_decision=_decision(False), use_url_context=False, routing=_ROUTING
+    ):
         stamps.append((e["type"], time.perf_counter() - start))
     elapsed = time.perf_counter() - start
 
@@ -90,7 +95,9 @@ async def test_related_questions_task_is_cancelled_when_the_answer_fails(mock_ag
     handler._generate_related_questions = related  # type: ignore[attr-defined]
 
     with pytest.raises(RuntimeError):
-        async for _ in handler.handle(question="q", search_decision=_decision(False), use_url_context=False):
+        async for _ in handler.handle(
+            question="q", search_decision=_decision(False), use_url_context=False, routing=_ROUTING
+        ):
             pass
     await asyncio.wait_for(finished.wait(), timeout=1)
     assert started.is_set()
@@ -114,7 +121,7 @@ async def test_related_questions_task_is_cancelled_on_client_disconnect(mock_age
 
     handler._generate_related_questions = related  # type: ignore[attr-defined]
 
-    stream = handler.handle(question="q", search_decision=_decision(False), use_url_context=False)
+    stream = handler.handle(question="q", search_decision=_decision(False), use_url_context=False, routing=_ROUTING)
     async for event in stream:
         if event["type"] == "answer":
             break
@@ -136,7 +143,12 @@ async def test_related_questions_failure_does_not_break_the_stream(mock_agent_cl
 
     handler._generate_related_questions = related  # type: ignore[attr-defined]
 
-    events = [e async for e in handler.handle(question="q", search_decision=_decision(False), use_url_context=False)]
+    events = [
+        e
+        async for e in handler.handle(
+            question="q", search_decision=_decision(False), use_url_context=False, routing=_ROUTING
+        )
+    ]
 
     assert events[-1]["type"] == "model_used"
 

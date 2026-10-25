@@ -6,7 +6,9 @@ import pytest
 
 from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource
+from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import make_routing
 
 
 def _event_types(events: list[dict]) -> list[str]:
@@ -44,6 +46,7 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
     async for event in handler.handle(
         question="What is P/E ratio?",
         search_decision=_decision(False),
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value, use_search=False),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -79,6 +82,7 @@ async def test_no_search_never_emits_sources_event(mock_multi_agent_cls):
     async for event in handler.handle(
         question="What is P/E?",
         search_decision=_decision(False),
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value, use_search=False),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -136,6 +140,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
     async for event in handler.handle(
         question="What is the latest CPI?",
         search_decision=_decision(True),
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value, use_search=True),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -145,6 +150,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
 
     thinking_events = [e for e in events if e["type"] == "thinking_status"]
     assert len(thinking_events) == 2
+    assert thinking_events[0]["body"].startswith("Searching for ")
     assert "Reuters" in thinking_events[1]["body"]
     assert "Example Blog" not in thinking_events[1]["body"]
 
@@ -203,6 +209,7 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(mock_multi_
     async for event in handler.handle(
         question="q",
         search_decision=_decision(True),
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value, use_search=True),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
@@ -210,7 +217,7 @@ async def test_search_on_dedupes_trusted_publishers_in_single_status(mock_multi_
     ):
         events.append(event)
 
-    publisher_status = [e for e in events if e["type"] == "thinking_status"][1]["body"]
+    publisher_status = [e for e in events if e["type"] == "thinking_status"][-1]["body"]
     assert publisher_status.count("Reuters") == 1
 
 
@@ -255,6 +262,7 @@ async def test_search_on_emits_all_retrieved_sources_regardless_of_inline_citati
     async for event in handler.handle(
         question="q",
         search_decision=_decision(True),
+        routing=make_routing(QuestionType.GENERAL_FINANCE.value, use_search=True),
         use_url_context=False,
         preferred_model=ModelName.Auto,
         conversation_messages=None,
