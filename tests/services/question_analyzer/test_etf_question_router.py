@@ -263,3 +263,21 @@ def test_router_queries_use_the_same_trimming():
     long_query = " ".join(["word"] * 120)
     result = _parse(_payload(search_queries=[long_query]))
     assert result.search_queries == [trim_search_query(long_query)]
+
+
+@pytest.mark.parametrize("reason", ["db_data_sufficient", "other", "time_sensitive"])
+def test_general_etf_with_search_off_is_a_stable_concept(reason):
+    result = _parse(
+        _payload(question_type="general_etf", data_requirement="none", use_web_search=False, reason_code=reason)
+    )
+    assert result.search_decision.reason_code == "stable_concept"
+
+
+def test_general_etf_with_search_on_keeps_its_reason():
+    result = _parse(_payload(question_type="general_etf", data_requirement="none"))
+    assert result.search_decision.reason_code == "latest_info"
+
+
+def test_fund_specific_search_off_keeps_its_reason():
+    result = _parse(_payload(use_web_search=False, reason_code="db_data_sufficient"))
+    assert result.search_decision.reason_code == "db_data_sufficient"

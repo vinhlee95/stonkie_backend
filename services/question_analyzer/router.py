@@ -525,6 +525,11 @@ def parse_etf_routing_response(raw: str, *, question: str, ticker: str, model_na
     elif data_requirement == ETFDataRequirement.NONE and question_type in _ETF_MIN_REQUIREMENT:
         data_requirement = _ETF_MIN_REQUIREMENT[question_type]
 
+    # A general ETF question answered without search is an education answer (no fund data to ground on);
+    # any other reason would make the general handler decline with "no current data".
+    if question_type == ETFQuestionType.GENERAL_ETF and not use_web_search:
+        reason_code = "stable_concept"
+
     return ETFRoutingResult(
         question_type=question_type,
         data_requirement=data_requirement,

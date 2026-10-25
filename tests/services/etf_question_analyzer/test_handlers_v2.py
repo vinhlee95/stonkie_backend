@@ -178,12 +178,14 @@ async def test_general_search_off_stable_concept_answers_from_knowledge():
 
 
 @pytest.mark.asyncio
-async def test_general_search_off_without_sources_declines():
+@pytest.mark.parametrize("reason", ["db_data_sufficient", "other"])
+async def test_general_search_off_never_declines(reason):
     handler, retriever, agent = _make(GeneralETFHandlerV2)
-    routing = _routing(ETFQuestionType.GENERAL_ETF, search=False, reason="db_data_sufficient")
-    await _run(handler, routing=routing, etf_data=None)
+    routing = _routing(ETFQuestionType.GENERAL_ETF, search=False, reason=reason)
+    await _run(handler, routing=routing, etf_data=None, question="What is a TER?")
     assert retriever.calls == []
-    assert NO_DATA_DECLINE in agent.prompts[0]
+    assert NO_DATA_DECLINE not in agent.prompts[0]
+    assert "You may answer from your training knowledge" in agent.prompts[0]
 
 
 # --------------------------------------------------------------------------- overview

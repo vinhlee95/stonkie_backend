@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 from contextlib import aclosing
+from dataclasses import replace
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, List, Optional
 
 from agent.multi_agent import MultiAgent
@@ -241,8 +242,13 @@ class GeneralETFHandlerV2(_ETFHandlerV2Base):
     ) -> AsyncGenerator[Dict[str, Any], None]:
         yield thinking_status("Writing your answer...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
 
+        # Without search, a general ETF question is an education answer: never the "no current data" decline.
+        decision = routing.search_decision
+        if not decision.use_google_search:
+            decision = replace(decision, reason_code="stable_concept")
+
         def build_prompt(retrieved_sources: List[AnalyzeSource]) -> str:
-            grounding = _select_grounding(retrieved_sources, routing.search_decision)
+            grounding = _select_grounding(retrieved_sources, decision)
             builder = get_etf_context_builder(ETFDataRequirement.NONE)
             return builder.build(
                 _builder_input(
