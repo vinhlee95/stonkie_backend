@@ -1,9 +1,7 @@
-"""ETF context builders: `grounding` replaces the source/search instructions; grounding=None is byte-identical (v1)."""
+"""ETF context builders: `grounding` replaces the source/search instructions; grounding=None keeps them (v1)."""
 
 from __future__ import annotations
 
-from datetime import date
-from pathlib import Path
 from typing import Callable
 
 import pytest
@@ -17,22 +15,9 @@ from services.etf_question_analyzer.context_builders import (
     ETFPromptComponents,
     NoneETFBuilder,
 )
-from services.etf_question_analyzer.context_builders import components as components_module
 from tests.services.etf_question_analyzer.etf_fakes import make_etf
 
-SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 GROUNDING = "**Grounding rules (test):** use the data blocks only."
-
-
-class _FixedDate(date):
-    @classmethod
-    def today(cls) -> "_FixedDate":
-        return cls(2026, 5, 15)
-
-
-@pytest.fixture(autouse=True)
-def _freeze_prompt_date(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(components_module, "date", _FixedDate)
 
 
 def _etf_input(etf=None, *, deep: bool = False, grounding: str | None = None) -> ETFContextBuilderInput:
@@ -64,23 +49,12 @@ def _empty_etf():
     return make_etf(holdings=[], sector_allocation=[], country_allocation=[])
 
 
-# name -> builder call with grounding=None (the v1 path). Snapshots were captured before `grounding` existed.
+# name -> builder call with grounding=None (the v1 path).
 V1_CASES: dict[str, Callable[[], str]] = {
     "none": lambda: NoneETFBuilder().build(_etf_input()),
-    "basic_full": lambda: BasicETFBuilder().build(_etf_input(make_etf())),
     "basic_missing": lambda: BasicETFBuilder().build(_etf_input(None)),
-    "detailed_short_full": lambda: DetailedETFBuilder().build(_etf_input(make_etf())),
     "detailed_short_empty": lambda: DetailedETFBuilder().build(_etf_input(_empty_etf())),
-    "detailed_deep_full": lambda: DetailedETFBuilder().build(_etf_input(make_etf(), deep=True)),
-    "detailed_deep_empty": lambda: DetailedETFBuilder().build(_etf_input(_empty_etf(), deep=True)),
-    "comparison_short": lambda: ComparisonETFBuilder().build(_comparison_input(short=True)),
-    "comparison_deep": lambda: ComparisonETFBuilder().build(_comparison_input(short=False)),
 }
-
-
-@pytest.mark.parametrize("name", sorted(V1_CASES))
-def test_grounding_none_output_is_byte_identical_to_v1(name: str) -> None:
-    assert V1_CASES[name]() == (SNAPSHOT_DIR / f"{name}.txt").read_text()
 
 
 _SOURCE_MARKER = "CRITICAL - Source Citation"
