@@ -702,3 +702,58 @@ def test_multi_query_logs_source_share(caplog: pytest.CaptureFixture[str]) -> No
     assert len(share_logs) == 1
     assert "q1" in share_logs[0].message
     assert "q2" in share_logs[0].message
+
+
+class _GoggleCapturingBraveClient(_StubBraveClient):
+    def __init__(self, candidates: list[Candidate]) -> None:
+        super().__init__(candidates)
+        self.goggles: list[str] = []
+
+    def search(self, *, query, country, search_lang, goggle, count=20, freshness=None):
+        self.goggles.append(goggle)
+        return super().search(
+            query=query, country=country, search_lang=search_lang, goggle=goggle, count=count, freshness=freshness
+        )
+
+
+def test_retrieve_for_analyze_etf_asset_class_trusts_and_boosts_etf_sources() -> None:
+    candidates = [
+        _candidate("https://random.example.com/1", "untrusted one", 1.0),
+        _candidate("https://www.justetf.com/en/etf-profile.html", "justetf body", 1.0),
+    ]
+    stub = _GoggleCapturingBraveClient(candidates)
+
+    result = retrieve_for_analyze(
+        question="iShares Core S&P 500 UCITS ETF TER",
+        market="GLOBAL",
+        request_id="req-etf-1",
+        brave_client=stub,
+        top_k=2,
+        asset_class="etf",
+    )
+
+    assert [source.url for source in result.sources] == [
+        "https://www.justetf.com/en/etf-profile.html",
+        "https://random.example.com/1",
+    ]
+    assert [source.is_trusted for source in result.sources] == [True, False]
+    assert "$boost=4,site=justetf.com" in stub.goggles[0]
+
+
+def test_retrieve_for_analyze_defaults_to_stock_policy() -> None:
+    candidates = [
+        _candidate("https://random.example.com/1", "untrusted one", 1.0),
+        _candidate("https://www.justetf.com/en/etf-profile.html", "justetf body", 1.0),
+    ]
+    stub = _GoggleCapturingBraveClient(candidates)
+
+    result = retrieve_for_analyze(
+        question="iShares Core S&P 500 UCITS ETF TER",
+        market="GLOBAL",
+        request_id="req-stock-1",
+        brave_client=stub,
+        top_k=2,
+    )
+
+    assert all(source.is_trusted is False for source in result.sources)
+    assert "justetf.com" not in stub.goggles[0]

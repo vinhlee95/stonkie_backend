@@ -236,3 +236,60 @@ def test_malformed_urls_are_safe(url: str) -> None:
 )
 def test_registrable_domain(url: str, expected: str) -> None:
     assert sp.registrable_domain(url) == expected
+
+
+# ---------------------------------------------------------------------------
+# ETF extension (asset_class="etf" only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://www.justetf.com/en/etf-profile.html?isin=IE00B5BMR087", 1),
+        ("https://www.ishares.com/uk/individual/en/products/253743", 1),
+        ("https://investor.vanguard.com/x", 1),
+        ("https://www.ssga.com/x", 1),
+        ("https://www.amundietf.com/x", 1),
+        ("https://etf.dws.com/en-gb/xtrackers/x", 1),
+        ("https://www.morningstar.com/etfs/x", 2),
+        ("https://www.etf.com/SPY", 2),
+        # GLOBAL tiers still apply on top of the extension
+        ("https://reuters.com/x", 1),
+        ("https://investing.com/x", 2),
+        ("https://anything.gov/x", 1),
+        # Only the etf.dws.com host is in the extension, not all of dws.com
+        ("https://www.dws.com/x", None),
+        ("https://random-blog.com/x", None),
+        ("https://reddit.com/r/ETFs", None),
+    ],
+)
+def test_tier_for_etf_extension(url: str, expected: int | None) -> None:
+    assert sp.tier_for(url, "GLOBAL", asset_class="etf") == expected
+    assert sp.is_trusted(url, "GLOBAL", asset_class="etf") is (expected is not None)
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://www.justetf.com/x", None),
+        ("https://www.amundietf.com/x", None),
+        ("https://etf.dws.com/x", None),
+        ("https://www.ishares.com/x", 2),
+        ("https://investor.vanguard.com/x", 2),
+        ("https://www.ssga.com/x", 2),
+        ("https://www.morningstar.com/x", 2),
+    ],
+)
+def test_etf_extension_does_not_apply_to_stocks(url: str, expected: int | None) -> None:
+    assert sp.tier_for(url, "GLOBAL") == expected
+    assert sp.tier_for(url, "GLOBAL", asset_class="stock") == expected
+
+
+def test_etf_extension_tiers_do_not_overlap() -> None:
+    assert sp.ETF_EXTENSION_TIER_1.isdisjoint(sp.ETF_EXTENSION_TIER_2)
+
+
+def test_etf_extension_discards_still_win(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sp, "DISCARDS", sp.DISCARDS | {"justetf.com"})
+    assert sp.tier_for("https://www.justetf.com/x", "GLOBAL", asset_class="etf") is None

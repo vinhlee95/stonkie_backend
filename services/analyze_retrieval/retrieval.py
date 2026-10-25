@@ -21,7 +21,7 @@ from services.analyze_retrieval.observability import log_retrieval
 from services.analyze_retrieval.publisher import publisher_label_for
 from services.analyze_retrieval.ranking import rank_for_chat, rank_passages_for_chat
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource, BraveRetrievalError
-from services.analyze_retrieval.source_policy import Market, is_trusted, registrable_domain
+from services.analyze_retrieval.source_policy import AssetClass, Market, is_trusted, registrable_domain
 from services.market_recap.schemas import Candidate
 from services.market_recap.url_utils import source_id_for
 
@@ -143,6 +143,7 @@ def retrieve_for_analyze(
     brave_latency_ms: int = 0,
     top_k: int = 5,
     query_reformulator: QueryReformulator | None = None,
+    asset_class: AssetClass = "stock",
 ) -> AnalyzeRetrievalResult:
     country, search_lang = _country_and_lang_for(market)
 
@@ -156,7 +157,7 @@ def retrieve_for_analyze(
 
     freshness_policy = freshness_for_question(question)
     candidate_count = _candidate_count_for(freshness_policy)
-    goggle = build_chat_goggle(market)
+    goggle = build_chat_goggle(market, asset_class)
     freshness_value = freshness_policy.value if freshness_policy is not None else None
 
     search_queries = reformulated_queries if reformulated_queries and len(reformulated_queries) > 1 else [brave_query]
@@ -188,12 +189,13 @@ def retrieve_for_analyze(
         unique_candidates,
         freshness_policy=freshness_policy,
     )
-    ranked_candidates = rank_for_chat(freshness_filtered_candidates, market)
+    ranked_candidates = rank_for_chat(freshness_filtered_candidates, market, asset_class)
     candidate_pool = ranked_candidates[:source_pool_limit]
     selected_candidates, selection_stats = _select_candidates(
         freshness_filtered_candidates,
         market=market,
         top_k=top_k,
+        asset_class=asset_class,
     )
     if not selected_candidates:
         raise BraveRetrievalError("No Brave results available after filtering")
@@ -205,7 +207,7 @@ def retrieve_for_analyze(
             title=candidate.title,
             publisher=publisher_label_for(candidate.url),
             published_at=candidate.published_date,
-            is_trusted=is_trusted(candidate.url, market),
+            is_trusted=is_trusted(candidate.url, market, asset_class),
             raw_content=candidate.raw_content,
         )
         for candidate in candidate_pool
@@ -238,7 +240,7 @@ def retrieve_for_analyze(
                 title=candidate.title,
                 publisher=publisher_label_for(candidate.url),
                 published_at=candidate.published_date,
-                is_trusted=is_trusted(candidate.url, market),
+                is_trusted=is_trusted(candidate.url, market, asset_class),
                 raw_content=candidate.raw_content,
             )
             for candidate in selected_candidates
@@ -309,9 +311,10 @@ def _select_candidates(
     *,
     market: Market,
     top_k: int,
+    asset_class: AssetClass = "stock",
 ) -> tuple[list[Candidate], dict[str, object]]:
-    trusted_candidates = [candidate for candidate in candidates if is_trusted(candidate.url, market)]
-    untrusted_candidates = [candidate for candidate in candidates if not is_trusted(candidate.url, market)]
+    trusted_candidates = [candidate for candidate in candidates if is_trusted(candidate.url, market, asset_class)]
+    untrusted_candidates = [candidate for candidate in candidates if not is_trusted(candidate.url, market, asset_class)]
 
     selected_trusted = _pick_with_domain_cap(trusted_candidates, limit=top_k)
     selected_domains = {registrable_domain(candidate.url) for candidate in selected_trusted}
@@ -346,7 +349,9 @@ def _select_candidates(
     return selected_candidates, {
         "unique_domains": len({registrable_domain(candidate.url) for candidate in candidates if candidate.url}),
         "selected_domains": [registrable_domain(candidate.url) for candidate in selected_candidates],
-        "trusted_selected": len([candidate for candidate in selected_candidates if is_trusted(candidate.url, market)]),
+        "trusted_selected": len(
+            [candidate for candidate in selected_candidates if is_trusted(candidate.url, market, asset_class)]
+        ),
         "used_untrusted_backfill": used_untrusted_backfill,
     }
 

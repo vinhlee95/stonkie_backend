@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from services.analyze_retrieval.source_policy import (
     DISCARDS,
+    ETF_EXTENSION_TIER_1,
+    ETF_EXTENSION_TIER_2,
     FI_EXTENSION_TIER_1,
     FI_EXTENSION_TIER_2,
     GLOBAL_TIER_1,
     GLOBAL_TIER_2,
     VN_TIER_1,
     VN_TIER_2,
+    AssetClass,
     Market,
 )
 
 
-def build_chat_goggle(market: Market) -> str:
+def build_chat_goggle(market: Market, asset_class: AssetClass = "stock") -> str:
     if market == "VN":
         tier_1 = set(VN_TIER_1)
         tier_2 = set(VN_TIER_2)
@@ -22,6 +25,10 @@ def build_chat_goggle(market: Market) -> str:
     else:
         tier_1 = set(GLOBAL_TIER_1)
         tier_2 = set(GLOBAL_TIER_2)
+
+    if asset_class == "etf":
+        tier_1 |= ETF_EXTENSION_TIER_1
+        tier_2 |= ETF_EXTENSION_TIER_2
 
     tier_1_clean = sorted(domain for domain in tier_1 if not domain.startswith("*."))
     tier_2_clean = sorted(domain for domain in tier_2 if domain not in tier_1)

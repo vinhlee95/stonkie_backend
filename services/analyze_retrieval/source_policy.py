@@ -4,6 +4,9 @@ Independent of services.market_recap.source_policy. Two markets (GLOBAL, VN)
 plus an FI extension that stacks on GLOBAL by tier number. Hard DISCARDS take
 precedence over any allowlist tier. The *.gov wildcard counts as one TIER_1
 entry for GLOBAL/FI but is not honored for VN.
+
+Asset class: an ETF extension stacks on the market's tiers by tier number, only
+when the caller passes asset_class="etf". Stock (the default) is unaffected.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 Market = Literal["GLOBAL", "VN", "FI"]
+AssetClass = Literal["stock", "etf"]
 
 _VN_MULTI_SUFFIXES = (".com.vn", ".gov.vn", ".org.vn", ".net.vn", ".edu.vn")
 
@@ -73,6 +77,15 @@ GLOBAL_TIER_2: frozenset[str] = frozenset(
 
 FI_EXTENSION_TIER_1: frozenset[str] = frozenset({"inderes.fi", "kauppalehti.fi"})
 FI_EXTENSION_TIER_2: frozenset[str] = frozenset({"hs.fi", "yle.fi", "arvopaperi.fi"})
+
+# ETF extension (asset_class="etf" only). Tier 1: fund issuers' own sites (factsheets, holdings, TER) and
+# justETF (issuer-sourced UCITS ETF profiles). Tier 2: third-party ETF research/data. Matching is by host
+# suffix (paths are ignored), so DWS Xtrackers is the etf.dws.com host rather than etf.dws.com/xtrackers.
+# The extension wins by tier number: ishares/vanguard/ssga are GLOBAL tier 2 but ETF tier 1.
+ETF_EXTENSION_TIER_1: frozenset[str] = frozenset(
+    {"justetf.com", "ishares.com", "vanguard.com", "ssga.com", "amundietf.com", "etf.dws.com"}
+)
+ETF_EXTENSION_TIER_2: frozenset[str] = frozenset({"morningstar.com", "etf.com"})
 
 VN_TIER_1: frozenset[str] = frozenset(
     {
@@ -194,17 +207,29 @@ def is_discarded(url: str) -> bool:
     return False
 
 
-def tier_for(url: str, market: Market) -> int | None:
+def tier_for(url: str, market: Market, asset_class: AssetClass = "stock") -> int | None:
     """Return 1 (boost=4), 2 (boost=2), or None (untrusted).
 
     Discards always win. VN does not inherit GLOBAL and does not honor the
-    *.gov wildcard. FI stacks GLOBAL ∪ FI_EXTENSION by tier number.
+    *.gov wildcard. FI stacks GLOBAL ∪ FI_EXTENSION by tier number. For
+    asset_class="etf" the ETF extension stacks on the market's tiers by tier number.
     """
     if is_discarded(url):
         return None
     if not _hostname(url):
         return None
 
+    if asset_class == "etf":
+        if _host_in_set(url, ETF_EXTENSION_TIER_1):
+            return 1
+        tier = _market_tier(url, market)
+        if tier is None and _host_in_set(url, ETF_EXTENSION_TIER_2):
+            return 2
+        return tier
+    return _market_tier(url, market)
+
+
+def _market_tier(url: str, market: Market) -> int | None:
     if market == "VN":
         if _host_in_set(url, VN_TIER_1):
             return 1
@@ -226,5 +251,5 @@ def tier_for(url: str, market: Market) -> int | None:
     return None
 
 
-def is_trusted(url: str, market: Market) -> bool:
-    return tier_for(url, market) is not None
+def is_trusted(url: str, market: Market, asset_class: AssetClass = "stock") -> bool:
+    return tier_for(url, market, asset_class) is not None

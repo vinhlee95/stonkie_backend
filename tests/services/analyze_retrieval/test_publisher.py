@@ -19,3 +19,9 @@ def test_publisher_label_for_unknown_domain_falls_back_to_title_case() -> None:
 
 def test_publisher_label_for_invalid_url_returns_empty_string() -> None:
     assert publisher_label_for("not a url") == ""
+
+
+def test_publisher_label_for_etf_extension_sources() -> None:
+    assert publisher_label_for("https://www.justetf.com/en/etf-profile.html") == "justETF"
+    assert publisher_label_for("https://www.amundietf.com/en/x") == "Amundi ETF"
+    assert publisher_label_for("https://etf.dws.com/en-gb/x") == "DWS Xtrackers"
