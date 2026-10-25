@@ -114,7 +114,7 @@ class CompanyFinancialConnector:
                     db.rollback()
                     if attempt == max_retries - 1:
                         raise
-        return False
+        raise ValueError("max_retries must be >= 1")
 
     def get_company_quarterly_financial_statements(self, ticker: str) -> List[CompanyQuarterlyFinancialStatement]:
         with SessionLocal() as db:

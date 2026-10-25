@@ -18,7 +18,6 @@ from connectors.database import SessionLocal
 from core.annual_periods import label_annual_periods
 from core.financial_statement_type import FinancialStatementType
 from core.statement_units import normalize_periods
-from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
 logger = logging.getLogger(__name__)
@@ -468,21 +467,6 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
 
-def _stored_statements(ticker: str, statement_type: str) -> list[dict]:
-    """Stored quarterly + annual line items of one statement, as unit references."""
-    st = FinancialStatementType(statement_type)
-    with SessionLocal() as db:
-        rows = [
-            *db.query(CompanyQuarterlyFinancialStatement)
-            .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
-            .all(),
-            *db.query(CompanyFinancialStatement)
-            .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
-            .all(),
-        ]
-        return [values for row in rows if isinstance(values := getattr(row, st.value), dict)]
-
-
 def _save_quarterly_to_database(ticker: str, statement_type: str, data: list) -> bool:
     """Save quarterly financial data to the database."""
     try:
@@ -645,7 +629,7 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
         # Filter out TTM period if present
         data_to_save = [item for item in json_response if item.get("period_end_quarter") != "TTM"]
         # The scraped table is in thousands, but some quarters come back in full units.
-        normalized = normalize_periods(data_to_save, _stored_statements(ticker, st.value))
+        normalized = normalize_periods(data_to_save, CompanyFinancialConnector().get_statement_line_items(ticker, st))
         for before, after in zip(data_to_save, normalized):
             if after is not before:
                 logger.warning(

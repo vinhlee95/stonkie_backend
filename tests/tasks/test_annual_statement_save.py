@@ -90,7 +90,7 @@ def test_full_unit_scrape_is_rescaled_to_stored_thousands():
 
 
 def test_returns_false_when_connector_fails():
-    class BrokenConnector:
+    class BrokenConnector(InMemoryAnnualConnector):
         def upsert_annual_statement(self, *args):
             raise RuntimeError("db down")
 
