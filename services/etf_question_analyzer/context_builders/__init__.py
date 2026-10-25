@@ -8,7 +8,6 @@ from .comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuil
 from .components import ETFPromptComponents
 from .detailed_builder import DetailedETFBuilder
 from .none_builder import NoneETFBuilder
-from .url_builder import UrlETFBuilder
 
 __all__ = [
     "ETFContextBuilder",
@@ -17,27 +16,22 @@ __all__ = [
     "NoneETFBuilder",
     "BasicETFBuilder",
     "DetailedETFBuilder",
-    "UrlETFBuilder",
     "ComparisonETFBuilder",
     "ComparisonContextBuilderInput",
     "get_etf_context_builder",
 ]
 
 
-def get_etf_context_builder(requirement: ETFDataRequirement, use_url_context: bool = False) -> ETFContextBuilder:
+def get_etf_context_builder(requirement: ETFDataRequirement) -> ETFContextBuilder:
     """
     Factory function to get appropriate ETF context builder.
 
     Args:
         requirement: The data requirement level
-        use_url_context: Whether to use URL-based context
 
     Returns:
         Appropriate ETFContextBuilder instance
     """
-    if use_url_context:
-        return UrlETFBuilder()
-
     if requirement == ETFDataRequirement.NONE:
         return NoneETFBuilder()
     elif requirement == ETFDataRequirement.BASIC:

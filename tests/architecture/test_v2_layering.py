@@ -21,12 +21,10 @@ def test_analyze_v2_route_keeps_layer_1_import_boundary():
     forbidden_prefixes = (
         "connectors.",
         "models.",
-        "services.question_analyzer.handlers",
         "services.question_analyzer.handlers_v2",
-        "services.question_analyzer.comparison_handler",
         "services.question_analyzer.comparison_handler_v2",
-        "services.etf_question_analyzer.handlers",
-        "services.etf_question_analyzer.comparison_handler",
+        "services.etf_question_analyzer.handlers_v2",
+        "services.etf_question_analyzer.comparison_handler_v2",
     )
 
     violations = sorted(

@@ -1,10 +1,10 @@
 """
-Unit tests for conversation context injection into prompts.
+Unit tests for conversation context injection into v2 analyze prompts.
 
 Tests verify that:
 - Conversation context is formatted correctly
-- Context is injected into prompts for CompanyGeneralHandler
-- Context is injected into prompts for CompanySpecificFinanceHandler
+- Context is injected into prompts for CompanyGeneralHandlerV2
+- Context is injected into prompts for CompanySpecificFinanceHandlerV2
 - Context is NOT injected when conversation_messages is None/empty
 """
 
@@ -12,17 +12,39 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.question_analyzer.company_specific_finance_handler import CompanySpecificFinanceHandler
-from services.question_analyzer.handlers import CompanyGeneralHandler
+from services.question_analyzer.handlers_v2 import CompanyGeneralHandlerV2, CompanySpecificFinanceHandlerV2
+from services.question_analyzer.types import FinancialDataRequirement, QuestionType
+from tests.services.routing_fakes import make_routing
+from utils.conversation_format import format_conversation_context
+
+_HISTORY = [
+    {"role": "user", "content": "What is Apple's profit margin?"},
+    {"role": "assistant", "content": "Apple's profit margin is 25%."},
+]
+
+
+async def _no_related(*_a, **_k):
+    if False:
+        yield {}
+
+
+def _capturing_agent() -> tuple[MagicMock, dict]:
+    captured: dict = {}
+
+    def capture_prompt(*_args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt", "")
+        yield "Answer chunk"
+
+    agent = MagicMock()
+    agent.model_name = "test-model"
+    agent.generate_content = MagicMock(side_effect=capture_prompt)
+    return agent, captured
 
 
 class TestConversationContextFormatting:
     """Test conversation context formatting."""
 
     def test_format_conversation_context_with_messages(self):
-        """Test formatting conversation context with messages."""
-        from utils.conversation_format import format_conversation_context
-
         messages = [
             {"role": "user", "content": "What is Apple's profit margin?"},
             {"role": "assistant", "content": "Apple's profit margin is..."},
@@ -38,195 +60,86 @@ class TestConversationContextFormatting:
         assert "How does it compare to competitors?" in result
 
     def test_format_conversation_context_empty(self):
-        """Test formatting empty conversation context."""
-        from utils.conversation_format import format_conversation_context
-
-        result = format_conversation_context([], "AAPL", "Apple Inc.")
-
-        assert result == ""
+        assert format_conversation_context([], "AAPL", "Apple Inc.") == ""
 
     def test_format_conversation_context_pinned_state(self):
-        """Test that pinned state (company/ticker) is included."""
-        from utils.conversation_format import format_conversation_context
-
-        messages = [{"role": "user", "content": "Question"}]
-
-        result = format_conversation_context(messages, "AAPL", "Apple Inc.")
+        result = format_conversation_context([{"role": "user", "content": "Question"}], "AAPL", "Apple Inc.")
 
         assert "Apple Inc." in result
         assert "AAPL" in result
         assert "Current conversation context" in result
 
 
-class TestCompanyGeneralHandlerPromptInjection:
-    """Test conversation context injection in CompanyGeneralHandler."""
+class TestCompanyGeneralHandlerV2PromptInjection:
+    """Test conversation context injection in CompanyGeneralHandlerV2."""
+
+    async def _prompt_for(self, conversation_messages) -> str:
+        company = MagicMock()
+        company.name = "Apple Inc."
+        company.country = "United States"
+        connector = MagicMock()
+        connector.get_by_ticker.return_value = company
+        agent, captured = _capturing_agent()
+
+        handler = CompanyGeneralHandlerV2(company_connector=connector)
+        handler._generate_related_questions = _no_related  # type: ignore[method-assign]
+        routing = make_routing(standalone_question="When was Apple founded?")
+        with patch("services.question_analyzer.handlers_v2.MultiAgent", return_value=agent):
+            async for _ in handler.handle(
+                ticker="AAPL",
+                question="When was the company founded?",
+                search_decision=routing.search_decision,
+                use_url_context=False,
+                conversation_messages=conversation_messages,
+                routing=routing,
+            ):
+                pass
+        return captured["prompt"]
 
     @pytest.mark.asyncio
-    @patch("services.question_analyzer.handlers.MultiAgent")
-    @patch("services.question_analyzer.handlers.CompanyConnector")
-    async def test_prompt_includes_conversation_context(self, mock_connector_class, mock_agent_class):
-        """Test that prompt includes conversation context when provided."""
-        # Setup mocks
-        mock_company = MagicMock()
-        mock_company.name = "Apple Inc."
-        mock_connector = MagicMock()
-        mock_connector.get_by_ticker.return_value = mock_company
-        mock_connector_class.return_value = mock_connector
+    async def test_prompt_includes_conversation_context(self):
+        prompt = await self._prompt_for(_HISTORY)
 
-        mock_agent_instance = MagicMock()
-        mock_agent_instance.model_name = "test-model"
-        mock_agent_instance.generate_content = AsyncMock(return_value=iter(["Answer chunk"]))
-        mock_agent_class.return_value = mock_agent_instance
-
-        handler = CompanyGeneralHandler(company_connector=mock_connector)
-
-        conversation_messages = [
-            {"role": "user", "content": "What is Apple's profit margin?"},
-            {"role": "assistant", "content": "Apple's profit margin is 25%."},
-        ]
-
-        # Collect prompt from handler
-        prompt_captured = None
-
-        def capture_prompt(*args, **kwargs):
-            nonlocal prompt_captured
-            prompt_captured = kwargs.get("prompt", args[0] if args else "")
-            yield "Answer chunk"
-
-        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
-
-        # Call handler
-        chunks = []
-        async for chunk in handler.handle(
-            ticker="AAPL",
-            question="When was the company founded?",
-            use_google_search=False,
-            use_url_context=False,
-            conversation_messages=conversation_messages,
-        ):
-            chunks.append(chunk)
-
-        # Verify prompt includes conversation context
-        assert prompt_captured is not None
-        assert "Apple Inc." in prompt_captured
-        assert "AAPL" in prompt_captured
-        assert "What is Apple's profit margin?" in prompt_captured or "Previous conversation" in prompt_captured
+        assert "Apple Inc." in prompt
+        assert "AAPL" in prompt
+        assert "What is Apple's profit margin?" in prompt
 
     @pytest.mark.asyncio
-    @patch("services.question_analyzer.handlers.MultiAgent")
-    @patch("services.question_analyzer.handlers.CompanyConnector")
-    async def test_prompt_excludes_context_when_none(self, mock_connector_class, mock_agent_class):
-        """Test that prompt does not include conversation context when None."""
-        mock_company = MagicMock()
-        mock_company.name = "Apple Inc."
-        mock_connector = MagicMock()
-        mock_connector.get_by_ticker.return_value = mock_company
-        mock_connector_class.return_value = mock_connector
+    async def test_prompt_excludes_context_when_none(self):
+        prompt = await self._prompt_for(None)
 
-        mock_agent_instance = MagicMock()
-        mock_agent_instance.model_name = "test-model"
-        mock_agent_instance.generate_content = AsyncMock(return_value=iter(["Answer chunk"]))
-        mock_agent_class.return_value = mock_agent_instance
-
-        handler = CompanyGeneralHandler(company_connector=mock_connector)
-
-        prompt_captured = None
-
-        def capture_prompt(*args, **kwargs):
-            nonlocal prompt_captured
-            prompt_captured = kwargs.get("prompt", args[0] if args else "")
-            yield "Answer chunk"
-
-        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
-
-        # Call handler without conversation_messages
-        chunks = []
-        async for chunk in handler.handle(
-            ticker="AAPL",
-            question="When was the company founded?",
-            use_google_search=False,
-            use_url_context=False,
-            conversation_messages=None,
-        ):
-            chunks.append(chunk)
-
-        # Verify prompt does NOT include conversation context markers
-        assert prompt_captured is not None
-        # Should not have "Previous conversation" when no context
-        assert "Previous conversation" not in prompt_captured
+        assert "What is Apple's profit margin?" not in prompt
+        assert "Current conversation context" not in prompt
 
 
-class TestCompanySpecificFinanceHandlerPromptInjection:
-    """Test conversation context injection in CompanySpecificFinanceHandler."""
+class TestCompanySpecificFinanceHandlerV2PromptInjection:
+    """Test conversation context injection in CompanySpecificFinanceHandlerV2."""
 
     @pytest.mark.asyncio
-    @patch("services.question_analyzer.company_specific_finance_handler.MultiAgent")
-    @patch("services.question_analyzer.company_specific_finance_handler.QuestionClassifier")
-    @patch("services.question_analyzer.company_specific_finance_handler.FinancialDataOptimizer")
-    @patch("services.question_analyzer.company_specific_finance_handler.CompanyConnector")
-    async def test_prompt_includes_conversation_context(
-        self, mock_connector_class, mock_optimizer_class, mock_classifier_class, mock_agent_class
-    ):
-        """Test that prompt includes conversation context when provided."""
-        from services.question_analyzer.types import FinancialDataRequirement
+    async def test_prompt_includes_conversation_context(self):
+        optimizer = MagicMock()
+        optimizer.fetch_optimized_data = AsyncMock(return_value=({"Name": "Apple Inc."}, [], []))
+        agent, captured = _capturing_agent()
 
-        # Setup mocks
-        mock_classifier = MagicMock()
-        mock_classifier.classify_data_and_period_requirement = AsyncMock(
-            return_value=(FinancialDataRequirement.BASIC, None, None)
+        handler = CompanySpecificFinanceHandlerV2(company_connector=MagicMock(), data_optimizer=optimizer)
+        handler._generate_related_questions = _no_related  # type: ignore[method-assign]
+        routing = make_routing(
+            QuestionType.COMPANY_SPECIFIC_FINANCE.value,
+            data_requirement=FinancialDataRequirement.BASIC,
+            standalone_question="How is Apple's revenue trending?",
         )
-        mock_classifier_class.return_value = mock_classifier
+        with patch("services.question_analyzer.handlers_v2.MultiAgent", return_value=agent):
+            async for _ in handler.handle(
+                ticker="AAPL",
+                question="How is revenue trending?",
+                search_decision=routing.search_decision,
+                use_url_context=False,
+                conversation_messages=_HISTORY,
+                routing=routing,
+            ):
+                pass
 
-        mock_optimizer = MagicMock()
-        mock_optimizer.fetch_optimized_data = AsyncMock(
-            return_value=(
-                {"name": "Apple Inc."},  # company_fundamental
-                [],  # annual_statements
-                [],  # quarterly_statements
-            )
-        )
-        mock_optimizer_class.return_value = mock_optimizer
-
-        mock_agent_instance = MagicMock()
-        mock_agent_instance.model_name = "test-model"
-        mock_agent_class.return_value = mock_agent_instance
-
-        handler = CompanySpecificFinanceHandler(classifier=mock_classifier, data_optimizer=mock_optimizer)
-
-        conversation_messages = [
-            {"role": "user", "content": "What is Apple's profit margin?"},
-            {"role": "assistant", "content": "Apple's profit margin is 25%."},
-        ]
-
-        prompt_captured = None
-
-        def capture_prompt(*args, **kwargs):
-            nonlocal prompt_captured
-            prompt_captured = kwargs.get("prompt", args[0] if args else "")
-            yield "Answer chunk"
-
-        mock_agent_instance.generate_content = MagicMock(side_effect=capture_prompt)
-
-        # Call handler
-        chunks = []
-        async for chunk in handler.handle(
-            ticker="AAPL",
-            question="How is revenue trending?",
-            use_google_search=False,
-            use_url_context=False,
-            conversation_messages=conversation_messages,
-        ):
-            chunks.append(chunk)
-            # Break early after we capture the prompt
-            if len(chunks) > 5:
-                break
-
-        # Verify prompt includes conversation context
-        assert prompt_captured is not None
-        assert "AAPL" in prompt_captured or "Apple Inc." in prompt_captured
-        # Should include conversation context markers
-        assert (
-            "Previous conversation" in prompt_captured
-            or "Context:" in prompt_captured
-            or "What is Apple's profit margin?" in prompt_captured
-        )
+        prompt = captured["prompt"]
+        assert "AAPL" in prompt
+        assert "What is Apple's profit margin?" in prompt
+        assert "Current conversation context" in prompt

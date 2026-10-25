@@ -16,9 +16,8 @@ class ETFContextBuilderInput:
     etf_data: Optional[ETFFundamentalDto]
     use_google_search: bool
     deep_analysis: bool
-    source_url: Optional[str] = None
-    # v2: grounding rules that replace the source-citation/search instructions. None keeps the v1 prompt.
-    grounding: Optional[str] = None
+    # Grounding rules (source passages / database-only) appended to the prompt.
+    grounding: str
 
 
 class ETFContextBuilder(ABC):

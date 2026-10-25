@@ -5,6 +5,7 @@ from services.etf_question_analyzer.context_builders.comparison_builder import (
     ComparisonContextBuilderInput,
     ComparisonETFBuilder,
 )
+from services.question_analyzer.context_builders.components import PromptComponents
 
 
 def test_comparison_context():
@@ -30,6 +31,7 @@ def test_comparison_context():
         question="Compare TER and holdings concentration",
         etf_data_list=[sxr8, spyy],
         use_google_search=False,
+        grounding=PromptComponents.grounding_rules(),
     )
 
     context = builder.build(input_data)

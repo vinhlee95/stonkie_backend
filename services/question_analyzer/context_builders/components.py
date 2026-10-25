@@ -65,45 +65,6 @@ class PromptComponents:
         """
 
     @staticmethod
-    def source_instructions() -> str:
-        """Build detailed source citation instructions."""
-        return """
-            **Source Citation Rules (follow strictly):**
-            0. Freshness rule: unless the user explicitly asks for historical periods, avoid citing years older than current year - 1.
-            1. NEVER write source names, document titles, or citation references as regular text inside your paragraphs.
-               ALL citations must appear exclusively inside [SOURCES_JSON] blocks — not at the end of a sentence, not in parentheses.
-            2. After EACH paragraph, emit a sources block on its own line for the sources used in THAT paragraph:
-               [SOURCES_JSON]{"sources": [{"name": "Source Name", "url": "https://full-url"}]}[/SOURCES_JSON]
-            3. Each paragraph MUST be followed by its own [SOURCES_JSON] block. Do NOT batch all sources at the end.
-            4. For SEC filings: use the EXACT URLs from the "Available Source URLs" section above.
-            5. For web sources: use the FULL URL with path from search results. NEVER use bare domains like "macrumors.com".
-            6. For financial statement data with no URL available: in the JSON only, include the `name` field and omit `url`.
-               Do not repeat that name in the paragraph text.
-            7. NEVER invent or guess URLs. Only cite URLs explicitly provided in context or search results.
-            8. Only include sources that were actually used to generate that specific paragraph.
-
-            Example output (correct):
-            Apple's revenue grew 6.4% to $416B in FY2024.
-            [SOURCES_JSON]{"sources": [{"name": "SEC 10-K Filing 2024", "url": "https://www.sec.gov/Archives/..."}]}[/SOURCES_JSON]
-
-            Services revenue hit a record $109B, up 13% year-over-year.
-            [SOURCES_JSON]{"sources": [{"name": "Apple Q4 2025 Press Release", "url": "https://www.apple.com/newsroom/..."}]}[/SOURCES_JSON]
-
-            Do NOT do this (wrong — redundant inline source name before the block):
-            Revenue grew 6.4% in FY2024. SEC 10-K Filing 2024
-            [SOURCES_JSON]{"sources": [{"name": "SEC 10-K Filing 2024", "url": "https://..."}]}[/SOURCES_JSON]
-        """
-
-    @staticmethod
-    def analysis_focus() -> str:
-        """Build analytical reasoning focus prompt."""
-        return """
-            Focus on analytical reasoning and interpretation. Use select key numbers to support your analysis,
-            but prioritize explaining WHY trends exist and WHAT drives the financial performance.
-            Include a few specific figures where they strengthen your argument, but avoid listing exhaustive metrics.
-        """
-
-    @staticmethod
     def formatting_guidelines() -> str:
         """Build standard formatting guidelines."""
         return """
@@ -207,36 +168,6 @@ class PromptComponents:
             return ""
         header = "**Available Source URLs (use these EXACT URLs when citing):**"
         return f"{header}\n" + "\n".join(lines)
-
-    @staticmethod
-    def build_filing_url_lookup(
-        ticker: str,
-        annual_statements: List[Dict],
-        quarterly_statements: List[Dict],
-    ) -> Dict[str, str]:
-        """Build a name→URL lookup from statement filing URLs for source enrichment."""
-        lookup: Dict[str, str] = {}
-        for stmt in annual_statements:
-            url = stmt.get("filing_10k_url")
-            year = stmt.get("period_end_year", "unknown")
-            if url:
-                # Match the exact name format used in available_sources()
-                lookup[f"{ticker.upper()} Annual 10-K Filing ({year})"] = url
-                # Also add common AI-generated variants
-                lookup[f"SEC 10-K Filing {year}"] = url
-                lookup[f"SEC 10-K Filing ({year})"] = url
-                lookup[f"10-K Filing {year}"] = url
-                lookup[f"Annual Report {year}"] = url
-        for stmt in quarterly_statements:
-            url = stmt.get("filing_10q_url")
-            quarter = stmt.get("period_end_quarter", "unknown")
-            if url:
-                lookup[f"{ticker.upper()} Quarterly 10-Q Filing ({quarter})"] = url
-                lookup[f"SEC 10-Q Filing {quarter}"] = url
-                lookup[f"SEC 10-Q Filing ({quarter})"] = url
-                lookup[f"10-Q Filing {quarter}"] = url
-                lookup[f"Quarterly Statement {quarter}"] = url
-        return lookup
 
     @staticmethod
     def extract_sources_from_response(text: str) -> List[Dict]:
