@@ -21,6 +21,7 @@ from langfuse import observe
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from core.financial_statement_type import FinancialStatementType
+from services.etf_question_analyzer.types import ETFDataRequirement, ETFQuestionType
 from services.search_decision_engine import SearchDecision, is_static_fact
 
 from .classifier import QuestionClassifier
@@ -59,6 +60,17 @@ _DATA_REQUIREMENTS = {
     FinancialDataRequirement.ANNUAL_SUMMARY,
 }
 _PERIOD_TYPES = {"annual", "quarterly", "both"}
+# Comparisons are detected by ETFTickerExtractor (2+ resolved tickers), never by the router.
+_ETF_QUESTION_TYPES = {
+    ETFQuestionType.GENERAL_ETF,
+    ETFQuestionType.ETF_OVERVIEW,
+    ETFQuestionType.ETF_DETAILED_ANALYSIS,
+}
+# A fund-specific question always needs the fund's row; the handler's builder is fixed by the type.
+_ETF_MIN_REQUIREMENT = {
+    ETFQuestionType.ETF_OVERVIEW: ETFDataRequirement.BASIC,
+    ETFQuestionType.ETF_DETAILED_ANALYSIS: ETFDataRequirement.DETAILED,
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,15 @@ class RoutingResult:
     data_requirement: FinancialDataRequirement
     period_requirement: Optional[FinancialPeriodRequirement]
     relevant_statements: Optional[list[FinancialStatementType]]
+    search_decision: SearchDecision
+    search_queries: list[str]
+    standalone_question: str
+
+
+@dataclass(frozen=True)
+class ETFRoutingResult:
+    question_type: ETFQuestionType  # never ETF_COMPARISON (the ticker extractor decides comparisons)
+    data_requirement: ETFDataRequirement
     search_decision: SearchDecision
     search_queries: list[str]
     standalone_question: str
@@ -384,6 +405,169 @@ def apply_fast_paths(
     )
 
 
+def _format_etf_db_context(
+    ticker: str, etf_name: str | None, fund_provider: str | None, index_tracked: str | None
+) -> str:
+    if not _has_valid_ticker(ticker):
+        return ""
+    if not etf_name:
+        return f"Our database has no data for {ticker}.\n"
+    lines = [f"ETF data in our database for {ticker}:", f"- Name: {etf_name}"]
+    if fund_provider:
+        lines.append(f"- Provider: {fund_provider}")
+    if index_tracked:
+        lines.append(f"- Index tracked: {index_tracked}")
+    lines.append(
+        "- The database also has TER, fund size, replication, distribution policy, domicile, launch date, "
+        "holdings, sector and country allocation; it has NO performance, returns, prices, NAV, flows, "
+        "dividend yield or news."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_etf_router_prompt(
+    *,
+    question: str,
+    ticker: str,
+    conversation_messages: Optional[List[Dict[str, str]]] = None,
+    etf_name: str | None = None,
+    fund_provider: str | None = None,
+    index_tracked: str | None = None,
+) -> str:
+    has_ticker = _has_valid_ticker(ticker)
+    normalized = ticker.strip().upper() if has_ticker else ""
+    ticker_line = normalized if has_ticker else "none (no ETF selected)"
+    conversation = _format_conversation(conversation_messages)
+    db_context = _format_etf_db_context(normalized, etf_name, fund_provider, index_tracked)
+
+    return f"""{PromptComponents.current_date()}
+
+You route questions for an ETF-research chat assistant. Decide how to answer the LATEST question and return ONE JSON object.
+The question may be in any language; decide by meaning.
+
+ETF the user is viewing: {ticker_line}
+{db_context}{conversation}
+LATEST question: {question}
+
+Fields:
+
+1. standalone_question (string): the latest question rewritten so it is fully understandable on its own. Resolve "it", "this ETF", "this fund", "that" and topics implied by the recent conversation, naming the fund by its NAME (e.g. after a question about SXR8's fees, "What about its top holdings?" -> "What are the top holdings of the iShares Core S&P 500 UCITS ETF?"). Keep the user's language. If it is already standalone, copy it unchanged.
+
+2. question_type, exactly one of:
+   - "general_etf": general ETF education not specific to the viewed fund (what is an ETF, TER, tracking difference, physical vs synthetic replication, accumulating vs distributing), or any question when no ETF is selected.
+   - "etf_overview": basic facts about the viewed ETF: TER/expense ratio, provider, index tracked, fund size, launch date, domicile, replication, distribution policy, currency.
+   - "etf_detailed_analysis": the viewed ETF's holdings, sector or country allocation, concentration, diversification, performance, risk, suitability, or whether to buy it.
+   If the latest question is vague (e.g. "Tell me more"), classify it by the conversation topic.
+
+3. data_requirement, exactly one of: "none" (general_etf), "basic" (etf_overview: core metadata only), "detailed" (etf_detailed_analysis: holdings, sectors, countries).
+
+4. use_web_search (boolean) and reason_code, one of: time_sensitive, latest_info, stable_concept, db_data_sufficient, db_metric_missing, ambiguous_default_on, other.
+   - false + stable_concept: timeless ETF concepts and stable facts (what an ETF is, how replication works, launch date, domicile).
+   - false + db_data_sufficient: the database fields listed above answer it (e.g. TER, provider, index tracked, holdings, sector or country weights).
+   - true + db_metric_missing: needs data the database lacks (performance, returns, dividend yield, tracking difference).
+   - true + time_sensitive / latest_info: latest/current/today/news, price, NAV, flows, recent changes, buy/sell decisions.
+   - If unsure, true + ambiguous_default_on.
+
+5. search_queries (array of strings): when use_web_search is true, 1-{MAX_SEARCH_QUERIES} web-search queries built from standalone_question (1 for simple questions, up to {MAX_SEARCH_QUERIES} for multi-part ones). Search-engine keywords, under 15 words each, use the fund NAME (not only the ticker), add the current year when relevant. When use_web_search is false: [].
+
+Output ONLY the JSON object, no markdown, with exactly these keys:
+{{"standalone_question": "...", "question_type": "...", "data_requirement": "...", "use_web_search": true, "reason_code": "...", "search_queries": ["..."]}}"""
+
+
+def parse_etf_routing_response(raw: str, *, question: str, ticker: str, model_name: str) -> ETFRoutingResult:
+    """Strictly validate the ETF router's JSON. Raises ValueError on anything the caller can't trust."""
+    _ = question
+    obj = _extract_json_object(raw)
+
+    raw_type = obj.get("question_type")
+    try:
+        question_type = ETFQuestionType(raw_type)
+    except ValueError as e:
+        raise ValueError(f"Invalid question_type: {raw_type!r}") from e
+    if question_type not in _ETF_QUESTION_TYPES:
+        raise ValueError(f"Invalid question_type: {raw_type!r}")
+
+    raw_requirement = obj.get("data_requirement")
+    try:
+        data_requirement = ETFDataRequirement(raw_requirement)
+    except ValueError as e:
+        raise ValueError(f"Invalid data_requirement: {raw_requirement!r}") from e
+
+    use_web_search = obj.get("use_web_search")
+    if not isinstance(use_web_search, bool):
+        raise ValueError(f"Invalid use_web_search: {use_web_search!r}")
+    reason_code = obj.get("reason_code")
+    if not isinstance(reason_code, str) or not reason_code.strip():
+        raise ValueError(f"Invalid reason_code: {reason_code!r}")
+    reason_code = reason_code.strip()
+    if reason_code not in _REASON_CODES:
+        reason_code = "other"
+
+    search_queries = _parse_queries(obj.get("search_queries", []))
+    if use_web_search and not search_queries:
+        raise ValueError("use_web_search is true but search_queries is empty")
+
+    standalone = obj.get("standalone_question")
+    if not isinstance(standalone, str) or not standalone.strip():
+        raise ValueError("Missing standalone_question")
+    standalone = " ".join(standalone.split())[:_MAX_STANDALONE_CHARS]
+
+    # Same guard as the v1 ETF classifier: no fund-specific analysis without a ticker.
+    if not _has_valid_ticker(ticker):
+        question_type, data_requirement = ETFQuestionType.GENERAL_ETF, ETFDataRequirement.NONE
+    elif data_requirement == ETFDataRequirement.NONE and question_type in _ETF_MIN_REQUIREMENT:
+        data_requirement = _ETF_MIN_REQUIREMENT[question_type]
+
+    return ETFRoutingResult(
+        question_type=question_type,
+        data_requirement=data_requirement,
+        search_decision=SearchDecision(
+            use_google_search=use_web_search,
+            reason_code=reason_code,
+            confidence=0.9,
+            decision_model=f"{ROUTER_MODEL_TAG}:{model_name}",
+            decision_fallback="none",
+        ),
+        search_queries=search_queries if use_web_search else [],
+        standalone_question=standalone,
+    )
+
+
+def apply_etf_fast_paths(result: ETFRoutingResult, *, question: str) -> ETFRoutingResult:
+    """Deterministic overrides kept from the old pipeline (static-fact keyword pre-filter)."""
+    if not is_static_fact(question):
+        return result
+    decision = replace(
+        result.search_decision,
+        use_google_search=False,
+        reason_code="stable_concept",
+        confidence=0.95,
+        decision_model="keyword_prefilter",
+    )
+    return replace(result, search_decision=decision, search_queries=[])
+
+
+def default_etf_routing(*, question: str, ticker: str) -> ETFRoutingResult:
+    """Routing used when the router fails: no LLM call, search on (queries are built by the handler)."""
+    if _has_valid_ticker(ticker):
+        question_type, data_requirement = ETFQuestionType.ETF_OVERVIEW, ETFDataRequirement.BASIC
+    else:
+        question_type, data_requirement = ETFQuestionType.GENERAL_ETF, ETFDataRequirement.NONE
+    return ETFRoutingResult(
+        question_type=question_type,
+        data_requirement=data_requirement,
+        search_decision=SearchDecision(
+            use_google_search=True,
+            reason_code="ambiguous_default_on",
+            confidence=0.5,
+            decision_model="etf_default_routing",
+            decision_fallback="router_fail_safe_on",
+        ),
+        search_queries=[],
+        standalone_question=" ".join(question.split())[:_MAX_STANDALONE_CHARS] or question,
+    )
+
+
 class QuestionRouter:
     """One LLM call that routes a v2 analyze question. Returns None when the caller should fall back."""
 
@@ -435,6 +619,50 @@ class QuestionRouter:
             "QuestionRouter %.2fs: type=%s data=%s search=%s reason=%s queries=%s standalone=%r",
             time.perf_counter() - t_start,
             result.question_type,
+            result.data_requirement.value,
+            result.search_decision.use_google_search,
+            result.search_decision.reason_code,
+            result.search_queries,
+            result.standalone_question,
+        )
+        return result
+
+    @observe(name="question_router.route_etf")
+    async def route_etf(
+        self,
+        *,
+        question: str,
+        ticker: str,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
+        etf_name: str | None = None,
+        fund_provider: str | None = None,
+        index_tracked: str | None = None,
+    ) -> Optional[ETFRoutingResult]:
+        """ETF mode of route(): same timeout and None-on-failure contract."""
+        t_start = time.perf_counter()
+        prompt = build_etf_router_prompt(
+            question=question,
+            ticker=ticker,
+            conversation_messages=conversation_messages,
+            etf_name=etf_name,
+            fund_provider=fund_provider,
+            index_tracked=index_tracked,
+        )
+        try:
+            raw = await asyncio.wait_for(asyncio.to_thread(self._generate, prompt), timeout=self.timeout_seconds)
+            result = parse_etf_routing_response(raw, question=question, ticker=ticker, model_name=self.model_name.value)
+        except Exception as e:
+            logger.warning(
+                "QuestionRouter ETF failed after %.2fs (falling back to default ETF routing): %s: %s",
+                time.perf_counter() - t_start,
+                type(e).__name__,
+                e,
+            )
+            return None
+        logger.info(
+            "QuestionRouter ETF %.2fs: type=%s data=%s search=%s reason=%s queries=%s standalone=%r",
+            time.perf_counter() - t_start,
+            result.question_type.value,
             result.data_requirement.value,
             result.search_decision.use_google_search,
             result.search_decision.reason_code,
