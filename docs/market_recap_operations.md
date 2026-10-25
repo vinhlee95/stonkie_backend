@@ -15,7 +15,7 @@ Fired once at the top of every `run_market_recap` call.
 | `run_id` | str (32-char hex) | Unique per run; correlates start with outcome. |
 | `market` | str | e.g. `"US"`. |
 | `cadence` | str | e.g. `"weekly"`. |
-| `provider` | str | `"tavily"` for US, `"brave"` for VN. |
+| `provider` | str | Always `"brave"` (all markets). |
 | `period_start` | str (ISO date) | Inclusive Monday of the recap week. |
 | `period_end` | str (ISO date) | Inclusive Friday of the recap week. |
 
@@ -28,7 +28,7 @@ All `recap.run.start` fields plus:
 | Field | Type | Meaning |
 |---|---|---|
 | `status` | str | One of `inserted`, `replaced`, `skipped_existing`, `validation_failed`, `generation_failed`. |
-| `provider` | str | `"tavily"` for US, `"brave"` for VN. |
+| `provider` | str | Always `"brave"` (all markets). |
 | `queries_total` | int | Planned queries issued to the selected provider. |
 | `results_total` | int | Total candidate results returned across all queries. |
 | `fetched_ok` | int | Candidates with non-empty provider `raw_content` (eligible for grounding). |
@@ -124,8 +124,8 @@ gcloud run jobs update weekly-market-recap \
 
 ## Provider + cadence notes
 
-- US retrieval uses Tavily.
-- VN retrieval uses Brave LLM Context with:
+- All markets (US, VN, FI) use Brave LLM Context; `country`/`search_lang`/goggle allowlist are per market.
+- VN Brave params:
   - endpoint `https://api.search.brave.com/res/v1/llm/context`
   - header `X-Subscription-Token: BRAVE_API_KEY`
   - params `country=ALL`, `search_lang=vi`, `count=30`, `freshness=<start>to<end>`, `goggles=<inline>`
