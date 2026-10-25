@@ -93,14 +93,8 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("use_search", "expected_body"),
-    [
-        (True, "Searching for the latest AAPL data..."),
-        (False, "Found AAPL data in our database"),
-    ],
-)
-async def test_analyzer_v2_emits_search_thinking_status_after_routing(use_search, expected_body):
+@pytest.mark.parametrize("use_search", [True, False])
+async def test_analyzer_v2_sends_understanding_first_and_renumbers_handler_statuses(use_search):
     handler = _CapturingHandler()
     analyzer = _analyzer(FakeRouter(make_routing(use_search=use_search)), **_handlers(handler))
 
@@ -108,8 +102,11 @@ async def test_analyzer_v2_emits_search_thinking_status_after_routing(use_search
     async for event in analyzer.analyze_question(ticker="AAPL", question="What does Apple do?"):
         events.append(event)
 
-    assert events[0]["type"] == "thinking_status"
-    assert events[0]["body"] == expected_body
+    # No generic "Searching for the latest AAPL data..." / "Found AAPL data in our database" any more.
+    assert [e for e in events if e["type"] == "thinking_status"] == [
+        {"type": "thinking_status", "body": "Understanding your question...", "phase": "classify", "step": 1},
+        {"type": "thinking_status", "body": "Analyzing...", "phase": "analyze", "step": 2},
+    ]
 
 
 @pytest.mark.asyncio
@@ -159,12 +156,16 @@ async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_bef
     async for e in analyzer.analyze_question(ticker="AAPL", question=question):
         events.append(e)
 
-    assert events[0]["type"] == "attachment_url"
-    assert events[0]["body"] == sec_url
+    assert events[0]["body"] == "Understanding your question..."
+    assert events[1] == {"type": "attachment_url", "body": sec_url}
     decision = handler.calls[0]["search_decision"]
     assert decision.use_google_search is True
     assert decision.reason_code == "sec_url"
-    assert any(e["type"] == "thinking_status" and "Searching for the latest" in str(e.get("body", "")) for e in events)
+    # The forced search is announced by the handler; the analyzer sends no "Reading SEC filing..." status.
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == [
+        "Understanding your question...",
+        "Analyzing...",
+    ]
 
 
 @pytest.mark.asyncio
@@ -201,8 +202,14 @@ async def test_use_url_context_allows_non_pdf_url_to_reach_handler(_mock_validat
         events.append(event)
 
     _mock_validate.assert_not_called()
-    assert events[0] == {"type": "attachment_url", "body": "https://example.com/report"}
+    assert events[0]["body"] == "Understanding your question..."
+    assert events[1] == {"type": "attachment_url", "body": "https://example.com/report"}
     assert handler.calls[0]["use_url_context"] is True
+    # The handler says "Reading the attached document..." right before it ingests the URL.
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == [
+        "Understanding your question...",
+        "Analyzing...",
+    ]
     assert any(e["type"] == "answer" and e["body"] == "hello" for e in events)
 
 

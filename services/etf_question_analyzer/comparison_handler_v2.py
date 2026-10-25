@@ -12,7 +12,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, List, Opt
 
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalConnector, ETFFundamentalDto
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.retrieval import BraveSearchClient
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
@@ -21,7 +21,7 @@ from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
-    _trusted_publisher_status,
+    _writing_status,
     generate_related_questions,
     related_questions_result,
     start_related_questions,
@@ -118,12 +118,8 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
         tickers = dedupe_tickers(tickers)  # guard: never compare a fund with itself or retrieve it twice
         prompt_question = retrieval_question if conversation_messages else question
 
-        yield thinking_status(
-            f"Loading data for {', '.join(tickers)}...",
-            phase=AnalysisPhase.DATA_FETCH,
-            step=3,
-            total_steps=5,
-        )
+        progress = ThinkingProgress()
+        yield progress.status(f"Loading data for {', '.join(tickers)}...", phase=AnalysisPhase.DATA_FETCH)
 
         found = await self._fetch_etfs_parallel(tickers)
         compared = [ticker for ticker, _etf in found]
@@ -135,30 +131,18 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
                 "body": f"Need at least 2 valid ETFs for comparison. Missing: {', '.join(missing)}",
             }
             return
-        if missing:
-            yield thinking_status(
-                f"Couldn't find {', '.join(missing)} — comparing the rest...",
-                phase=AnalysisPhase.DATA_FETCH,
-                step=3,
-                total_steps=5,
-            )
-
-        yield thinking_status(
-            f"Comparing {', '.join(compared)}...",
-            phase=AnalysisPhase.ANALYZE,
-            step=4,
-            total_steps=5,
-        )
+        # Missing funds are folded into the next status rather than sent in the same instant on their own.
+        missing_lead = f"Couldn't find {', '.join(missing)}, " if missing else ""
 
         retrieved_per_ticker: list[tuple[str, list[AnalyzeSource], list[AnalyzePassage]]] = []
         failed_tickers: list[str] = []
         if routing.search_decision.use_google_search:
-            yield thinking_status(
-                f"Searching the web for {', '.join(compared)}...",
+            searching = f"searching the web for {', '.join(compared)}..."
+            yield progress.status(
+                f"{missing_lead}{searching}" if missing_lead else searching[0].upper() + searching[1:],
                 phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=5,
             )
+            missing_lead = ""
             sem = asyncio.Semaphore(_CONCURRENCY_CAP)
             results = await asyncio.gather(
                 *[self._retrieve_one_ticker(etf, ticker, retrieval_question, request_id, sem) for ticker, etf in found]
@@ -178,20 +162,6 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
         for _ticker, sources, passages in retrieved_per_ticker:
             flat_sources.extend(sources)
             flat_passages.extend(passages)
-
-        if flat_sources:
-            successful_tickers = [t for t, _sources, _passages in retrieved_per_ticker]
-            status_event = _trusted_publisher_status(flat_sources, ticker_list=successful_tickers)
-            if status_event is not None:
-                yield status_event
-
-        if failed_tickers:
-            yield thinking_status(
-                f"Web retrieval failed for {', '.join(failed_tickers)} — proceeding with the rest",
-                phase=AnalysisPhase.SEARCH,
-                step=2,
-                total_steps=5,
-            )
 
         prompt = self.builder.build(
             ComparisonContextBuilderInput(
@@ -218,6 +188,12 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
                 selected_passages=flat_passages,
             )
 
+        yield _writing_status(
+            progress,
+            flat_sources,
+            ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
+            lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else missing_lead,
+        )
         related_task = await start_related_questions(self._comparison_related_questions(question, short_analysis))
         try:
             agent = self._agent_factory(model_name=preferred_model)

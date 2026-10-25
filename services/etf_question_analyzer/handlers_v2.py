@@ -18,7 +18,7 @@ from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.etf_fundamental import ETFFundamentalDto
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.query_reformulator import PrecomputedQueryReformulator
@@ -36,7 +36,7 @@ from services.question_analyzer.handlers_v2 import (
     _iter_answer_chunks,
     _searching_status,
     _select_grounding,
-    _trusted_publisher_status,
+    _writing_status,
     generate_related_questions,
     related_questions_result,
     start_related_questions,
@@ -124,6 +124,7 @@ class _ETFHandlerV2Base:
     async def _stream_answer(
         self,
         *,
+        progress: ThinkingProgress,
         ticker: str | None,
         question: str,
         etf_name: str | None,
@@ -137,9 +138,10 @@ class _ETFHandlerV2Base:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         retrieved_sources: list[AnalyzeSource] = []
         selected_passages: list[AnalyzePassage] = []
+        writing_lead = ""
         if use_search:
             queries = _etf_search_queries(routing, ticker=ticker, etf_name=etf_name)
-            yield _searching_status(queries[0])
+            yield _searching_status(progress, queries[0])
             try:
                 retrieval_result = await asyncio.to_thread(
                     self._retrieve,
@@ -159,18 +161,10 @@ class _ETFHandlerV2Base:
                     extra={"request_id": request_id, "ticker": ticker},
                 )
                 retrieval_result = None
-                yield thinking_status(
-                    "No web sources found — answering from our database",
-                    phase=AnalysisPhase.SEARCH,
-                    step=2,
-                    total_steps=4,
-                )
+                writing_lead = f"No web results for {ticker}, " if ticker else "No web results, "
             if retrieval_result is not None:
                 retrieved_sources = retrieval_result.sources
                 selected_passages = retrieval_result.selected_passages
-                status_event = _trusted_publisher_status(retrieved_sources, passage_count=len(selected_passages))
-                if status_event is not None:
-                    yield status_event
 
         prompt = (
             build_prompt(retrieved_sources)
@@ -187,6 +181,7 @@ class _ETFHandlerV2Base:
                 selected_passages=selected_passages,
             )
 
+        yield _writing_status(progress, retrieved_sources, lead=writing_lead)
         related_task = await start_related_questions(self._related_questions(question))
         try:
             agent = self._agent_factory(model_name=preferred_model)
@@ -240,8 +235,6 @@ class GeneralETFHandlerV2(_ETFHandlerV2Base):
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        yield thinking_status("Writing your answer...", phase=AnalysisPhase.ANALYZE, step=3, total_steps=4)
-
         # Without search, a general ETF question is an education answer: never the "no current data" decline.
         decision = routing.search_decision
         if not decision.use_google_search:
@@ -258,6 +251,7 @@ class GeneralETFHandlerV2(_ETFHandlerV2Base):
 
         async with aclosing(
             self._stream_answer(
+                progress=ThinkingProgress(),
                 ticker=ticker or None,
                 question=question,
                 etf_name=etf_data.name if etf_data else None,
@@ -292,20 +286,9 @@ class ETFOverviewHandlerV2(_ETFHandlerV2Base):
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        etf_label = ticker or "this ETF"
-        yield thinking_status(
-            f"Loading {etf_label} fund data...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=4
-        )
-
-        # Missing core metadata forces search, overriding the router's search-off.
+        # Missing core metadata forces search, overriding the router's search-off. The fund's row was
+        # loaded by the analyzer before routing, so there is no separate loading status here.
         data_complete = bool(etf_data and etf_data.name and etf_data.ter_percent is not None and etf_data.fund_provider)
-        if not data_complete:
-            yield thinking_status(
-                f"Some {etf_label} data missing — searching online...",
-                phase=AnalysisPhase.SEARCH,
-                step=3,
-                total_steps=5,
-            )
 
         def build_prompt(_retrieved_sources: List[AnalyzeSource]) -> str:
             builder = get_etf_context_builder(ETFDataRequirement.BASIC)
@@ -321,6 +304,7 @@ class ETFOverviewHandlerV2(_ETFHandlerV2Base):
 
         async with aclosing(
             self._stream_answer(
+                progress=ThinkingProgress(),
                 ticker=ticker or None,
                 question=question,
                 etf_name=etf_data.name if etf_data else None,
@@ -355,33 +339,11 @@ class ETFDetailedAnalysisHandlerV2(_ETFHandlerV2Base):
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        etf_label = ticker or "this ETF"
-        total_steps = 5
-        yield thinking_status(
-            f"Reviewing {etf_label} holdings...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=total_steps
-        )
-
         has_holdings = bool(etf_data and etf_data.holdings)
         has_sectors = bool(etf_data and etf_data.sector_allocation)
         has_countries = bool(etf_data and etf_data.country_allocation)
-        if not has_holdings or not has_sectors:
-            total_steps = 6
-            missing = "holdings" if not has_holdings else "sector data"
-            yield thinking_status(
-                f"{etf_label} {missing} not in database — searching online...",
-                phase=AnalysisPhase.SEARCH,
-                step=4,
-                total_steps=total_steps,
-            )
         # Any empty array forces search, overriding the router's search-off.
         arrays_empty = not has_holdings or not has_sectors or not has_countries
-
-        yield thinking_status(
-            f"Analyzing {etf_label} in detail...",
-            phase=AnalysisPhase.ANALYZE,
-            step=total_steps - 1,
-            total_steps=total_steps,
-        )
 
         def build_prompt(_retrieved_sources: List[AnalyzeSource]) -> str:
             builder = get_etf_context_builder(ETFDataRequirement.DETAILED)
@@ -397,6 +359,7 @@ class ETFDetailedAnalysisHandlerV2(_ETFHandlerV2Base):
 
         async with aclosing(
             self._stream_answer(
+                progress=ThinkingProgress(),
                 ticker=ticker or None,
                 question=question,
                 etf_name=etf_data.name if etf_data else None,

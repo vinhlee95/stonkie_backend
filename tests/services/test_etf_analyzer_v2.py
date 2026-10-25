@@ -18,6 +18,8 @@ from services.search_decision_engine import SearchDecision
 from tests.services.etf_question_analyzer.etf_fakes import make_etf
 from tests.services.routing_fakes import FakeTickerExtractor
 
+UNDERSTANDING = {"type": "thinking_status", "body": "Understanding your question...", "phase": "classify", "step": 1}
+
 
 def _routing(
     question_type: ETFQuestionType = ETFQuestionType.ETF_OVERVIEW,
@@ -125,8 +127,7 @@ async def test_router_result_drives_dispatch_with_db_context():
     assert call["ticker"] == "SXR8"
     assert call["conversation_messages"] == history
     assert call["debug_prompt_context"] is True
-    assert events[0]["type"] == "thinking_status"
-    assert events[0]["body"] == "Searching for the latest SXR8 data..."
+    assert events[0] == UNDERSTANDING
     assert [e["type"] for e in events[1:]] == ["answer", "model_used"]
 
 
@@ -137,7 +138,11 @@ async def test_detailed_routing_dispatches_to_detailed_handler():
     events = await _events(analyzer, question="Top holdings?")
     assert _called(handlers) == ["detailed"]
     assert handlers["detailed"].calls[0]["etf_data"] == make_etf()
-    assert events[0]["body"] == "Found SXR8 data in our database"
+    assert events == [
+        UNDERSTANDING,
+        {"type": "answer", "body": "detailed answer"},
+        {"type": "model_used", "body": "test-model"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -170,7 +175,7 @@ async def test_router_failure_uses_default_overview_routing_with_search_on():
     assert routing.search_decision.use_google_search is True  # no fast path on the default routing
     assert routing.search_queries == []
     assert handlers["overview"].calls[0]["etf_data"] == make_etf()
-    assert events[0]["body"] == "Searching for the latest SXR8 data..."
+    assert events[0] == UNDERSTANDING
 
 
 _VALID_ETF_ROUTER_OUTPUT = json.dumps(
@@ -214,7 +219,7 @@ async def test_router_failure_without_ticker_is_general_and_skips_data_fetch(tic
     assert call["routing"].question_type == ETFQuestionType.GENERAL_ETF
     assert call["routing"].data_requirement == ETFDataRequirement.NONE
     assert call["etf_data"] is None
-    assert events[0]["body"] == "Searching for the latest ETF data..."
+    assert events[0] == UNDERSTANDING
 
 
 @pytest.mark.asyncio
@@ -326,3 +331,41 @@ async def test_hung_extractor_times_out_and_continues_without_comparison():
 def test_extractor_timeout_defaults_to_five_seconds():
     analyzer, _ = _analyzer()
     assert analyzer.extractor_timeout_seconds == 5.0
+
+
+@pytest.mark.asyncio
+async def test_understanding_status_goes_out_before_the_db_read_and_router():
+    router = FakeETFRouter(_routing())
+    optimizer = FakeDataOptimizer()
+    analyzer, _ = _analyzer(router=router, optimizer=optimizer)
+    stream = analyzer.analyze_question("SXR8", "What is the TER?")
+    assert await stream.__anext__() == UNDERSTANDING
+    assert optimizer.calls == []
+    assert router.calls == []
+    assert [e["type"] async for e in stream] == ["answer", "model_used"]  # drain
+
+
+@pytest.mark.asyncio
+async def test_handler_statuses_are_renumbered_onto_the_request_sequence():
+    class _StatusHandler(FakeHandler):
+        async def handle(self, **kwargs):
+            self.calls.append(kwargs)
+            yield {"type": "thinking_status", "body": 'Searching for "q"...', "phase": "search", "step": 1}
+            yield {"type": "thinking_status", "body": "Writing your answer...", "phase": "analyze", "step": 2}
+            yield {"type": "answer", "body": "ok"}
+
+    analyzer = ETFAnalyzerV2(
+        router=FakeETFRouter(_routing()),
+        ticker_extractor=FakeTickerExtractor(),
+        data_optimizer=FakeDataOptimizer(),
+        general_handler=FakeHandler("general"),
+        overview_handler=_StatusHandler("overview"),
+        detailed_handler=FakeHandler("detailed"),
+        comparison_handler=FakeHandler("comparison"),
+    )
+    events = await _events(analyzer)
+    assert [(e["body"], e["phase"], e["step"]) for e in events if e["type"] == "thinking_status"] == [
+        ("Understanding your question...", "classify", 1),
+        ('Searching for "q"...', "search", 2),
+        ("Writing your answer...", "analyze", 3),
+    ]

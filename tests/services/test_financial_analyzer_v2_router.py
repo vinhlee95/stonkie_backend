@@ -94,7 +94,7 @@ async def test_router_result_drives_dispatch():
     (call,) = handlers["specific"].calls
     assert call["routing"] == routing
     assert call["search_decision"] == routing.search_decision
-    assert events[0]["body"] == "Searching for the latest NVDA data..."
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 
 @pytest.mark.asyncio
@@ -109,7 +109,7 @@ async def test_router_failure_uses_default_routing():
     assert call["search_decision"].use_google_search is True
     assert call["search_decision"].reason_code == "ambiguous_default_on"
     assert call["routing"].search_queries == [question]
-    assert events[0]["body"] == "Searching for the latest NVDA data..."
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_static_fact_fast_path_overrides_router_search():
     assert decision.use_google_search is False
     assert decision.reason_code == "stable_concept"
     assert handlers["general"].calls[0]["routing"].search_queries == []
-    assert events[0]["body"] == "Found NVDA data in our database"
+    assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 
 @pytest.mark.asyncio

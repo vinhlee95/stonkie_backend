@@ -13,7 +13,7 @@ from langfuse._client.get_client import get_client as get_langfuse_client
 
 from ai_models.model_name import ModelName
 from connectors.etf_fundamental import ETFFundamentalDto
-from services.analysis_progress import AnalysisPhase, thinking_status
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.etf_question_analyzer.comparison_handler_v2 import ETFComparisonHandlerV2
 from services.etf_question_analyzer.data_optimizer import ETFDataOptimizer
 from services.etf_question_analyzer.handlers_v2 import (
@@ -135,6 +135,10 @@ class ETFAnalyzerV2:
             langfuse.update_current_generation(input=question)
         ttft_recorded = False
 
+        # Sent before the DB read and the router LLM call so the client shows progress at once.
+        progress = ThinkingProgress()
+        yield progress.status("Understanding your question...", phase=AnalysisPhase.CLASSIFY)
+
         normalized_ticker = ticker.strip().upper() if ticker else ""
         if normalized_ticker in _INVALID_TICKERS:
             normalized_ticker = ""
@@ -151,20 +155,6 @@ class ETFAnalyzerV2:
             conversation_messages=conversation_messages,
             etf=etf,
         )
-
-        if routing.search_decision.use_google_search:
-            body = (
-                f"Searching for the latest {normalized_ticker} data..."
-                if normalized_ticker
-                else "Searching for the latest ETF data..."
-            )
-        else:
-            body = (
-                f"Found {normalized_ticker} data in our database"
-                if normalized_ticker
-                else "Using ETF data from our database"
-            )
-        yield thinking_status(body, phase=AnalysisPhase.SEARCH, step=2)
 
         request_id = str(uuid.uuid4())
         common = {
@@ -204,4 +194,4 @@ class ETFAnalyzerV2:
             if not ttft_recorded and langfuse and chunk.get("type") == "answer" and isinstance(chunk.get("body"), str):
                 langfuse.update_current_generation(completion_start_time=datetime.datetime.now())
                 ttft_recorded = True
-            yield chunk
+            yield progress.renumber(chunk)
