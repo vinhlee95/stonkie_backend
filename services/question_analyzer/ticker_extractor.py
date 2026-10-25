@@ -61,6 +61,30 @@ TICKER_STOPWORDS = {
 }
 
 
+# Finance acronyms that look like tickers but are metrics/terms ("P/E", "EPS or ROE")
+FINANCE_ACRONYM_STOPWORDS = {
+    "P/E",
+    "PE",
+    "EPS",
+    "ROE",
+    "ROA",
+    "ROI",
+    "EBITDA",
+    "EBIT",
+    "FCF",
+    "GAAP",
+    "CEO",
+    "CFO",
+    "AI",
+    "US",
+    "USD",
+    "ETF",
+    "IPO",
+    "YOY",
+    "QOQ",
+    "TTM",
+}
+
 # Regex pattern detecting comparison intent in a question
 _COMPARISON_PATTERN = re.compile(
     r"""
@@ -68,20 +92,82 @@ _COMPARISON_PATTERN = re.compile(
     | \bagainst\b | \bhead[\s-]to[\s-]head\b | \bbetter\s+than\b
     | \bworse\s+than\b | \bstronger\s+than\b | \bweaker\s+than\b
     | \boutperform | \bunderperform | \brelative\s+to\b
-    | \bor\b(?=\s+(?:[A-Z]{1,5}\b))  # "AAPL or MSFT"
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+
+# Words that appear around "or" in single-company questions ("buy or sell", "stocks or bonds")
+_NON_COMPANY_OR_WORDS = {
+    "buy", "sell", "hold", "keep", "wait", "short", "long", "trim", "add", "invest", "exit", "stay", "avoid",
+    "accumulate", "dump", "not", "no", "yes", "the", "a", "an", "this", "that", "it", "them", "now", "later",
+    "today", "tomorrow", "never", "ever", "more", "less", "both", "either", "neither", "so", "also", "up",
+    "down", "higher", "lower", "better", "worse", "good", "bad", "overvalued", "undervalued", "cheap",
+    "expensive", "risky", "safe", "bullish", "bearish", "growth", "value", "stock", "stocks", "share",
+    "shares", "bond", "bonds", "cash", "gold", "annual", "quarterly", "monthly", "yearly", "revenue",
+    "profit", "profits", "earnings", "income", "debt", "equity", "dividend", "dividends", "margin",
+    "margins", "loss", "losses", "gain", "gains", "increase", "decrease", "rise", "fall", "drop",
+}  # fmt: skip
+
+# "AAPL or MSFT", "Tesla or Ford", "TSLA or F": a capitalized word after "or"
+_OR_OPERAND_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Za-z0-9]*(?:/[A-Z][A-Za-z0-9]*)*)")
+
+# "tesla or ford", "nvda or amd": lowercase word pairs around "or" (letters only, so no "q1 or q2")
+_LOWERCASE_OR_PAIR_PATTERN = re.compile(r"\b([A-Za-z]{2,})\s+or\s+([a-z]{2,})\b")
+
+# Ticker-like token; "X/Y" (e.g. "P/E") is captured as one token
+_TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{0,5}(?:/[A-Z][A-Z0-9]{0,5})*\b")
+
+# References to the ticker the user is viewing ("compare it with MSFT")
+_CONTEXTUAL_REFERENCE_PATTERN = re.compile(
+    r"\b(?:this|it|its|that|these|the\s+company|the\s+current\s+one|the\s+one\s+i'?m\s+viewing)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_ticker_like(token: str) -> bool:
+    upper = token.upper()
+    return 1 < len(token) <= 5 and upper not in TICKER_STOPWORDS and upper not in FINANCE_ACRONYM_STOPWORDS
+
+
+def _is_or_operand(token: str) -> bool:
+    """Company name or ticker after "or" (1-letter tickers like "F" allowed; "I", "EPS", "P/E" not)."""
+    upper = token.upper()
+    if upper in FINANCE_ACRONYM_STOPWORDS or any(p in FINANCE_ACRONYM_STOPWORDS for p in upper.split("/")):
+        return False
+    return upper != "I" and upper not in TICKER_STOPWORDS and token.lower() not in _NON_COMPANY_OR_WORDS
+
+
+def _is_lowercase_or_pair(left: str, right: str) -> bool:
+    """Both sides of "x or y" look like names/tickers, not verbs or finance terms."""
+    return all(_is_or_operand(word) for word in (left, right))
+
+
+def _ticker_like_tokens(question: str) -> list[str]:
+    tokens: list[str] = []
+    for token in _TICKER_LIKE_PATTERN.findall(question):
+        parts = token.split("/")
+        # Ratios like "P/E", "EV/EBITDA" are metrics, not tickers
+        if token.upper() in FINANCE_ACRONYM_STOPWORDS or any(p.upper() in FINANCE_ACRONYM_STOPWORDS for p in parts):
+            continue
+        # "AAPL/MSFT" still counts as two tickers
+        tokens.extend(part for part in parts if _is_ticker_like(part))
+    return tokens
 
 
 def _has_comparison_signals(question: str) -> bool:
     """Fast check: does the question contain comparison language or multiple ticker-like tokens?"""
     if _COMPARISON_PATTERN.search(question):
         return True
+    if any(_is_or_operand(m) for m in _OR_OPERAND_PATTERN.findall(question)):
+        return True
+    if any(_is_lowercase_or_pair(left, right) for left, right in _LOWERCASE_OR_PAIR_PATTERN.findall(question)):
+        return True
     # Multiple uppercase ticker-like tokens (e.g. "AAPL MSFT revenue")
-    ticker_like = re.findall(r"\b[A-Z][A-Z0-9]{0,4}\b", question)
-    ticker_like = [t for t in ticker_like if t not in TICKER_STOPWORDS]
-    return len(ticker_like) >= 2
+    return len(_ticker_like_tokens(question)) >= 2
+
+
+def _has_contextual_reference(question: str) -> bool:
+    return bool(_CONTEXTUAL_REFERENCE_PATTERN.search(question))
 
 
 class StockTickerExtractor:
@@ -153,9 +239,9 @@ Return ONLY the rewritten question, no explanation."""
                 logger.info("[ticker_extractor] No comparison signals — skipping extraction")
                 return []
 
-            # AI preprocessing if context provided
+            # AI preprocessing only when the question refers to the current ticker
             processed_question = question
-            if current_ticker:
+            if current_ticker and _has_contextual_reference(question):
                 processed_question = await self._preprocess_question_with_context(question, current_ticker)
                 if processed_question != question:
                     logger.info(f"Context resolved: '{question}' → '{processed_question}'")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -69,8 +69,14 @@ def _select_grounding(
     return _NO_DATA_DECLINE
 
 
-def _collect_answer_chunks(chunks) -> list[str]:
-    return [chunk for chunk in chunks if isinstance(chunk, str)]
+def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
+    """Lazily yield text chunks so each one streams as soon as the LLM produces it.
+
+    LLM generators yield ``str | dict`` (url_citation dicts); dicts are dropped.
+    """
+    for chunk in chunks:
+        if isinstance(chunk, str):
+            yield chunk
 
 
 def _build_prompt_debug_event(
@@ -249,7 +255,7 @@ Use short paragraphs and bullet points for readability.
             )
 
         agent = MultiAgent(model_name=preferred_model)
-        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources and not is_url_grounded:
@@ -470,7 +476,7 @@ Keep the answer under 150 words. Break into short paragraphs.
             )
 
         agent = MultiAgent(model_name=preferred_model)
-        for chunk in _collect_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
+        for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources and not is_url_grounded:
@@ -780,7 +786,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             )
 
         agent = MultiAgent(model_name=preferred_model)
-        for chunk in _collect_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
+        for chunk in _iter_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False)):
             yield {"type": "answer", "body": chunk}
 
         if retrieved_sources and not is_url_grounded:
