@@ -1,5 +1,6 @@
 """ETF data optimizer for efficient data fetching."""
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -47,7 +48,8 @@ class ETFDataOptimizer:
 
         # Fetch full DTO from database
         try:
-            etf_data = self.connector.get_by_ticker(ticker)
+            # Worker thread: the connector's DB read must not block the event loop.
+            etf_data = await asyncio.to_thread(self.connector.get_by_ticker, ticker)
 
             if not etf_data:
                 logger.warning(f"ETF not found in database: {ticker}")
