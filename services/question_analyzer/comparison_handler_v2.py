@@ -257,7 +257,7 @@ class CompanyComparisonHandlerV2:
 
             yield {"type": "model_used", "body": agent.model_name}
 
-            # v1 provenance event preserved alongside v2 sources
+            # data_sources provenance event (DB vs training data per ticker) alongside the Brave sources
             yield {
                 "type": "data_sources",
                 "body": [{"name": c.ticker, "source": c.data_source} for c in companies_data],

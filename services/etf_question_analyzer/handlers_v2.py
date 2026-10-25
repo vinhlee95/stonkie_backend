@@ -297,7 +297,7 @@ class ETFOverviewHandlerV2(_ETFHandlerV2Base):
             f"Loading {etf_label} fund data...", phase=AnalysisPhase.DATA_FETCH, step=3, total_steps=4
         )
 
-        # v1 rule: missing core metadata forces search, overriding the router's search-off.
+        # Missing core metadata forces search, overriding the router's search-off.
         data_complete = bool(etf_data and etf_data.name and etf_data.ter_percent is not None and etf_data.fund_provider)
         if not data_complete:
             yield thinking_status(
@@ -373,7 +373,7 @@ class ETFDetailedAnalysisHandlerV2(_ETFHandlerV2Base):
                 step=4,
                 total_steps=total_steps,
             )
-        # v1 rule: any empty array forces search, overriding the router's search-off.
+        # Any empty array forces search, overriding the router's search-off.
         arrays_empty = not has_holdings or not has_sectors or not has_countries
 
         yield thinking_status(

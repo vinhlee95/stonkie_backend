@@ -128,7 +128,7 @@ class ETFAnalyzerV2:
         anon_user_id: Optional[str] = None,
         debug_prompt_context: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        # use_url_context is not supported for ETFs (v1 never ingested the URL either).
+        # use_url_context is not supported for ETFs.
         _ = (use_url_context, conversation_id, anon_user_id)
         langfuse = get_langfuse_client()
         if langfuse:
