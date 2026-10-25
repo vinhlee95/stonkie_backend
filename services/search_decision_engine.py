@@ -29,6 +29,11 @@ _STATIC_FACT_PATTERNS = [
 ]
 
 
+def is_static_fact(question: str) -> bool:
+    """Check if question matches known historical/static fact patterns."""
+    return any(p.search(question) for p in _STATIC_FACT_PATTERNS)
+
+
 @dataclass(frozen=True)
 class SearchDecision:
     use_google_search: bool
@@ -87,7 +92,7 @@ class SearchDecisionEngine:
             return decision
 
         # Fast path: skip search for obvious historical/static facts
-        if self._is_static_fact(question):
+        if is_static_fact(question):
             logger.info("SearchDecisionEngine fast path (keyword): static-fact pattern matched: %s", question[:80])
             decision = SearchDecision(
                 use_google_search=False,
@@ -125,11 +130,6 @@ class SearchDecisionEngine:
             )
             _log_search_decision_result(decision, ticker, is_etf)
             return decision
-
-    @staticmethod
-    def _is_static_fact(question: str) -> bool:
-        """Check if question matches known historical/static fact patterns."""
-        return any(p.search(question) for p in _STATIC_FACT_PATTERNS)
 
     def _classify_sync(
         self,
