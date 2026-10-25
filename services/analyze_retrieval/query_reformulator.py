@@ -131,3 +131,20 @@ class QueryReformulator:
             "queries": [q.strip() for q in queries[:_MAX_QUERIES]],
             "reasoning": obj.get("reasoning", ""),
         }
+
+
+class PrecomputedQueryReformulator:
+    """Drop-in for QueryReformulator when the queries were already written upstream (v2 QuestionRouter)."""
+
+    def __init__(self, queries: list[str], reasoning: str = "question_router"):
+        self._queries = [q for q in queries if q.strip()][:_MAX_QUERIES]
+        self._reasoning = reasoning
+
+    def reformulate(self, question: str, *, ticker: str, company_name: str) -> ReformulationResult:
+        if not self._queries:
+            return ReformulationResult(
+                queries=[build_company_aware_query(question, ticker=ticker, company_name=company_name)],
+                reasoning="",
+                used_fallback=True,
+            )
+        return ReformulationResult(queries=list(self._queries), reasoning=self._reasoning, used_fallback=False)

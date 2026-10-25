@@ -1,6 +1,14 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
-from services.analyze_retrieval.query_reformulator import QueryReformulator, ReformulationResult
+from services.analyze_retrieval.query_reformulator import (
+    PrecomputedQueryReformulator,
+    QueryReformulator,
+    ReformulationResult,
+)
+from services.analyze_retrieval.retrieval import retrieve_for_analyze
+from services.market_recap.schemas import Candidate
 
 
 class TestParseQueries:
@@ -127,3 +135,51 @@ class TestReformulateHappyPath:
 
         assert len(result.queries) == 2
         assert result.used_fallback is False
+
+
+class TestPrecomputedQueryReformulator:
+    def test_returns_given_queries_without_llm(self):
+        result = PrecomputedQueryReformulator(["q1", " ", "q2", "q3", "q4"]).reformulate(
+            "question", ticker="NVDA", company_name="NVIDIA"
+        )
+
+        assert result == ReformulationResult(
+            queries=["q1", "q2", "q3"], reasoning="question_router", used_fallback=False
+        )
+
+    def test_empty_queries_fall_back_to_company_aware_query(self):
+        result = PrecomputedQueryReformulator([]).reformulate("How is it doing?", ticker="NVDA", company_name="NVIDIA")
+
+        assert result.used_fallback is True
+        assert result.queries == ["NVIDIA NVDA How is NVIDIA doing?"]
+
+    def test_retrieval_searches_the_precomputed_queries_and_ranks_with_the_given_question(self):
+        searched: list[str] = []
+
+        class _Brave:
+            def search(self, *, query, country, search_lang, goggle, count=20, freshness=None):
+                searched.append(query)
+                return [
+                    Candidate(
+                        title=f"title {query}",
+                        url=f"https://www.reuters.com/{len(searched)}",
+                        snippet="snippet",
+                        published_date=datetime.now(UTC) - timedelta(days=1),
+                        raw_content="Nvidia data center revenue rose to $51 billion.",
+                        score=0.5,
+                        provider="brave",
+                    )
+                ]
+
+        result = retrieve_for_analyze(
+            question="How does Nvidia's data center revenue compare with AMD's?",
+            market="GLOBAL",
+            request_id="req-precomputed",
+            brave_client=_Brave(),
+            ticker="NVDA",
+            company_name="NVIDIA",
+            query_reformulator=PrecomputedQueryReformulator(["Nvidia data center revenue", "AMD data center revenue"]),
+        )
+
+        assert sorted(searched) == ["AMD data center revenue", "Nvidia data center revenue"]
+        assert result.reformulated_queries == ["Nvidia data center revenue", "AMD data center revenue"]

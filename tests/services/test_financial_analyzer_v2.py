@@ -7,6 +7,7 @@ import pytest
 
 from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import legacy_routing
 
 
 def _stub_financial_connector() -> MagicMock:
@@ -44,8 +45,9 @@ class _CapturingHandler:
         conversation_messages,
         request_id: str,
         debug_prompt_context: bool = False,
+        routing=None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        _ = debug_prompt_context
+        _ = (debug_prompt_context, routing)
         self.calls.append(
             {
                 "ticker": ticker,
@@ -73,6 +75,7 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
     )
     handler = _CapturingHandler()
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_FakeClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_general_handler=handler,
@@ -120,6 +123,7 @@ async def test_analyzer_v2_emits_v1_style_search_thinking_status_after_decide(us
     )
     handler = _CapturingHandler()
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_FakeClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_general_handler=handler,
@@ -154,6 +158,7 @@ async def test_analyzer_v2_emits_classifier_error_when_unclassified():
         decision_fallback="none",
     )
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_NoneClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_financial_connector=_stub_financial_connector(),
@@ -210,6 +215,7 @@ async def test_decide_receives_available_periods_and_metrics_for_valid_ticker():
     handler.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_Clf(),
         search_decision_engine=sd,
         company_general_handler=handler,
@@ -258,6 +264,7 @@ async def test_no_db_hint_fetch_when_ticker_is_none_placeholder():
     handler.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_Clf(),
         search_decision_engine=sd,
         company_general_handler=handler,
@@ -305,6 +312,7 @@ async def test_sec_url_in_question_forces_search_reason_and_emits_attachment_bef
     handler.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_Clf(),
         search_decision_engine=sd,
         company_general_handler=handler,
@@ -334,6 +342,7 @@ async def test_invalid_non_sec_pdf_url_returns_error_without_decide(_mock_valida
     sd = MagicMock()
     sd.decide = AsyncMock()
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         search_decision_engine=sd,
         company_financial_connector=_stub_financial_connector(),
     )
@@ -362,6 +371,7 @@ async def test_use_url_context_allows_non_pdf_url_to_reach_handler(_mock_validat
     )
     handler = _CapturingHandler()
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_FakeClassifier(),
         search_decision_engine=_FakeSearchDecisionEngine(decision),
         company_general_handler=handler,
@@ -401,6 +411,7 @@ async def test_valid_non_sec_pdf_short_circuits_through_pdf_handler(mock_ma_cls)
     company_connector.get_fundamental_data.return_value = None
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         search_decision_engine=sd,
         company_connector=company_connector,
         company_financial_connector=_stub_financial_connector(),
@@ -452,6 +463,7 @@ async def test_company_specific_handler_receives_available_metrics():
             return QuestionType.COMPANY_SPECIFIC_FINANCE.value, None
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_ClfSpec(),
         search_decision_engine=sd,
         company_specific_finance_handler=cs,
@@ -496,6 +508,7 @@ async def test_classifier_receives_raw_ticker_matching_v1():
     handler.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=_CapturingClf(),
         search_decision_engine=sd,
         company_general_handler=handler,

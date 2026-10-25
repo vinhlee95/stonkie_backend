@@ -33,6 +33,7 @@ from services.question_analyzer.handlers_v2 import (
     related_questions_result,
     start_related_questions,
 )
+from services.question_analyzer.router import RoutingResult
 from services.search_decision_engine import SearchDecision
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,12 @@ class CompanyComparisonHandlerV2:
         conversation_messages: Optional[List[Dict[str, str]]] = None,
         request_id: str = "request-unknown",
         debug_prompt_context: bool = False,
+        routing: Optional[RoutingResult] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        # The router's standalone question carries a follow-up's topic ("How does that compare with AMD?")
+        # into retrieval, and into the prompt when there is history to resolve.
+        retrieval_question = routing.standalone_question if routing is not None else question
+        prompt_question = retrieval_question if conversation_messages else question
         tickers_str = ", ".join(tickers)
         yield thinking_status(
             f"Loading financial data for {tickers_str}...",
@@ -175,7 +181,7 @@ class CompanyComparisonHandlerV2:
             coros = [
                 self._retrieve_one_ticker(
                     ticker=c.ticker,
-                    question=question,
+                    question=retrieval_question,
                     market=resolve_market(country_by_ticker.get(c.ticker), question),
                     request_id=request_id,
                     sem=sem,
@@ -216,7 +222,7 @@ class CompanyComparisonHandlerV2:
 
         builder_input = ComparisonCompanyBuilderInput(
             tickers=[c.ticker for c in companies_data],
-            question=question,
+            question=prompt_question,
             companies_data=companies_data,
             use_google_search=use_google_search,
             short_analysis=short_analysis,

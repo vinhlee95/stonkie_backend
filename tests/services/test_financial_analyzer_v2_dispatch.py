@@ -8,6 +8,7 @@ from ai_models.model_name import ModelName
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.question_analyzer.types import QuestionType
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import legacy_routing
 
 
 def _decision() -> SearchDecision:
@@ -44,6 +45,7 @@ def _make_analyzer(*, classification: str | None, comparison_tickers: list[str] 
     comparison.handle = MagicMock(return_value=_gen())
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=classifier,
         search_decision_engine=sd_engine,
         company_financial_connector=fin_conn,

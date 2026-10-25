@@ -23,8 +23,10 @@ from services.question_analyzer.handlers_v2 import (
     CompanySpecificFinanceHandlerV2,
     GeneralFinanceHandlerV2,
 )
+from services.question_analyzer.router import QuestionRouter, RoutingResult, apply_fast_paths
+from services.question_analyzer.ticker_extractor import StockTickerExtractor
 from services.question_analyzer.types import QuestionType
-from services.search_decision_engine import SearchDecisionEngine
+from services.search_decision_engine import SearchDecision, SearchDecisionEngine
 from utils.chat_prompt import extract_answer_text
 from utils.url_helper import extract_first_url, is_sec_filing_url, strip_url_from_text, validate_pdf_url
 
@@ -44,9 +46,13 @@ class FinancialAnalyzerV2:
         general_finance_handler: Optional[GeneralFinanceHandlerV2] = None,
         company_specific_finance_handler: Optional[CompanySpecificFinanceHandlerV2] = None,
         comparison_handler: Optional[CompanyComparisonHandlerV2] = None,
+        router: Optional[QuestionRouter] = None,
+        ticker_extractor: Optional[StockTickerExtractor] = None,
     ):
         self.classifier = classifier or QuestionClassifier()
         self.search_decision_engine = search_decision_engine or SearchDecisionEngine()
+        self.router = router or QuestionRouter()
+        self.ticker_extractor = ticker_extractor or StockTickerExtractor()
         self.company_connector = company_connector or CompanyConnector()
         self.company_financial_connector = company_financial_connector or CompanyFinancialConnector()
         self.company_general_handler = company_general_handler or CompanyGeneralHandlerV2()
@@ -138,6 +144,74 @@ class FinancialAnalyzerV2:
             logger.error("Error handling PDF URL question: %s", e)
             yield {"type": "answer", "body": "❌ Error analyzing document. Please try again later."}
 
+    async def _route(
+        self,
+        *,
+        question: str,
+        ticker: str,
+        normalized_ticker: str,
+        conversation_messages: Optional[List[Dict[str, str]]],
+        available_periods: dict[str, list] | None,
+        available_metrics: list[str] | None,
+        force_google_search_reason: str | None,
+    ) -> tuple[Optional[str], Optional[list[str]], SearchDecision, Optional[RoutingResult]]:
+        """One router LLM call, concurrent with the regex-gated comparison pre-check.
+
+        Returns (classification, comparison_tickers, search_decision, routing). routing is None when the
+        router failed and the legacy calls (classifier + search decision engine) decided instead.
+        """
+        router_task = asyncio.ensure_future(
+            self.router.route(
+                question=question,
+                ticker=normalized_ticker,
+                conversation_messages=conversation_messages,
+                available_periods=available_periods,
+                available_metrics=available_metrics,
+            )
+        )
+        try:
+            # Let the router hand its LLM call to a worker thread before the extractor (sync LLM calls) runs.
+            await asyncio.sleep(0)
+            comparison_tickers: list[str] = []
+            try:
+                comparison_tickers = await self.ticker_extractor.extract_tickers(question, current_ticker=ticker)
+            except Exception as e:
+                logger.error("Error in ticker extraction, continuing without comparison: %s", e)
+            routing = await router_task
+        except BaseException:
+            router_task.cancel()
+            raise
+
+        is_comparison = len(comparison_tickers) >= 2
+        if routing is not None and not is_comparison and routing.question_type == QuestionType.COMPANY_COMPARISON.value:
+            # Comparisons need the extractor's 2+ resolved tickers (legacy rule); let the legacy calls decide.
+            logger.info(
+                "Router said comparison but the ticker extractor found %s; using legacy routing", comparison_tickers
+            )
+            routing = None
+
+        if routing is None:
+            decide_coro = self.search_decision_engine.decide(
+                question=question,
+                ticker=normalized_ticker,
+                is_etf=False,
+                force_google_search_reason=force_google_search_reason,
+                available_periods=available_periods,
+                available_metrics=available_metrics,
+            )
+            if is_comparison:
+                return QuestionType.COMPANY_COMPARISON.value, comparison_tickers, await decide_coro, None
+            decision, (classification, legacy_tickers) = await asyncio.gather(
+                decide_coro,
+                self.classifier.classify_question_type(question, ticker, conversation_messages=conversation_messages),
+            )
+            return classification, legacy_tickers, decision, None
+
+        routing = apply_fast_paths(routing, question=question, force_google_search_reason=force_google_search_reason)
+        if is_comparison:
+            return QuestionType.COMPANY_COMPARISON.value, comparison_tickers, routing.search_decision, routing
+        return routing.question_type, None, routing.search_decision, routing
+
     @observe(
         name="financial_analyzer_v2.analyze_question",
         as_type="generation",
@@ -199,8 +273,10 @@ class FinancialAnalyzerV2:
         available_metrics: list[str] | None = None
         if normalized_ticker and normalized_ticker != "none":
             try:
-                available_periods = self.company_financial_connector.get_available_periods(normalized_ticker)
-                available_metrics = self.company_financial_connector.get_available_metrics(normalized_ticker)
+                available_periods, available_metrics = await asyncio.gather(
+                    asyncio.to_thread(self.company_financial_connector.get_available_periods, normalized_ticker),
+                    asyncio.to_thread(self.company_financial_connector.get_available_metrics, normalized_ticker),
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to fetch available periods/metrics for %s: %s",
@@ -208,19 +284,15 @@ class FinancialAnalyzerV2:
                     e,
                 )
 
-        decision_coro = self.search_decision_engine.decide(
+        classification, comparison_tickers, decision, routing = await self._route(
             question=question,
-            ticker=normalized_ticker,
-            is_etf=False,
-            force_google_search_reason=force_google_search_reason,
+            ticker=ticker,
+            normalized_ticker=normalized_ticker,
+            conversation_messages=conversation_messages,
             available_periods=available_periods,
             available_metrics=available_metrics,
+            force_google_search_reason=force_google_search_reason,
         )
-        classify_coro = self.classifier.classify_question_type(
-            question, ticker, conversation_messages=conversation_messages
-        )
-        decision, classify_result = await asyncio.gather(decision_coro, classify_coro)
-        classification, comparison_tickers = classify_result
 
         status_ticker = normalized_ticker if normalized_ticker != "none" else None
         if decision.use_google_search:
@@ -249,6 +321,7 @@ class FinancialAnalyzerV2:
                 conversation_messages=conversation_messages,
                 request_id=request_id,
                 debug_prompt_context=debug_prompt_context,
+                routing=routing,
             )
         elif classification == QuestionType.GENERAL_FINANCE.value:
             iterator = self.general_finance_handler.handle(
@@ -259,6 +332,7 @@ class FinancialAnalyzerV2:
                 conversation_messages=conversation_messages,
                 request_id=request_id,
                 debug_prompt_context=debug_prompt_context,
+                routing=routing,
             )
         elif classification == QuestionType.COMPANY_SPECIFIC_FINANCE.value:
             iterator = self.company_specific_finance_handler.handle(
@@ -272,6 +346,7 @@ class FinancialAnalyzerV2:
                 available_metrics=available_metrics,
                 request_id=request_id,
                 debug_prompt_context=debug_prompt_context,
+                routing=routing,
             )
         elif classification == QuestionType.COMPANY_COMPARISON.value:
             iterator = self.comparison_handler.handle(
@@ -283,6 +358,7 @@ class FinancialAnalyzerV2:
                 conversation_messages=conversation_messages,
                 request_id=request_id,
                 debug_prompt_context=debug_prompt_context,
+                routing=routing,
             )
         else:
             yield {"type": "answer", "body": f"❌ Unsupported question type: {classification}"}

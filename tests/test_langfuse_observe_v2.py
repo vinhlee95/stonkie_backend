@@ -7,6 +7,7 @@ import pytest
 
 from services.financial_analyzer_v2 import FinancialAnalyzerV2
 from services.search_decision_engine import SearchDecision
+from tests.services.routing_fakes import legacy_routing
 from utils.chat_prompt import extract_answer_text
 
 
@@ -44,6 +45,7 @@ def _make_analyzer(classification="company-general", handler_chunks=None):
     handler_mock.handle = fake_handler
 
     analyzer = FinancialAnalyzerV2(
+        **legacy_routing(),
         classifier=classifier,
         search_decision_engine=search_engine,
         company_financial_connector=company_financial_connector,
