@@ -27,6 +27,15 @@ from services.question_analyzer.ticker_extractor import (
         ("Is EPS or P/E a better metric?", False),
         ("Should I buy now or I wait?", False),
         ("Should I hold or sell Tesla?", False),
+        # Capitalized common words after "or" are not companies; neither is a leading "Or"
+        ("Should I buy or Sell Apple?", False),
+        ("Is it overvalued or Undervalued?", False),
+        ("Or should I wait?", False),
+        # Lowercase pairs that aren't companies
+        ("should i hold or sell?", False),
+        ("stocks or bonds?", False),
+        ("Is annual or quarterly revenue better?", False),
+        ("q1 or q2?", False),
         # Real comparisons still detected
         ("AAPL or MSFT?", True),
         ("Buy AAPL or MSFT", True),
@@ -35,6 +44,12 @@ from services.question_analyzer.ticker_extractor import (
         ("Is Apple or Microsoft the better buy?", True),
         ("TSLA or F", True),
         ("VZ or T?", True),
+        ("AAPL OR MSFT", True),
+        # Lowercase tickers / names (chat and mobile input)
+        ("tesla or ford?", True),
+        ("should i buy nvda or amd", True),
+        ("aapl or msft?", True),
+        ("Tesla or ford?", True),
         ("Compare Apple vs Microsoft", True),
         ("Is Tesla overvalued compared to Ford?", True),
         ("AAPL MSFT revenue", True),
@@ -95,7 +110,18 @@ async def test_comparison_without_contextual_reference_skips_preprocess(extracto
 
 
 @pytest.mark.asyncio
-async def test_comparison_with_contextual_reference_preprocesses(extractor):
-    await extractor.extract_tickers("How does it compare to GOOGL?", current_ticker="AAPL")
+async def test_comparison_with_contextual_reference_uses_rewritten_question(extractor):
+    extractor._preprocess_question_with_context.side_effect = lambda _q, _t: "How does AAPL compare to GOOGL?"
+
+    tickers = await extractor.extract_tickers("How does it compare to GOOGL?", current_ticker="AAPL")
 
     extractor._preprocess_question_with_context.assert_awaited_once_with("How does it compare to GOOGL?", "AAPL")
+    assert tickers == ["AAPL", "GOOGL"]
+    extractor.agent.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_contextual_reference_without_current_ticker_skips_preprocess(extractor):
+    await extractor.extract_tickers("How does it compare to GOOGL?", current_ticker=None)
+
+    extractor._preprocess_question_with_context.assert_not_called()

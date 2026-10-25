@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ai_models.model_name import ModelName
-from services.question_analyzer.handlers_v2 import _iter_answer_chunks
+from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
+from services.question_analyzer.handlers_v2 import (
+    CompanyGeneralHandlerV2,
+    CompanySpecificFinanceHandlerV2,
+    GeneralFinanceHandlerV2,
+    _iter_answer_chunks,
+)
+from services.question_analyzer.types import FinancialDataRequirement
 from services.search_decision_engine import SearchDecision
 
 _CITATION = {"type": "url_citation", "url": "https://example.com/a", "title": "a"}
@@ -48,14 +56,63 @@ async def _no_related(*_a, **_k):
         yield {}
 
 
-async def _collect_with_pull_count(handler_events, stream: _RecordingStream):
-    events: list[dict] = []
-    pulled_at_first_answer = None
-    async for event in handler_events:
-        if event["type"] == "answer" and pulled_at_first_answer is None:
-            pulled_at_first_answer = stream.pulled
-        events.append(event)
-    return events, pulled_at_first_answer
+def _company_connector() -> MagicMock:
+    connector = MagicMock()
+    connector.get_by_ticker.return_value = SimpleNamespace(name="Apple Inc.", country="United States")
+    connector.get_fundamental_data.return_value = SimpleNamespace(
+        name="Apple Inc.",
+        sector="Technology",
+        industry="Consumer Electronics",
+        market_cap=1_000_000,
+        pe_ratio=25.0,
+        basic_eps=6.0,
+        revenue=500_000,
+        net_income=100_000,
+        dividend_yield=0.5,
+    )
+    return connector
+
+
+def _general_finance():
+    handler = GeneralFinanceHandlerV2()
+    kwargs = dict(question="What is a P/E ratio?", use_url_context=False, conversation_messages=None)
+    return handler, kwargs
+
+
+def _company_general():
+    handler = CompanyGeneralHandlerV2(company_connector=_company_connector())
+    kwargs = dict(ticker="AAPL", question="What does Apple do?", use_url_context=False, conversation_messages=None)
+    return handler, kwargs
+
+
+def _company_specific():
+    classifier = MagicMock()
+    classifier.classify_data_and_period_requirement = AsyncMock(
+        return_value=(FinancialDataRequirement.BASIC, None, None)
+    )
+    optimizer = MagicMock()
+    optimizer.fetch_optimized_data = AsyncMock(return_value=({"Name": "Apple Inc."}, [], []))
+    handler = CompanySpecificFinanceHandlerV2(
+        company_connector=_company_connector(), classifier=classifier, data_optimizer=optimizer
+    )
+    kwargs = dict(ticker="AAPL", question="What's Apple's revenue?", use_url_context=False, conversation_messages=None)
+    return handler, kwargs
+
+
+def _comparison():
+    financial_connector = MagicMock()
+    financial_connector.get_company_quarterly_financial_statements_recent.return_value = []
+    handler = CompanyComparisonHandlerV2(
+        company_connector=_company_connector(), financial_connector=financial_connector
+    )
+    kwargs = dict(
+        tickers=["AAPL", "MSFT"],
+        question="AAPL or MSFT?",
+        short_analysis=True,
+        conversation_messages=None,
+        request_id="rq",
+    )
+    return handler, kwargs
 
 
 def test_iter_answer_chunks_is_lazy_and_skips_dicts():
@@ -70,70 +127,36 @@ def test_iter_answer_chunks_is_lazy_and_skips_dicts():
 
 
 @pytest.mark.asyncio
-@patch("services.question_analyzer.handlers_v2.MultiAgent")
-async def test_general_finance_handler_streams_first_chunk_before_generation_ends(mock_multi_agent_cls):
-    from services.question_analyzer.handlers_v2 import GeneralFinanceHandlerV2
-
-    stream = _RecordingStream(["P/E ", _CITATION, "is price ", "over earnings"])
-    mock_multi_agent_cls.return_value = _fake_agent(stream)
-
-    handler = GeneralFinanceHandlerV2()
-    handler._generate_related_questions = _no_related  # type: ignore[attr-defined]
-
-    events, pulled_at_first_answer = await _collect_with_pull_count(
-        handler.handle(
-            question="What is a P/E ratio?",
-            search_decision=_decision(False),
-            use_url_context=False,
-            preferred_model=ModelName.Auto,
-            conversation_messages=None,
-        ),
-        stream,
-    )
-
-    assert pulled_at_first_answer == 1
-    answers = [e["body"] for e in events if e["type"] == "answer"]
-    assert answers == ["P/E ", "is price ", "over earnings"]
-    types = [e["type"] for e in events]
-    last_answer = max(i for i, t in enumerate(types) if t == "answer")
-    assert types.index("model_used") > last_answer
-
-
-@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_handler",
+    [_general_finance, _company_general, _company_specific, _comparison],
+    ids=["general_finance", "company_general", "company_specific", "comparison"],
+)
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
-async def test_comparison_handler_streams_first_chunk_before_generation_ends(mock_multi_agent_cls, mock_retrieve):
-    from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
-    from services.question_analyzer.context_builders.comparison_builder import CompanyComparisonData
+@patch("services.question_analyzer.handlers_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+async def test_handler_streams_first_chunk_before_generation_ends(
+    mock_agent_cls, mock_retrieve, mock_cmp_agent_cls, mock_cmp_retrieve, make_handler
+):
+    stream = _RecordingStream(["First ", _CITATION, "second ", "third"])
+    mock_agent_cls.return_value = _fake_agent(stream)
+    mock_cmp_agent_cls.return_value = _fake_agent(stream)
 
-    stream = _RecordingStream(["AAPL ", _CITATION, "vs MSFT"])
-    mock_multi_agent_cls.return_value = _fake_agent(stream)
-
-    handler = CompanyComparisonHandlerV2()
-
-    async def fake_fetch(self_, tickers_arg):
-        return [CompanyComparisonData(ticker=t, data_source="database") for t in tickers_arg]
-
-    handler._fetch_companies_parallel = fake_fetch.__get__(handler, type(handler))
+    handler, kwargs = make_handler()
     handler._generate_related_questions = _no_related  # type: ignore[attr-defined]
 
-    events, pulled_at_first_answer = await _collect_with_pull_count(
-        handler.handle(
-            tickers=["AAPL", "MSFT"],
-            question="AAPL or MSFT?",
-            search_decision=_decision(False),
-            short_analysis=True,
-            preferred_model=ModelName.Auto,
-            conversation_messages=None,
-            request_id="rq",
-        ),
-        stream,
-    )
+    events: list[dict] = []
+    pulled_at_first_answer = None
+    async for event in handler.handle(search_decision=_decision(False), preferred_model=ModelName.Auto, **kwargs):
+        if event["type"] == "answer" and pulled_at_first_answer is None:
+            pulled_at_first_answer = stream.pulled
+        events.append(event)
 
     mock_retrieve.assert_not_called()
+    mock_cmp_retrieve.assert_not_called()
     assert pulled_at_first_answer == 1
-    answers = [e["body"] for e in events if e["type"] == "answer"]
-    assert answers == ["AAPL ", "vs MSFT"]
+    assert [e["body"] for e in events if e["type"] == "answer"] == ["First ", "second ", "third"]
     types = [e["type"] for e in events]
     last_answer = max(i for i, t in enumerate(types) if t == "answer")
     assert types.index("model_used") > last_answer

@@ -96,9 +96,23 @@ _COMPARISON_PATTERN = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# "AAPL or MSFT", "Tesla or Ford", "TSLA or F": the word after "or" must start uppercase,
-# so "or sell" / "or not" don't match
+# Words that appear around "or" in single-company questions ("buy or sell", "stocks or bonds")
+_NON_COMPANY_OR_WORDS = {
+    "buy", "sell", "hold", "keep", "wait", "short", "long", "trim", "add", "invest", "exit", "stay", "avoid",
+    "accumulate", "dump", "not", "no", "yes", "the", "a", "an", "this", "that", "it", "them", "now", "later",
+    "today", "tomorrow", "never", "ever", "more", "less", "both", "either", "neither", "so", "also", "up",
+    "down", "higher", "lower", "better", "worse", "good", "bad", "overvalued", "undervalued", "cheap",
+    "expensive", "risky", "safe", "bullish", "bearish", "growth", "value", "stock", "stocks", "share",
+    "shares", "bond", "bonds", "cash", "gold", "annual", "quarterly", "monthly", "yearly", "revenue",
+    "profit", "profits", "earnings", "income", "debt", "equity", "dividend", "dividends", "margin",
+    "margins", "loss", "losses", "gain", "gains", "increase", "decrease", "rise", "fall", "drop",
+}  # fmt: skip
+
+# "AAPL or MSFT", "Tesla or Ford", "TSLA or F": a capitalized word after "or"
 _OR_OPERAND_PATTERN = re.compile(r"\b(?i:or)\s+([A-Z][A-Za-z0-9]*(?:/[A-Z][A-Za-z0-9]*)*)")
+
+# "tesla or ford", "nvda or amd": lowercase word pairs around "or" (letters only, so no "q1 or q2")
+_LOWERCASE_OR_PAIR_PATTERN = re.compile(r"\b([A-Za-z]{2,})\s+or\s+([a-z]{2,})\b")
 
 # Ticker-like token; "X/Y" (e.g. "P/E") is captured as one token
 _TICKER_LIKE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{0,5}(?:/[A-Z][A-Z0-9]{0,5})*\b")
@@ -120,7 +134,12 @@ def _is_or_operand(token: str) -> bool:
     upper = token.upper()
     if upper in FINANCE_ACRONYM_STOPWORDS or any(p in FINANCE_ACRONYM_STOPWORDS for p in upper.split("/")):
         return False
-    return upper != "I" and upper not in TICKER_STOPWORDS
+    return upper != "I" and upper not in TICKER_STOPWORDS and token.lower() not in _NON_COMPANY_OR_WORDS
+
+
+def _is_lowercase_or_pair(left: str, right: str) -> bool:
+    """Both sides of "x or y" look like names/tickers, not verbs or finance terms."""
+    return all(_is_or_operand(word) for word in (left, right))
 
 
 def _ticker_like_tokens(question: str) -> list[str]:
@@ -140,6 +159,8 @@ def _has_comparison_signals(question: str) -> bool:
     if _COMPARISON_PATTERN.search(question):
         return True
     if any(_is_or_operand(m) for m in _OR_OPERAND_PATTERN.findall(question)):
+        return True
+    if any(_is_lowercase_or_pair(left, right) for left, right in _LOWERCASE_OR_PAIR_PATTERN.findall(question)):
         return True
     # Multiple uppercase ticker-like tokens (e.g. "AAPL MSFT revenue")
     return len(_ticker_like_tokens(question)) >= 2
