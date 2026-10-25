@@ -48,7 +48,9 @@ class ETFAnalyzerV2:
         overview_handler: Optional[ETFOverviewHandlerV2] = None,
         detailed_handler: Optional[ETFDetailedAnalysisHandlerV2] = None,
         comparison_handler: Optional[ETFComparisonHandlerV2] = None,
+        extractor_timeout_seconds: float = 5.0,
     ):
+        self.extractor_timeout_seconds = extractor_timeout_seconds
         self.router = router or QuestionRouter()
         self.ticker_extractor = ticker_extractor or ETFTickerExtractor()
         self.data_optimizer = data_optimizer or ETFDataOptimizer()
@@ -84,8 +86,14 @@ class ETFAnalyzerV2:
             await asyncio.sleep(0)
             comparison_tickers: list[str] = []
             try:
-                comparison_tickers = await self.ticker_extractor.extract_tickers(
-                    question, current_ticker=ticker or None
+                comparison_tickers = await asyncio.wait_for(
+                    self.ticker_extractor.extract_tickers(question, current_ticker=ticker or None),
+                    timeout=self.extractor_timeout_seconds,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "ETF ticker extraction timed out after %.1fs, continuing without comparison",
+                    self.extractor_timeout_seconds,
                 )
             except Exception as e:
                 logger.error("Error in ETF ticker extraction, continuing without comparison: %s", e)

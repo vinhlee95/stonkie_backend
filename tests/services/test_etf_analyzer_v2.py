@@ -266,3 +266,34 @@ async def test_extracted_tickers_are_deduplicated_in_order_before_comparison():
     await _events(analyzer, question="Is it cheaper than CSPX, and does it hold more Apple?")
     assert _called(handlers) == ["comparison"]
     assert handlers["comparison"].calls[0]["tickers"] == ["SXR8", "CSPX"]
+
+
+@pytest.mark.asyncio
+async def test_hung_extractor_times_out_and_continues_without_comparison():
+    class _Hung(FakeTickerExtractor):
+        async def extract_tickers(self, question, current_ticker=None):
+            await asyncio.sleep(10)
+            return ["SXR8", "VUSA"]
+
+    handlers = {name: FakeHandler(name) for name in ("general", "overview", "detailed", "comparison")}
+    analyzer = ETFAnalyzerV2(
+        router=FakeETFRouter(_routing()),
+        ticker_extractor=_Hung(),
+        data_optimizer=FakeDataOptimizer(),
+        general_handler=handlers["general"],
+        overview_handler=handlers["overview"],
+        detailed_handler=handlers["detailed"],
+        comparison_handler=handlers["comparison"],
+        extractor_timeout_seconds=0.05,
+    )
+
+    start = asyncio.get_running_loop().time()
+    await _events(analyzer, question="SXR8 vs VUSA")
+    assert asyncio.get_running_loop().time() - start < 1.0
+    assert _called(handlers) == ["overview"]
+    assert handlers["overview"].calls[0]["routing"] == _routing()
+
+
+def test_extractor_timeout_defaults_to_five_seconds():
+    analyzer, _ = _analyzer()
+    assert analyzer.extractor_timeout_seconds == 5.0
