@@ -57,9 +57,14 @@ def _etf_search_queries(routing: ETFRoutingResult, *, ticker: str | None, etf_na
     (router search off but the handler forces search, or default routing after a router failure)."""
     if routing.search_queries:
         return list(routing.search_queries)
+    return [_fund_query(routing.standalone_question, ticker=ticker, etf_name=etf_name)]
+
+
+def _fund_query(question: str, *, ticker: str | None, etf_name: str | None) -> str:
+    """Search query naming the fund (name + ticker, or the ticker alone when the fund isn't in the DB)."""
     if etf_name:
-        return [build_company_aware_query(routing.standalone_question, ticker=ticker, company_name=etf_name)]
-    return [build_company_aware_query(routing.standalone_question, company_name=ticker)]
+        return build_company_aware_query(question, ticker=ticker, company_name=etf_name)
+    return build_company_aware_query(question, company_name=ticker)
 
 
 def _conversation_context(
@@ -90,16 +95,16 @@ class _ETFHandlerV2Base:
 
     def _retrieve(
         self,
-        routing: ETFRoutingResult,
+        question: str,
         queries: list[str],
         *,
         ticker: str | None,
         etf_name: str | None,
         request_id: str,
     ) -> AnalyzeRetrievalResult:
-        """Brave retrieval with the ETF source policy. Blocking: run in a worker thread."""
+        """Brave retrieval with the ETF source policy (no reformulator LLM call). Blocking: run in a worker thread."""
         return self._retriever(
-            question=routing.standalone_question,
+            question=question,
             market=_ETF_MARKET,
             request_id=request_id,
             brave_client=self._brave_client or BraveClient(api_key=os.getenv("BRAVE_API_KEY", "")),
@@ -130,7 +135,7 @@ class _ETFHandlerV2Base:
             yield _searching_status(queries[0])
             retrieval_result = await asyncio.to_thread(
                 self._retrieve,
-                routing,
+                routing.standalone_question,
                 queries,
                 ticker=ticker,
                 etf_name=etf_name,
