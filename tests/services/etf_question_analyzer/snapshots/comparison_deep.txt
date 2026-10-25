@@ -1,0 +1,71 @@
+
+            Today's date is May 15, 2026. Current year is 2026. Current (in-progress) quarter is 2026-Q2; most recently completed reporting quarter is approximately 2026-Q1. When the user uses temporal words like "recently", "lately", "latest", "most recent", "current", "this quarter", "last quarter" WITHOUT specifying a year or quarter, they mean the most recently completed quarter (2026-Q1 or newer if available), NOT the prior full fiscal year. Prefer quarterly data at the latest available period. When the user says "this year" or "year to date", they mean 2026, not 2025. Unless the user explicitly asks for historical periods, only use data from 2026 or 2025. If fresh numeric ETF data cannot be verified, provide a qualitative best-effort answer and state the limitation.
+            # ETF Comparison Analysis
+
+            ## ETFs to Compare
+
+            ### 1. **iShares Core S&P 500 UCITS ETF**
+- **Ticker:** SXR8
+- **ISIN:** IE00B5BMR087
+- **Key Metrics:** TER: 0.07% | Fund Size: $114.60B | Holdings: 2
+- **Provider:** iShares
+- **Index:** S&P 500
+- **Top Holdings:** NVIDIA (7.38%), Apple (6.9%)
+- **Diversification:** Technology (33.1%)
+- **Geographic Focus:** United States (99.5%)
+
+### 2. **Vanguard S&P 500 UCITS ETF**
+- **Ticker:** VUSA
+- **ISIN:** IE00B5BMR087
+- **Key Metrics:** TER: 0.07% | Fund Size: $114.60B | Holdings: 2
+- **Provider:** Vanguard
+- **Index:** S&P 500
+- **Top Holdings:** NVIDIA (7.38%), Apple (6.9%)
+- **Diversification:** Technology (33.1%)
+- **Geographic Focus:** United States (99.5%)
+
+            ## User Question
+
+            "Compare SXR8 vs VUSA"
+
+            
+            ## Instructions
+
+            Create a comprehensive side-by-side comparison of these ETFs.
+
+            **Comparison Aspects:**
+            - **Cost Analysis:** Compare TER, fund size, and cost efficiency
+            - **Holdings Analysis:** Compare top holdings, concentration risk, overlap
+            - **Sector/Country Allocation:** Compare diversification strategies
+            - **All Other Relevant Factors:** Based on the specific question
+
+            **Formatting Guidelines:**
+            - Use markdown tables for side-by-side comparison
+            - Highlight key differences and similarities
+            - Provide clear recommendations if asked
+            - Calculate metrics (e.g., top 10 holdings concentration, sector overlap)
+
+            **Example Table Format:**
+            | ETF | Ticker | TER | Fund Size | Top Holding |
+            |-----|--------|-----|-----------|-------------|
+            | Name 1 | XXX | 0.07% | $50B | Company A (7%) |
+            | Name 2 | YYY | 0.09% | $30B | Company B (6%) |
+        
+
+            
+            **CRITICAL - Source Citation:**
+            - Freshness rule: unless user explicitly asks historical data, avoid citing years older than current year - 1
+            - NEVER write source names, document titles, or citation text inline in your paragraphs (not at sentence end, not in parentheses).
+              Citations must appear only in the designated line: Sources: [Name](URL) or Sources: ETF Fundamental Data
+            - ALWAYS cite sources at the end on their own line: Sources: [Name](URL)
+            - For database ETF data: "Sources: ETF Fundamental Data"
+            - For Google Search results: cite specific URLs
+            - NEVER fabricate information - if data missing, state clearly and search online
+
+            Do NOT do this (wrong — redundant inline name before Sources line):
+            VOO tracks the S&P 500. Vanguard fund factsheet
+            Sources: [VOO fund factsheet](https://...)
+
+            Correct: end the paragraph without naming the source in prose, then the Sources line only.
+        
+        

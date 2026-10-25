@@ -1,0 +1,129 @@
+
+            Today's date is May 15, 2026. Current year is 2026. Current (in-progress) quarter is 2026-Q2; most recently completed reporting quarter is approximately 2026-Q1. When the user uses temporal words like "recently", "lately", "latest", "most recent", "current", "this quarter", "last quarter" WITHOUT specifying a year or quarter, they mean the most recently completed quarter (2026-Q1 or newer if available), NOT the prior full fiscal year. Prefer quarterly data at the latest available period. When the user says "this year" or "year to date", they mean 2026, not 2025. Unless the user explicitly asks for historical periods, only use data from 2026 or 2025. If fresh numeric ETF data cannot be verified, provide a qualitative best-effort answer and state the limitation.
+            # ETF Comparison Analysis
+
+            ## ETFs to Compare
+
+            ### 1. **iShares Core S&P 500 UCITS ETF**
+- **Ticker:** SXR8
+- **Key Metrics:** TER: 0.07% | Fund Size: $114.60B
+- **Provider:** iShares
+- **Top Holdings:** NVIDIA (7.38%), Apple (6.9%)
+- **Diversification:** Technology (33.1%)
+- **Geographic Focus:** United States (99.5%)
+
+### 2. **Vanguard S&P 500 UCITS ETF**
+- **Ticker:** VUSA
+- **Key Metrics:** TER: 0.07% | Fund Size: $114.60B
+- **Provider:** Vanguard
+- **Top Holdings:** NVIDIA (7.38%), Apple (6.9%)
+- **Diversification:** Technology (33.1%)
+- **Geographic Focus:** United States (99.5%)
+
+            ## User Question
+
+            "Compare SXR8 vs VUSA"
+
+            
+            ## Instructions
+
+            Analyze the ETF comparison and organize your findings into multiple focused sections.
+
+            **ETF Comparison Table Format:**
+
+            Start with a vertical table showing key metrics side-by-side:
+
+            | Metric       | [ETF1 Full Name] | [ETF2 Full Name] | [ETF3 Full Name] | [ETF4 Full Name] |
+            |--------------|------------------|------------------|------------------|------------------|
+            | Provider     | ...              | ...              | ...              | ...              |
+            | TER          | X.XX%            | X.XX%            | ...              | ...              |
+            | Fund Size    | $XXB             | $XXB             | ...              | ...              |
+            | Top Holding  | Name (X.XX%)     | Name (X.XX%)     | ...              | ...              |
+            | Top Sector   | Name (X.XX%)     | Name (X.XX%)     | ...              | ...              |
+            | Top Country  | Name (X.XX%)     | Name (X.XX%)     | ...              | ...              |
+
+            
+            **Structure:**
+            - Follow up with 1-2 focused comparison sections, each covering a distinct aspect
+            - Each section should have a bold, descriptive heading: **Section Heading**, followed by a blank line before the content
+            - Keep each section to 2-3 sentences MAX (under 60 words) - concise but tell the story behind the numbers
+
+            **Section Guidelines:**
+            - Each section heading should be specific and descriptive (3-6 words). Section headings must be in separate lines and bolded.
+            - Add a new line after each section heading.
+            - Each section should compare a specific aspect across the ETFs
+            - Include concrete numbers, percentages, and metrics for comparison
+            - Highlight key differences and similarities
+            - Bold important figures and percentages for quick scanning
+            - Use the largest appropriate unit (e.g., "$1.5B" not "$1,500M")
+            - Make every word count - avoid filler phrases
+        
+
+            **Suggested Section Topics for ETF Comparisons (choose what's most relevant):**
+            - **Cost Efficiency** - TER comparison and cost implications
+            - **Fund Size & Liquidity** - Size differences and trading implications
+            - **Holdings Overlap** - Top holdings comparison and concentration
+            - **Geographic Diversification** - Country allocation differences
+            - **Sector Concentration** - Industry exposure differences
+            - **Investment Suitability** - Which ETF for which investor profile
+
+            **Example ETF Comparison Structure:**
+
+            | Metric | SXR8 | SPYY |
+            |--------|------|------|
+            | Provider | iShares | SPDR ETF |
+            | TER | 0.07% | 0.12% |
+            | Fund Size | $114.62B | $7.63B |
+            [...table continues...]
+
+            [Brief overview paragraph answering the question - under 50 words]
+
+            **Cost Efficiency**
+
+            SXR8 charges **0.07% TER** vs SPYY's **0.12%**, saving $50 annually per $100k invested.
+
+            **Geographic Diversification**
+
+            SXR8 focuses on US (**95.83%**), while SPYY offers global exposure (**61.89% US**, rest international).
+
+            **Investment Suitability**
+
+            SXR8 suits US-focused investors seeking low costs; SPYY better for global diversification seekers.
+
+            
+            **CRITICAL - Source Citation:**
+            - Freshness rule: unless user explicitly asks historical data, avoid citing years older than current year - 1
+            - NEVER write source names, document titles, or citation text inline in your paragraphs (not at sentence end, not in parentheses).
+              Citations must appear only in the designated line: Sources: [Name](URL) or Sources: ETF Fundamental Data
+            - ALWAYS cite sources at the end on their own line: Sources: [Name](URL)
+            - For database ETF data: "Sources: ETF Fundamental Data"
+            - For Google Search results: cite specific URLs
+            - NEVER fabricate information - if data missing, state clearly and search online
+
+            Do NOT do this (wrong — redundant inline name before Sources line):
+            VOO tracks the S&P 500. Vanguard fund factsheet
+            Sources: [VOO fund factsheet](https://...)
+
+            Correct: end the paragraph without naming the source in prose, then the Sources line only.
+        
+
+            Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
+        
+
+            
+            **CRITICAL - Source Citation:**
+            - Freshness rule: unless user explicitly asks historical data, avoid citing years older than current year - 1
+            - NEVER write source names, document titles, or citation text inline in your paragraphs (not at sentence end, not in parentheses).
+              Citations must appear only in the designated line: Sources: [Name](URL) or Sources: ETF Fundamental Data
+            - ALWAYS cite sources at the end on their own line: Sources: [Name](URL)
+            - For database ETF data: "Sources: ETF Fundamental Data"
+            - For Google Search results: cite specific URLs
+            - NEVER fabricate information - if data missing, state clearly and search online
+
+            Do NOT do this (wrong — redundant inline name before Sources line):
+            VOO tracks the S&P 500. Vanguard fund factsheet
+            Sources: [VOO fund factsheet](https://...)
+
+            Correct: end the paragraph without naming the source in prose, then the Sources line only.
+        
+        

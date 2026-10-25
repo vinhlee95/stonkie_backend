@@ -1,6 +1,7 @@
 """Context builder for ETF comparison questions."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 from connectors.etf_fundamental import ETFFundamentalDto
 
@@ -16,6 +17,8 @@ class ComparisonContextBuilderInput:
     etf_data_list: list[ETFFundamentalDto]
     use_google_search: bool
     short_analysis: bool = False
+    # v2: grounding rules that replace the source-citation instructions. None keeps the v1 prompt.
+    grounding: Optional[str] = None
 
 
 class ComparisonETFBuilder:
@@ -45,6 +48,7 @@ class ComparisonETFBuilder:
         """Build short analysis comparison prompt with structured sections."""
         etf_summaries_text = self._build_etf_summaries(input, short_analysis=True)
         section_structure = ETFPromptComponents.comparison_section_structure()
+        inner_source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else ""
 
         comparison_instructions = f"""
             ## Instructions
@@ -97,12 +101,12 @@ class ComparisonETFBuilder:
 
             SXR8 suits US-focused investors seeking low costs; SPYY better for global diversification seekers.
 
-            {ETFPromptComponents.source_instructions()}
+            {inner_source_instructions}
 
             Answer in a professional, informative tone. Prioritize clarity and scannability over narrative flow.
         """
 
-        source_instructions = ETFPromptComponents.source_instructions()
+        source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else input.grounding
 
         date_context = ETFPromptComponents.current_date()
         return f"""
@@ -150,7 +154,7 @@ class ComparisonETFBuilder:
             | Name 2 | YYY | 0.09% | $30B | Company B (6%) |
         """
 
-        source_instructions = ETFPromptComponents.source_instructions()
+        source_instructions = ETFPromptComponents.source_instructions() if input.grounding is None else input.grounding
 
         date_context = ETFPromptComponents.current_date()
         return f"""
