@@ -104,6 +104,12 @@ def _statuses(events):
     return [e["body"] for e in events if e["type"] == "thinking_status"]
 
 
+def _sequence(events) -> list[tuple[str, str, int]]:
+    statuses = [e for e in events if e["type"] == "thinking_status"]
+    assert all("total_steps" not in e for e in statuses)
+    return [(e["body"], e["phase"], e["step"]) for e in statuses]
+
+
 @pytest.mark.asyncio
 async def test_search_on_fans_out_per_ticker_with_etf_policy_and_grounding():
     retriever = _per_company_retriever()
@@ -127,7 +133,11 @@ async def test_search_on_fans_out_per_ticker_with_etf_policy_and_grounding():
 
     sources = next(e for e in events if e["type"] == "sources")["body"]
     assert [s["source_id"] for s in sources] == ["SXR8_1", "VUSA_1"]  # ticker order
-    assert any("across SXR8, VUSA" in s for s in _statuses(events))
+    assert _sequence(events) == [
+        ("Loading data for SXR8, VUSA...", "data_fetch", 1),
+        ("Searching the web for SXR8, VUSA...", "search", 2),
+        ("Writing your answer from 2 sources across SXR8, VUSA: justETF...", "analyze", 3),
+    ]
     types = _types(events)
     last_answer = max(i for i, t in enumerate(types) if t == "answer")
     assert types[last_answer + 1 :] == ["sources", "model_used", "related_question", "related_question"]
@@ -143,6 +153,21 @@ async def test_search_off_skips_brave_and_sources():
     assert "sources" not in _types(events)
     assert "iShares Core S&P 500 UCITS ETF" in agent.prompts[0]
     assert "Vanguard S&P 500 UCITS ETF" in agent.prompts[0]
+    assert _sequence(events) == [
+        ("Loading data for SXR8, VUSA...", "data_fetch", 1),
+        ("Writing your answer...", "analyze", 2),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_missing_etf_is_folded_into_the_search_status():
+    handler, _ = _handler()
+    events = await _run(handler, tickers=["SXR8", "NOPE", "VUSA"])
+    assert _sequence(events) == [
+        ("Loading data for SXR8, NOPE, VUSA...", "data_fetch", 1),
+        ("Couldn't find NOPE, searching the web for SXR8, VUSA...", "search", 2),
+        ("Writing your answer from 2 sources across SXR8, VUSA: justETF...", "analyze", 3),
+    ]
 
 
 @pytest.mark.asyncio
@@ -151,7 +176,11 @@ async def test_partial_failure_proceeds_with_the_rest_and_notes_it_in_prompt():
     handler, agent = _handler(retriever=retriever)
     events = await _run(handler)
 
-    assert any("Web retrieval failed for VUSA" in s for s in _statuses(events))
+    assert _sequence(events) == [
+        ("Loading data for SXR8, VUSA...", "data_fetch", 1),
+        ("Searching the web for SXR8, VUSA...", "search", 2),
+        ("No web results for VUSA, writing your answer from 1 source: justETF...", "analyze", 3),
+    ]
     assert "web retrieval failed for VUSA" in agent.prompts[0]
     sources = next(e for e in events if e["type"] == "sources")["body"]
     assert [s["source_id"] for s in sources] == ["SXR8_1"]
@@ -172,8 +201,10 @@ async def test_missing_etf_is_dropped_with_a_status_and_rest_compared():
     handler, agent = _handler(connector=connector)
     events = await _run(handler, tickers=["SXR8", "VUSA", "CSPX", "NOPE"], routing=_routing(search=False))
 
-    assert any("Couldn't find" in s and "CSPX" in s and "NOPE" in s for s in _statuses(events))
-    assert "Comparing SXR8, VUSA..." in _statuses(events)
+    assert _sequence(events) == [
+        ("Loading data for SXR8, VUSA, CSPX, NOPE...", "data_fetch", 1),
+        ("Couldn't find CSPX, NOPE, writing your answer...", "analyze", 2),
+    ]
     assert "CSPX" not in agent.prompts[0].split("## User Question")[0]
 
 
@@ -247,7 +278,11 @@ async def test_duplicate_tickers_are_compared_and_retrieved_once():
 
     assert connector.calls == ["SXR8", "VUSA"]
     assert sorted(c["ticker"] for c in retriever.calls) == ["SXR8", "VUSA"]
-    assert "Comparing SXR8, VUSA..." in _statuses(events)
+    assert _sequence(events) == [
+        ("Loading data for SXR8, VUSA...", "data_fetch", 1),
+        ("Searching the web for SXR8, VUSA...", "search", 2),
+        ("Writing your answer from 2 sources across SXR8, VUSA: justETF...", "analyze", 3),
+    ]
     assert agent.prompts[0].count("### ") == 2
 
 

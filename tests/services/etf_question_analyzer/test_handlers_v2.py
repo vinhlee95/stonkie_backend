@@ -102,6 +102,21 @@ def _statuses(events: list[dict]) -> list[str]:
     return [e["body"] for e in events if e["type"] == "thinking_status"]
 
 
+def _sequence(events: list[dict]) -> list[tuple[str, str, int]]:
+    """(body, phase, step) of every thinking_status; also checks the #55 shape (no total_steps)."""
+    statuses = [e for e in events if e["type"] == "thinking_status"]
+    assert all("total_steps" not in e for e in statuses)
+    return [(e["body"], e["phase"], e["step"]) for e in statuses]
+
+
+def _assert_writing_status_is_last_before_answer(events: list[dict]) -> None:
+    types = _types(events)
+    first_answer = types.index("answer")
+    assert types[first_answer - 1] == "thinking_status"
+    assert events[first_answer - 1]["body"].lower().find("writing your answer") != -1
+    assert "thinking_status" not in types[first_answer:]
+
+
 def _assert_tail_order(events: list[dict], *, with_sources: bool) -> None:
     types = _types(events)
     last_answer = max(i for i, t in enumerate(types) if t == "answer")
@@ -134,9 +149,11 @@ async def test_general_search_on_retrieves_with_router_queries_and_grounds_on_so
         "what is an ETF TER 2026"
     ]
 
-    statuses = _statuses(events)
-    assert 'Searching for "what is an ETF TER 2026"...' in statuses
-    assert any(s.startswith("Reading 1 sources") and "justETF" in s for s in statuses)
+    assert _sequence(events) == [
+        ('Searching for "what is an ETF TER 2026"...', "search", 1),
+        ("Writing your answer from 1 source: justETF...", "analyze", 2),
+    ]
+    _assert_writing_status_is_last_before_answer(events)
 
     prompt = agent.prompts[0]
     assert GROUNDING_RULES in prompt
@@ -174,6 +191,7 @@ async def test_general_search_off_stable_concept_answers_from_knowledge():
     assert retriever.calls == []
     assert "You may answer from your training knowledge" in agent.prompts[0]
     assert V1_SOURCE_MARKER not in agent.prompts[0]
+    assert _sequence(events) == [("Writing your answer...", "analyze", 1)]
     _assert_tail_order(events, with_sources=False)
 
 
@@ -202,7 +220,8 @@ async def test_overview_complete_data_and_search_off_skips_brave():
     assert '"ter_percent": 0.07' in prompt
     assert V1_SOURCE_MARKER not in prompt
     assert "Google Search" not in prompt
-    assert not any("searching online" in s for s in _statuses(events))
+    assert _sequence(events) == [("Writing your answer...", "analyze", 1)]
+    _assert_writing_status_is_last_before_answer(events)
     _assert_tail_order(events, with_sources=False)
 
 
@@ -218,9 +237,10 @@ async def test_overview_missing_core_data_forces_search_over_router_search_off()
     assert queries == ["iShares Core S&P 500 UCITS ETF SXR8 What is the TER of the iShares Core S&P 500 UCITS ETF?"]
     assert call["company_name"] == "iShares Core S&P 500 UCITS ETF"
     assert call["ticker"] == "SXR8"
-    statuses = _statuses(events)
-    assert any("Some SXR8 data missing" in s for s in statuses)
-    assert f'Searching for "{queries[0]}"...' in statuses
+    assert _sequence(events) == [
+        (f'Searching for "{queries[0]}"...', "search", 1),
+        ("Writing your answer from 1 source: justETF...", "analyze", 2),
+    ]
     assert GROUNDING_RULES in agent.prompts[0]
     _assert_tail_order(events, with_sources=True)
 
@@ -261,6 +281,7 @@ async def test_detailed_full_data_and_search_off_skips_brave():
 
     assert retriever.calls == []
     assert '"name": "NVIDIA"' in agent.prompts[0]
+    assert _sequence(events) == [("Writing your answer...", "analyze", 1)]
     _assert_tail_order(events, with_sources=False)
 
 
@@ -359,7 +380,9 @@ async def test_forced_search_failure_answers_from_the_database(handler_cls, ques
     assert GROUNDING_RULES in agent.prompts[0]
     assert "Sources:\nSource 1" not in agent.prompts[0]
     assert "error" not in _types(events)
-    assert any("answering from our database" in s for s in _statuses(events))
+    (searching, writing) = _sequence(events)
+    assert searching[0].startswith('Searching for "') and searching[1:] == ("search", 1)
+    assert writing == ("No web results for SXR8, writing your answer...", "analyze", 2)
     _assert_tail_order(events, with_sources=False)
 
 
