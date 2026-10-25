@@ -44,7 +44,7 @@ def _semantic_cache_flag_on(env) -> bool:
 
 
 def _legacy_related_prompt(original_question: str) -> str:
-    """Same shape as BaseQuestionHandler._generate_related_questions for non-ETF flows."""
+    """Related-questions prompt for replaying cache entries stored without related questions."""
     return f"""
                 {PromptComponents.current_date()}
 
