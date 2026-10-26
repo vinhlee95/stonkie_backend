@@ -36,10 +36,10 @@ from sqlalchemy.exc import IntegrityError
 
 from agent.statement_extractor import extract_statement_periods
 from connectors.database import get_db
+from connectors.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
 from services.company import CompanyConnector
-from utils.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 
 load_dotenv()
 

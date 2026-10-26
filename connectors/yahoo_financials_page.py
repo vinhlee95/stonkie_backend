@@ -10,7 +10,7 @@ EXPAND_ALL_BUTTON = "button:has(> span.expand)"
 
 def table_expanded(expand_button) -> bool:
     """The button reads "Collapse All" once every row is expanded."""
-    return "collapse" in expand_button.inner_text().lower()
+    return "collapse" in expand_button.inner_text(timeout=2000).lower()
 
 
 def expand_all_rows(page, expand_button, settle_ms: int = 3000) -> bool:

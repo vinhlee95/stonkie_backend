@@ -1,4 +1,4 @@
-from utils.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows, table_expanded
+from connectors.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows, table_expanded
 
 
 class FakeButton:
@@ -14,7 +14,7 @@ class FakeButton:
         if kind in self.works:
             self.label = "Collapse All" if self.label == "Expand All" else "Expand All"
 
-    def inner_text(self):
+    def inner_text(self, timeout=None):
         return self.label
 
     def click(self, force=False):
@@ -68,7 +68,7 @@ def test_slow_label_update_is_not_toggled_back():
     class SlowButton(FakeButton):
         checks = 0
 
-        def inner_text(self):
+        def inner_text(self, timeout=None):
             SlowButton.checks += 1
             return "Expand All" if SlowButton.checks <= 2 else self.label
 

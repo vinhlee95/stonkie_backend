@@ -15,11 +15,11 @@ from agent.statement_extractor import extract_statement_periods
 from celery_app import celery_app
 from connectors.cache import set_task_state
 from connectors.database import SessionLocal, get_db
+from connectors.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 from core.financial_statement_type import FinancialStatementType
 from core.statement_units import normalize_periods
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
-from utils.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 
 logger = logging.getLogger(__name__)
 
