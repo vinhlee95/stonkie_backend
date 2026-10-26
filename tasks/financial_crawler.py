@@ -15,7 +15,13 @@ from agent.statement_extractor import extract_statement_periods
 from celery_app import celery_app
 from connectors.cache import set_task_state
 from connectors.database import SessionLocal, get_db
-from connectors.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
+from connectors.yahoo_financials_page import (
+    EXPAND_ALL_BUTTON,
+    classic_layout_state,
+    expand_all_rows,
+    remember_classic_layout,
+    require_classic_table,
+)
 from core.financial_statement_type import FinancialStatementType
 from core.statement_units import normalize_periods
 from models.company_financial_statement import CompanyFinancialStatement
@@ -238,7 +244,7 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
     Returns:
         Tuple of (body_html, periods) or None if failed
     """
-    max_browser_restarts = 2
+    max_browser_restarts = 5
 
     for browser_attempt in range(max_browser_restarts + 1):
         try:
@@ -255,13 +261,15 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     ignore_https_errors=True,
                     locale="en-US",
-                    storage_state=None,
+                    storage_state=classic_layout_state(),
                 )
                 page = context.new_page()
 
                 # Navigate to the page
                 logger.info(f"Navigating to: {url}")
-                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                response = page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                require_classic_table(response)
+                remember_classic_layout(context)
 
                 # Yahoo's ads keep polling, so the network may never go idle: best effort only
                 try:

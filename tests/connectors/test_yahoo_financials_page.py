@@ -1,3 +1,9 @@
+import json
+from pathlib import Path
+
+import pytest
+
+import connectors.yahoo_financials_page as yahoo_page
 from connectors.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows, table_expanded
 
 
@@ -83,3 +89,54 @@ def test_returns_false_when_no_click_expands_the_table():
 
     assert expand_all_rows(FakePage(button), button) is False
     assert button.clicks == ["js", "force", "dispatch"]
+
+
+class FakeContext:
+    def __init__(self, state):
+        self.state = state
+
+    def storage_state(self, path=None):
+        Path(path).write_text(json.dumps(self.state))
+
+
+class FakeResponse:
+    def __init__(self, html):
+        self.html = html
+
+    def text(self):
+        return self.html
+
+
+@pytest.fixture()
+def layout_cache(tmp_path, monkeypatch):
+    path = tmp_path / "layout.json"
+    monkeypatch.setattr(yahoo_page, "_LAYOUT_STATE_FILE", path)
+    return path
+
+
+def test_classic_layout_is_detected_from_the_server_html():
+    assert yahoo_page.served_classic_table(FakeResponse('<div class="tableHeader yf-1">')) is True
+    assert yahoo_page.served_classic_table(FakeResponse('<div class="table-container yf-2"><table>')) is False
+    assert yahoo_page.served_classic_table(None) is False
+
+
+def test_cookies_of_a_classic_layout_context_are_reused(layout_cache):
+    assert yahoo_page.classic_layout_state() is None
+
+    yahoo_page.remember_classic_layout(FakeContext({"cookies": [{"name": "A1"}], "origins": []}))
+
+    assert yahoo_page.classic_layout_state() == str(layout_cache)
+    assert json.loads(layout_cache.read_text())["cookies"] == [{"name": "A1"}]
+
+
+def test_new_layout_drops_the_cached_cookies(layout_cache):
+    yahoo_page.remember_classic_layout(FakeContext({"cookies": [], "origins": []}))
+
+    with pytest.raises(yahoo_page.NewTableLayoutError):
+        yahoo_page.require_classic_table(FakeResponse("<table>"))
+
+    assert yahoo_page.classic_layout_state() is None
+
+
+def test_classic_layout_passes_the_check(layout_cache):
+    yahoo_page.require_classic_table(FakeResponse('<div class="tableHeader yf-1">'))

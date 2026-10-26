@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from agent.statement_extractor import extract_statement_periods
 from connectors.database import engine
 from connectors.finnhub_client import FinnhubFilingsClient
+from connectors.yahoo_financials_page import classic_layout_state, remember_classic_layout, require_classic_table
 from core.financial_statement_type import FinancialStatementType
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 from services.company import CompanyConnector
@@ -81,7 +82,7 @@ def export_financial_data_to_text(url):
     """
     Export financial data with browser restart mechanism on failure
     """
-    max_browser_restarts = 2  # Maximum number of full browser restarts
+    max_browser_restarts = 5  # Maximum number of full browser restarts
 
     for browser_attempt in range(max_browser_restarts + 1):
         try:
@@ -98,13 +99,15 @@ def export_financial_data_to_text(url):
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     ignore_https_errors=True,
                     locale="en-US",
-                    storage_state=None,
+                    storage_state=classic_layout_state(),
                 )
                 page = context.new_page()
 
                 # Navigate to the page with extended timeout
                 print(f"🌐 Navigating to: {url}")
-                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                response = page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                require_classic_table(response)
+                remember_classic_layout(context)
 
                 # Wait for the page to be fully loaded including network activity
                 print("⏳ Waiting for page to fully load...")

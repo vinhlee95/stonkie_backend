@@ -1,11 +1,49 @@
 """Playwright helpers for Yahoo Finance statement pages, shared by the crawl task and the export scripts."""
 
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Yahoo A/B-tests two statement layouts per browser session (cookies). Only the classic one (tableHeader/tableBody
+# divs, figures in thousands) can be scraped; the other renders an abbreviated <table>. A session's cookies keep
+# its layout, so the cookies of a classic-layout session are cached on disk and reused by every scraper process.
+_LAYOUT_STATE_FILE = Path(tempfile.gettempdir()) / "stonkie_yahoo_classic_layout_state.json"
+_CLASSIC_LAYOUT_MARKER = "tableHeader"
+
+
+class NewTableLayoutError(RuntimeError):
+    """Yahoo served the unscrapeable table layout; retry with a fresh browser session."""
+
+
 # Yahoo's "Expand All" button. A bare `span.expand` also matches the "Order:" label next to it.
 EXPAND_ALL_BUTTON = "button:has(> span.expand)"
+
+
+def classic_layout_state() -> str | None:
+    """Storage-state file of a session that got the classic layout, for `browser.new_context(storage_state=...)`."""
+    return str(_LAYOUT_STATE_FILE) if _LAYOUT_STATE_FILE.exists() else None
+
+
+def remember_classic_layout(context) -> None:
+    """Cache this session's cookies; written via a temp file so concurrent scrapers never read a partial file."""
+    fd, tmp = tempfile.mkstemp(dir=_LAYOUT_STATE_FILE.parent, suffix=".json")
+    os.close(fd)
+    context.storage_state(path=tmp)
+    os.replace(tmp, _LAYOUT_STATE_FILE)
+
+
+def served_classic_table(response) -> bool:
+    return response is not None and _CLASSIC_LAYOUT_MARKER in response.text()
+
+
+def require_classic_table(response) -> None:
+    """Fail fast on the new layout (seconds, not the 15-40s of waiting for divs that never come)."""
+    if not served_classic_table(response):
+        _LAYOUT_STATE_FILE.unlink(missing_ok=True)
+        raise NewTableLayoutError("Yahoo served the new table layout")
 
 
 def table_expanded(expand_button) -> bool:
