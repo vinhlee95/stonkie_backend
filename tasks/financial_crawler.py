@@ -7,10 +7,11 @@ import re
 from typing import Optional, Tuple
 
 from celery import Task
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import IntegrityError
 
-from agent.agent import Agent
+from agent.statement_extractor import extract_statement_periods
 from celery_app import celery_app
 from connectors.cache import set_task_state
 from connectors.database import SessionLocal, get_db
@@ -20,6 +21,9 @@ from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
 
 logger = logging.getLogger(__name__)
+
+# Yahoo's "Expand All" button. A bare `span.expand` also matches the "Order:" label next to it.
+EXPAND_ALL_BUTTON = "button:has(> span.expand)"
 
 
 class CallbackTask(Task):
@@ -225,6 +229,11 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
         return False
 
 
+def _table_expanded(expand_button) -> bool:
+    """The button reads "Collapse All" once every row is expanded."""
+    return "collapse" in expand_button.inner_text().lower()
+
+
 def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Optional[Tuple[str, list]]:
     """
     Extract financial data from Yahoo Finance page using Playwright.
@@ -259,10 +268,13 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
 
                 # Navigate to the page
                 logger.info(f"Navigating to: {url}")
-                page.goto(url, timeout=20000)
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
 
-                # Wait for page to load
-                page.wait_for_load_state("networkidle", timeout=10000)
+                # Yahoo's ads keep polling, so the network may never go idle: best effort only
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except PlaywrightTimeoutError:
+                    logger.warning("Network never went idle, proceeding")
                 page.wait_for_timeout(5000)
 
                 # Handle cookie banner
@@ -282,7 +294,7 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
                         () => {
                             const tableHeader = document.querySelector('div[class*="tableHeader"]');
                             const tableBody = document.querySelector('div[class*="tableBody"]');
-                            const expandButton = document.querySelector('span.expand');
+                            const expandButton = document.querySelector('button:has(> span.expand)');
                             return tableHeader && tableBody && expandButton;
                         }
                         """,
@@ -330,7 +342,7 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
 
                 # Click expand button
                 logger.info("Clicking expand button...")
-                expand_button = page.locator("span.expand")
+                expand_button = page.locator(EXPAND_ALL_BUTTON)
                 expand_button.wait_for(state="visible", timeout=10000)
                 expand_button.scroll_into_view_if_needed()
 
@@ -339,13 +351,16 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
                 for attempt in range(3):
                     try:
                         if attempt == 0:
-                            expand_button.click(force=True)
+                            # JavaScript click first: the EU consent popup intercepts pointer clicks
+                            page.evaluate("sel => document.querySelector(sel).click()", EXPAND_ALL_BUTTON)
                         elif attempt == 1:
-                            page.evaluate('document.querySelector("span.expand").click()')
+                            expand_button.click(force=True)
                         else:
                             expand_button.dispatch_event("click")
 
                         page.wait_for_timeout(3000)
+                        if not _table_expanded(expand_button):
+                            raise RuntimeError("table did not expand")
                         expand_clicked = True
                         logger.info(f"Expand button clicked successfully after {attempt + 1} attempts")
                         break
@@ -435,9 +450,8 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
         table_body_html, periods = result
         logger.info(f"Extracted periods: {periods}")
 
-        # Use OpenAI to parse the HTML table
-        logger.info("Parsing HTML with OpenAI...")
-        openai_agent = Agent(model_type="openai")
+        # LLM parses the HTML table
+        logger.info("Parsing HTML with the extraction model...")
 
         prompt = f"""
             Extract financial data from the following HTML table and format it as a JSON list.
@@ -485,10 +499,10 @@ def crawl_annual_financial_data_task(self, ticker: str, statement_type: str) -> 
             {table_body_html}
         """
 
-        json_response = openai_agent.generate_content(prompt=prompt, stream=False)
+        json_response = extract_statement_periods(prompt)
 
         if not json_response:
-            raise Exception("No data received from OpenAI model")
+            raise Exception("No data received from the extraction model")
 
         logger.info(f"Successfully extracted {len(json_response)} periods of financial data")
 
@@ -658,8 +672,6 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
             raise Exception(f"Failed to extract quarterly data from {url}")
 
         table_body_html, periods = result
-
-        openai_agent = Agent(model_type="openai")
         prompt = f"""
             Extract financial data from the following HTML table and format it as a JSON list.
             Each object in the list must represent a single period and have the following structure:
@@ -704,9 +716,9 @@ def crawl_quarterly_financial_data_task(self, ticker: str, statement_type: str) 
             {table_body_html}
         """
 
-        json_response = openai_agent.generate_content(prompt=prompt, stream=False)
+        json_response = extract_statement_periods(prompt)
         if not json_response:
-            raise Exception("No data received from OpenAI model")
+            raise Exception("No data received from the extraction model")
 
         # Filter out TTM period if present
         data_to_save = [item for item in json_response if item.get("period_end_quarter") != "TTM"]

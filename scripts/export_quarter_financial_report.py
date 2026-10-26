@@ -5,12 +5,13 @@ from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from agent.agent import Agent
+from agent.statement_extractor import extract_statement_periods
 from connectors.database import engine
 from connectors.finnhub_client import FinnhubFilingsClient
 from core.financial_statement_type import FinancialStatementType
@@ -103,12 +104,16 @@ def export_financial_data_to_text(url):
 
                 # Navigate to the page with extended timeout
                 print(f"🌐 Navigating to: {url}")
-                page.goto(url, timeout=10000)
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
 
                 # Wait for the page to be fully loaded including network activity
                 print("⏳ Waiting for page to fully load...")
 
-                page.wait_for_load_state("networkidle", timeout=10000)  # Wait until no network requests for 500ms
+                try:
+                    # Yahoo's ads keep polling, so the network may never go idle: best effort only
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except PlaywrightTimeoutError:
+                    print("⚠️  Network never went idle (ads keep polling), proceeding...")
 
                 print("⏳ Waiting for ads and background scripts to settle...")
                 page.wait_for_timeout(5000)  # 5 second wait for ads/trackers
@@ -384,8 +389,6 @@ def export_financial_data_to_db(url, ticker, statement_type):
 
         print(f"✅📘 Done getting HTML content of the {statement_type}. Now feeding it to the model...")
 
-        openai_agent = Agent(model_type="openai")
-
         final_prompt = f"""
             Extract financial data from the following HTML table and format it as a JSON list.
             Each object in the list must represent a single period and have the following structure:
@@ -431,7 +434,7 @@ def export_financial_data_to_db(url, ticker, statement_type):
             {table_body_html}
         """
 
-        json_response = openai_agent.generate_content(prompt=final_prompt, stream=False)
+        json_response = extract_statement_periods(final_prompt)
         if json_response:
             print("✅✅✅ Successfully extracted financial data from the model to JSON")
             # Filter out "TTM" period if present

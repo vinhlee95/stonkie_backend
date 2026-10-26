@@ -30,10 +30,11 @@ import concurrent.futures
 import re
 
 from dotenv import load_dotenv
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import IntegrityError
 
-from agent.agent import Agent
+from agent.statement_extractor import extract_statement_periods
 from connectors.database import get_db
 from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
@@ -42,6 +43,14 @@ from services.company import CompanyConnector
 load_dotenv()
 
 company_connector = CompanyConnector()
+
+# Yahoo's "Expand All" button. A bare `span.expand` also matches the "Order:" label next to it.
+EXPAND_ALL_BUTTON = "button:has(> span.expand)"
+
+
+def table_expanded(expand_button) -> bool:
+    """The button reads "Collapse All" once every row is expanded."""
+    return "collapse" in expand_button.inner_text().lower()
 
 
 def save_to_database(ticker, statement_type, data):
@@ -162,12 +171,16 @@ def export_financial_data_to_text(url):
 
                 # Navigate to the page with extended timeout
                 print(f"🌐 Navigating to: {url}")
-                page.goto(url, timeout=10000)
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
 
                 # Wait for the page to be fully loaded including network activity
                 print("⏳ Waiting for page to fully load...")
 
-                page.wait_for_load_state("networkidle", timeout=10000)  # Wait until no network requests for 500ms
+                try:
+                    # Yahoo's ads keep polling, so the network may never go idle: best effort only
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except PlaywrightTimeoutError:
+                    print("⚠️  Network never went idle (ads keep polling), proceeding...")
 
                 print("⏳ Waiting for ads and background scripts to settle...")
                 page.wait_for_timeout(5000)  # 5 second wait for ads/trackers
@@ -191,7 +204,7 @@ def export_financial_data_to_text(url):
                             // Check if table structure exists
                             const tableHeader = document.querySelector('div[class*="tableHeader"]');
                             const tableBody = document.querySelector('div[class*="tableBody"]');
-                            const expandButton = document.querySelector('span.expand');
+                            const expandButton = document.querySelector('button:has(> span.expand)');
                             
                             return tableHeader && tableBody && expandButton;
                         }
@@ -204,7 +217,7 @@ def export_financial_data_to_text(url):
 
                 # Now proceed with expand button clicking
                 print("🔄 Starting expand button click...")
-                expand_button = page.locator("span.expand")
+                expand_button = page.locator(EXPAND_ALL_BUTTON)
                 expand_button.wait_for(state="visible", timeout=10000)
                 expand_button.scroll_into_view_if_needed()
 
@@ -215,18 +228,20 @@ def export_financial_data_to_text(url):
                 for attempt in range(max_click_attempts):
                     try:
                         if attempt == 0:
+                            # JavaScript click first: the EU consent popup intercepts pointer clicks
+                            page.evaluate("sel => document.querySelector(sel).click()", EXPAND_ALL_BUTTON)
+                            print("🔄 Tried JavaScript click on expand button")
+                        elif attempt == 1:
                             expand_button.click(force=True)
                             print("🔄 Tried force click on expand button")
-                        elif attempt == 1:
-                            # Try JavaScript click
-                            page.evaluate('document.querySelector("span.expand").click()')
-                            print("🔄 Tried JavaScript click on expand button")
                         elif attempt == 2:
                             # Try dispatch event
                             expand_button.dispatch_event("click")
                             print("🔄 Tried dispatch event click on expand button")
 
                         page.wait_for_timeout(3000)  # Wait to see if content expanded
+                        if not table_expanded(expand_button):
+                            raise RuntimeError("table did not expand")
                         expand_clicked = True
                         print(f"✅ Expand button clicked successfully after {attempt + 1} attempts")
                         break
@@ -329,8 +344,6 @@ def export_financial_data_to_db(url, ticker, statement_type):
         print(f"✅📘 Using extracted periods: {periods}")
         print(f"✅📘 Done getting HTML content of the {statement_type}. Now feeding it to the model...")
 
-        openai_agent = Agent(model_type="openai")
-
         final_prompt = f"""
             Extract financial data from the following HTML table and format it as a JSON list.
             Each object in the list must represent a single period and have the following structure:
@@ -377,7 +390,7 @@ def export_financial_data_to_db(url, ticker, statement_type):
             {table_body_html}
         """
 
-        json_response = openai_agent.generate_content(prompt=final_prompt, stream=False)
+        json_response = extract_statement_periods(final_prompt)
         if json_response:
             print("✅✅✅ Successfully extracted financial data from the model to JSON")
             save_to_database(ticker, statement_type, json_response)

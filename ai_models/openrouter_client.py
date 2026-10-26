@@ -24,6 +24,8 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Uses Gemini 3.1 Flash-Lite with nitro variant (throughput-sorted routing)
     # See: https://openrouter.ai/docs/guides/routing/model-variants/nitro
     ModelName.Fastest: "google/gemini-3.1-flash-lite:nitro",
+    # Statement-table extraction (Yahoo scrapers)
+    ModelName.Gpt4Mini: "openai/gpt-4.1-mini",
 }
 
 
