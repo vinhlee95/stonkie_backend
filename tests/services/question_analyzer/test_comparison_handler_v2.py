@@ -610,3 +610,47 @@ async def test_comparison_prompt_drops_sources_json_instructions_for_v2(mock_mul
     assert PromptComponents.grounding_rules() in prompt_text
     assert '[SOURCES_JSON]{"sources"' not in prompt_text
     assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text
+
+
+@pytest.mark.asyncio
+@patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
+@patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
+async def test_an_article_found_for_both_tickers_is_listed_once(mock_multi_agent_cls, mock_retrieve):
+    from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
+
+    shared = _src("shared", "Yahoo Finance")
+    mock_retrieve.side_effect = lambda **kw: AnalyzeRetrievalResult(
+        sources=[shared, _src(f"{kw['ticker']}_1", "Reuters")],
+        query="q",
+        market="GLOBAL",
+        request_id=kw["ticker"],
+    )
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["A"])
+    mock_multi_agent_cls.return_value = mock_agent
+
+    handler = CompanyComparisonHandlerV2()
+    _patch_fetch(handler, ["TSLA", "F"])
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    events = [
+        event
+        async for event in handler.handle(
+            tickers=["TSLA", "F"],
+            question="Is Tesla overvalued compared to Ford?",
+            search_decision=_decision(True),
+            short_analysis=True,
+            preferred_model=ModelName.Auto,
+            conversation_messages=None,
+            request_id="rq",
+        )
+    ]
+
+    sources_event = next(e for e in events if e["type"] == "sources")
+    assert [s["source_id"] for s in sources_event["body"]] == ["shared", "TSLA_1", "F_1"]

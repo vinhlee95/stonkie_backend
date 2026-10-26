@@ -38,7 +38,7 @@ def _candidate(
     published_date: datetime | None = None,
 ) -> Candidate:
     return Candidate(
-        title="title",
+        title=f"title {url}",
         url=url,
         snippet="snippet",
         published_date=published_date or (datetime.now(UTC) - timedelta(days=1)),
@@ -270,6 +270,8 @@ def test_retrieve_for_analyze_logs_observability_fields(monkeypatch: pytest.Monk
         "selected_domains": ["reuters.com", "cnbc.com"],
         "selected_source_ages": ["pw", "pw"],
         "stale_dropped": 0,
+        "title_duplicates_dropped": 0,
+        "filtered_off_topic": 0,
         "trusted_selected": 2,
         "used_untrusted_backfill": False,
         "raw_brave_response": None,
@@ -757,3 +759,96 @@ def test_retrieve_for_analyze_defaults_to_stock_policy() -> None:
 
     assert all(source.is_trusted is False for source in result.sources)
     assert "justetf.com" not in stub.goggles[0]
+
+
+def _titled(url: str, title: str, raw_content: str) -> Candidate:
+    return Candidate(
+        title=title,
+        url=url,
+        published_date=datetime.now(UTC) - timedelta(days=1),
+        raw_content=raw_content,
+        provider="brave",
+    )
+
+
+def _company_candidates() -> list[Candidate]:
+    return [
+        _titled("https://www.cnbc.com/meta", "Meta beats Q3 estimates", "Meta ad revenue grew."),
+        _titled("https://www.reuters.com/a", "Apple stock rises", "Apple rose 3%."),
+        _titled("https://finance.yahoo.com/b", "Should you buy Apple?", "Apple trades at 30x."),
+        _titled(
+            "https://www.investing.com/c", "Should you buy Apple? By Investing.com", "Apple trades at 30x earnings."
+        ),
+    ]
+
+
+def test_retrieve_for_analyze_drops_off_topic_and_duplicate_title_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(retrieval, "log_retrieval", lambda **kwargs: captured.update(kwargs))
+
+    result = retrieve_for_analyze(
+        question="Should I buy Apple stock?",
+        market="GLOBAL",
+        request_id="req-rel",
+        brave_client=_StubBraveClient(_company_candidates()),
+        ticker="AAPL",
+        company_name="Apple Inc.",
+    )
+
+    titles = [source.title for source in result.sources]
+    assert "Meta beats Q3 estimates" not in titles
+    assert len([t for t in titles if t.startswith("Should you buy Apple?")]) == 1
+    assert captured["filtered_off_topic"] == 1
+    assert captured["title_duplicates_dropped"] == 1
+
+
+def test_retrieve_for_analyze_resolves_the_company_name_for_the_filter() -> None:
+    result = retrieve_for_analyze(
+        question="Should I buy Apple stock?",
+        market="GLOBAL",
+        request_id="req-resolve",
+        brave_client=_StubBraveClient(_company_candidates()),
+        ticker="AAPL",
+        company_name="AAPL",
+        resolve_company_name=lambda: "Apple Inc.",
+    )
+
+    assert "Meta beats Q3 estimates" not in [source.title for source in result.sources]
+
+
+def test_retrieve_for_analyze_keeps_the_given_name_when_the_lookup_fails() -> None:
+    def failing_lookup() -> str:
+        raise RuntimeError("db down")
+
+    result = retrieve_for_analyze(
+        question="Should I buy Apple stock?",
+        market="GLOBAL",
+        request_id="req-resolve-fail",
+        brave_client=_StubBraveClient(_company_candidates()),
+        ticker="AAPL",
+        company_name="AAPL",
+        resolve_company_name=failing_lookup,
+    )
+
+    # The ticker alone isn't a name, so nothing is filtered.
+    assert "Meta beats Q3 estimates" in [source.title for source in result.sources]
+
+
+def test_retrieve_for_analyze_does_not_topic_filter_etf_searches() -> None:
+    candidates = [
+        _titled("https://www.justetf.com/a", "S&P 500 index outlook", "The index rose."),
+        _titled("https://www.ishares.com/b", "S&P 500 earnings season", "Index earnings grew."),
+        _titled("https://www.morningstar.com/c", "SPDR S&P 500 ETF review", "SPDR fund fees."),
+    ]
+
+    result = retrieve_for_analyze(
+        question="How is the fund doing?",
+        market="GLOBAL",
+        request_id="req-etf-rel",
+        brave_client=_StubBraveClient(candidates),
+        ticker="SPY",
+        company_name="SPDR S&P 500 ETF Trust",
+        asset_class="etf",
+    )
+
+    assert len(result.sources) == 3

@@ -16,6 +16,7 @@ from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import QueryReformulator
+from services.analyze_retrieval.relevance import merge_sources
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
 from services.question_analyzer.context_builders.comparison_builder import (
@@ -184,12 +185,10 @@ class CompanyComparisonHandlerV2:
             if not retrieved_per_ticker:
                 raise BraveRetrievalError(f"All ticker retrievals failed: {', '.join(failed_tickers)}")
 
-        # Flat-concatenate sources in ticker order
-        flat_sources: list[AnalyzeSource] = []
-        flat_passages: list[AnalyzePassage] = []
-        for _ticker, sources, passages in retrieved_per_ticker:
-            flat_sources.extend(sources)
-            flat_passages.extend(passages)
+        # Concatenate sources in ticker order; one article found for several tickers is listed once
+        flat_sources, flat_passages = merge_sources(
+            [(sources, passages) for _ticker, sources, passages in retrieved_per_ticker]
+        )
 
         builder_input = ComparisonCompanyBuilderInput(
             tickers=[c.ticker for c in companies_data],

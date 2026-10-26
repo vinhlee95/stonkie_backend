@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
@@ -20,6 +21,7 @@ from services.analyze_retrieval.goggle import build_chat_goggle
 from services.analyze_retrieval.observability import log_retrieval
 from services.analyze_retrieval.publisher import publisher_label_for
 from services.analyze_retrieval.ranking import rank_for_chat, rank_passages_for_chat
+from services.analyze_retrieval.relevance import company_aliases, dedupe_by_title, filter_off_topic
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource, BraveRetrievalError
 from services.analyze_retrieval.source_policy import AssetClass, Market, is_trusted, registrable_domain
 from services.market_recap.schemas import Candidate
@@ -144,7 +146,10 @@ def retrieve_for_analyze(
     top_k: int = 5,
     query_reformulator: QueryReformulator | None = None,
     asset_class: AssetClass = "stock",
+    resolve_company_name: Callable[[], str | None] | None = None,
 ) -> AnalyzeRetrievalResult:
+    """`resolve_company_name` is called once the Brave searches return (so a slow lookup overlaps them);
+    a name it returns replaces `company_name` for the relevance filter and passage ranking."""
     country, search_lang = _country_and_lang_for(market)
 
     reformulated_queries: list[str] | None = None
@@ -171,6 +176,9 @@ def retrieve_for_analyze(
         count=candidate_count,
         freshness=freshness_value,
     )
+    if resolve_company_name is not None:
+        company_name = _resolved_company_name(resolve_company_name) or company_name
+    company_scoped = asset_class == "stock"
 
     best_candidate_by_canonical_url: dict[str, Candidate] = {}
     for candidate in candidates:
@@ -184,11 +192,24 @@ def retrieve_for_analyze(
         if candidate.url == canonical_url and current_best.url != canonical_url:
             best_candidate_by_canonical_url[canonical_url] = candidate
 
-    unique_candidates = list(best_candidate_by_canonical_url.values())
+    url_unique_candidates = list(best_candidate_by_canonical_url.values())
+    # Syndicated copies of one story live at different URLs; keep the trusted / fuller copy.
+    unique_candidates = dedupe_by_title(
+        url_unique_candidates,
+        title=lambda candidate: candidate.title,
+        better=lambda new, kept: _is_better_copy(new, kept, market=market, asset_class=asset_class),
+    )
+    title_duplicates_dropped = len(url_unique_candidates) - len(unique_candidates)
     freshness_filtered_candidates, stale_dropped = _filter_stale_candidates(
         unique_candidates,
         freshness_policy=freshness_policy,
     )
+    filtered_off_topic = 0
+    if company_scoped:
+        # Not for ETFs: their questions are often answered by index/market articles that never name the fund.
+        freshness_filtered_candidates, filtered_off_topic = filter_off_topic(
+            freshness_filtered_candidates, company_name=company_name, ticker=ticker
+        )
     ranked_candidates = rank_for_chat(freshness_filtered_candidates, market, asset_class)
     candidate_pool = ranked_candidates[:source_pool_limit]
     selected_candidates, selection_stats = _select_candidates(
@@ -222,6 +243,7 @@ def retrieve_for_analyze(
         question=question,
         sources=prioritized_pool_sources,
         max_sources=top_k,
+        excluded_terms=_company_terms(company_name, ticker) if company_scoped else None,
     )
 
     selected_source_ids_in_order: list[str] = []
@@ -273,6 +295,8 @@ def retrieve_for_analyze(
         selected_domains=selection_stats["selected_domains"],
         selected_source_ages=selected_source_ages,
         stale_dropped=stale_dropped,
+        title_duplicates_dropped=title_duplicates_dropped,
+        filtered_off_topic=filtered_off_topic,
         trusted_selected=selection_stats["trusted_selected"],
         used_untrusted_backfill=selection_stats["used_untrusted_backfill"],
         raw_brave_response=None,
@@ -286,6 +310,30 @@ def retrieve_for_analyze(
         selected_passages=selected_passages,
         reformulated_queries=reformulated_queries,
     )
+
+
+def _resolved_company_name(resolve: Callable[[], str | None]) -> str | None:
+    try:
+        return resolve()
+    except Exception:
+        logger.warning("Company name lookup failed; relevance filter uses the given name", exc_info=True)
+        return None
+
+
+def _is_better_copy(new: Candidate, kept: Candidate, *, market: Market, asset_class: AssetClass) -> bool:
+    new_trusted = is_trusted(new.url, market, asset_class)
+    kept_trusted = is_trusted(kept.url, market, asset_class)
+    if new_trusted != kept_trusted:
+        return new_trusted
+    return len(new.raw_content) > len(kept.raw_content)
+
+
+def _company_terms(company_name: str | None, ticker: str | None) -> set[str]:
+    """Name/ticker words every company-scoped passage shares, so they don't drive passage ranking."""
+    terms = {word for alias in company_aliases(company_name, ticker) for word in alias.split()}
+    if ticker:
+        terms.add(ticker.strip().lower())
+    return terms
 
 
 def _filter_stale_candidates(

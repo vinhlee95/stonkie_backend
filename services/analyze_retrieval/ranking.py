@@ -13,8 +13,6 @@ _STOP_WORDS = {
     "a",
     "an",
     "and",
-    "apple",
-    "apples",
     "are",
     "for",
     "how",
@@ -92,11 +90,14 @@ def rank_passages_for_chat(
     max_sources: int = 5,
     max_passages_per_source: int = 2,
     max_sources_per_domain: int = 2,
+    excluded_terms: set[str] | None = None,
 ) -> list[AnalyzePassage]:
+    """Pick passages by term overlap with the question. `excluded_terms` (the company's name and ticker)
+    don't count: on a company-scoped search every passage shares them, so they'd drown out the topic."""
     if not sources:
         return []
 
-    query_terms = _meaningful_terms(question)
+    query_terms = _meaningful_terms(question) - (excluded_terms or set())
 
     source_order = {source.id: index for index, source in enumerate(sources)}
     scored: list[tuple[tuple[int, int, int, int, str, int], AnalyzePassage]] = []
