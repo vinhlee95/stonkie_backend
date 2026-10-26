@@ -19,7 +19,7 @@ class DetailedContextBuilder(ContextBuilder):
 
     def _build_short_analysis(self, input: ContextBuilderInput) -> str:
         """Build context for short, scannable analysis (default)."""
-        base_context = PromptComponents.base_context(input.ticker, input.question)
+        base_context = PromptComponents.base_context(input.ticker, input.question, input.quarterly_statements)
         section_structure = PromptComponents.section_structure_template()
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements
@@ -57,7 +57,7 @@ class DetailedContextBuilder(ContextBuilder):
 
     def _build_deep_analysis(self, input: ContextBuilderInput) -> str:
         """Build context for comprehensive, detailed analysis."""
-        base_context = PromptComponents.base_context(input.ticker, input.question)
+        base_context = PromptComponents.base_context(input.ticker, input.question, input.quarterly_statements)
 
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements

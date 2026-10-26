@@ -181,13 +181,13 @@ class FinancialDataOptimizer:
         elif period_requirement and period_requirement.num_periods:
             # Use num_periods if specified (typically 1 for summary questions)
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, period_requirement.num_periods
+                ticker, period_requirement.num_periods, require_10q_filing=True
             )
             logger.info(f"Fetched {period_requirement.num_periods} most recent quarterly statement(s) for summary")
         else:
-            # Default: fetch only the most recent quarter
+            # Default: fetch only the most recent quarter with a 10-Q
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, 1
+                ticker, 1, require_10q_filing=True
             )
             logger.info("Fetched latest quarterly statement for summary")
 
