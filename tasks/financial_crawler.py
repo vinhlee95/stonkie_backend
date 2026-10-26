@@ -19,11 +19,9 @@ from core.financial_statement_type import FinancialStatementType
 from core.statement_units import normalize_periods
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
+from utils.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 
 logger = logging.getLogger(__name__)
-
-# Yahoo's "Expand All" button. A bare `span.expand` also matches the "Order:" label next to it.
-EXPAND_ALL_BUTTON = "button:has(> span.expand)"
 
 
 class CallbackTask(Task):
@@ -229,11 +227,6 @@ def _save_to_database(ticker: str, statement_type: str, data: list) -> bool:
         return False
 
 
-def _table_expanded(expand_button) -> bool:
-    """The button reads "Collapse All" once every row is expanded."""
-    return "collapse" in expand_button.inner_text().lower()
-
-
 def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Optional[Tuple[str, list]]:
     """
     Extract financial data from Yahoo Finance page using Playwright.
@@ -291,13 +284,14 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
                 try:
                     page.wait_for_function(
                         """
-                        () => {
+                        (expandSelector) => {
                             const tableHeader = document.querySelector('div[class*="tableHeader"]');
                             const tableBody = document.querySelector('div[class*="tableBody"]');
-                            const expandButton = document.querySelector('button:has(> span.expand)');
+                            const expandButton = document.querySelector(expandSelector);
                             return tableHeader && tableBody && expandButton;
                         }
                         """,
+                        arg=EXPAND_ALL_BUTTON,
                         timeout=10000,
                     )
                     logger.info("Financial table structure is ready")
@@ -346,28 +340,7 @@ def _extract_financial_data_from_page(url: str, quarterly: bool = False) -> Opti
                 expand_button.wait_for(state="visible", timeout=10000)
                 expand_button.scroll_into_view_if_needed()
 
-                # Try different click methods
-                expand_clicked = False
-                for attempt in range(3):
-                    try:
-                        if attempt == 0:
-                            # JavaScript click first: the EU consent popup intercepts pointer clicks
-                            page.evaluate("sel => document.querySelector(sel).click()", EXPAND_ALL_BUTTON)
-                        elif attempt == 1:
-                            expand_button.click(force=True)
-                        else:
-                            expand_button.dispatch_event("click")
-
-                        page.wait_for_timeout(3000)
-                        if not _table_expanded(expand_button):
-                            raise RuntimeError("table did not expand")
-                        expand_clicked = True
-                        logger.info(f"Expand button clicked successfully after {attempt + 1} attempts")
-                        break
-                    except Exception as click_error:
-                        logger.warning(f"Attempt {attempt + 1}: Failed to click expand button: {click_error}")
-                        if attempt < 2:
-                            page.wait_for_timeout(2000)
+                expand_clicked = expand_all_rows(page, expand_button)
 
                 if not expand_clicked:
                     logger.error(f"Failed to click expand button on browser attempt {browser_attempt + 1}")

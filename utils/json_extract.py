@@ -21,7 +21,4 @@ def extract_json_array(text: str) -> list[Any]:
     match = re.search(r"\[.*\]", text, re.DOTALL)
     if not match:
         raise ValueError("No JSON array found")
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, list):
-        raise ValueError("JSON block is not an array")
-    return parsed
+    return json.loads(match.group(0))

@@ -39,18 +39,11 @@ from connectors.database import get_db
 from core.financial_statement_type import FinancialStatementType
 from models.company_financial_statement import CompanyFinancialStatement
 from services.company import CompanyConnector
+from utils.yahoo_financials_page import EXPAND_ALL_BUTTON, expand_all_rows
 
 load_dotenv()
 
 company_connector = CompanyConnector()
-
-# Yahoo's "Expand All" button. A bare `span.expand` also matches the "Order:" label next to it.
-EXPAND_ALL_BUTTON = "button:has(> span.expand)"
-
-
-def table_expanded(expand_button) -> bool:
-    """The button reads "Collapse All" once every row is expanded."""
-    return "collapse" in expand_button.inner_text().lower()
 
 
 def save_to_database(ticker, statement_type, data):
@@ -200,15 +193,16 @@ def export_financial_data_to_text(url):
                     # Wait for either the table or a loading indicator
                     page.wait_for_function(
                         """
-                        () => {
+                        (expandSelector) => {
                             // Check if table structure exists
                             const tableHeader = document.querySelector('div[class*="tableHeader"]');
                             const tableBody = document.querySelector('div[class*="tableBody"]');
-                            const expandButton = document.querySelector('button:has(> span.expand)');
-                            
+                            const expandButton = document.querySelector(expandSelector);
+
                             return tableHeader && tableBody && expandButton;
                         }
                     """,
+                        arg=EXPAND_ALL_BUTTON,
                         timeout=10000,
                     )
                     print("✅ Financial table structure is ready")
@@ -221,34 +215,9 @@ def export_financial_data_to_text(url):
                 expand_button.wait_for(state="visible", timeout=10000)
                 expand_button.scroll_into_view_if_needed()
 
-                # Try different click methods with retry
-                max_click_attempts = 3
-                expand_clicked = False
-
-                for attempt in range(max_click_attempts):
-                    try:
-                        if attempt == 0:
-                            # JavaScript click first: the EU consent popup intercepts pointer clicks
-                            page.evaluate("sel => document.querySelector(sel).click()", EXPAND_ALL_BUTTON)
-                            print("🔄 Tried JavaScript click on expand button")
-                        elif attempt == 1:
-                            expand_button.click(force=True)
-                            print("🔄 Tried force click on expand button")
-                        elif attempt == 2:
-                            # Try dispatch event
-                            expand_button.dispatch_event("click")
-                            print("🔄 Tried dispatch event click on expand button")
-
-                        page.wait_for_timeout(3000)  # Wait to see if content expanded
-                        if not table_expanded(expand_button):
-                            raise RuntimeError("table did not expand")
-                        expand_clicked = True
-                        print(f"✅ Expand button clicked successfully after {attempt + 1} attempts")
-                        break
-                    except Exception as click_error:
-                        print(f"⚠️  Attempt {attempt + 1}: Failed to click expand button: {click_error}")
-                        if attempt < max_click_attempts - 1:
-                            page.wait_for_timeout(2000)  # Wait between attempts
+                expand_clicked = expand_all_rows(page, expand_button)
+                if expand_clicked:
+                    print("✅ Expanded all rows")
 
                 if not expand_clicked:
                     print(f"❌ Failed to click expand button on browser attempt {browser_attempt + 1}")

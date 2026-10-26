@@ -24,7 +24,7 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     # Uses Gemini 3.1 Flash-Lite with nitro variant (throughput-sorted routing)
     # See: https://openrouter.ai/docs/guides/routing/model-variants/nitro
     ModelName.Fastest: "google/gemini-3.1-flash-lite:nitro",
-    # Statement-table extraction (Yahoo scrapers)
+    # OpenAI models
     ModelName.Gpt4Mini: "openai/gpt-4.1-mini",
 }
 
@@ -55,7 +55,9 @@ class OpenRouterClient:
         self.model_name = get_openrouter_model_name(generic_name)
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 
-    def stream_chat(self, prompt: str, use_google_search: bool = False) -> Iterable[Union[str, dict]]:
+    def stream_chat(
+        self, prompt: str, use_google_search: bool = False, max_tokens: int = 8192
+    ) -> Iterable[Union[str, dict]]:
         """
         Stream chat completions as plain text chunks and citation dicts.
 
@@ -86,7 +88,7 @@ class OpenRouterClient:
             response = self.client.chat.completions.create(
                 model=chosen_model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=8192,
+                max_tokens=max_tokens,
                 stream=True,
                 **({"extra_body": extra_body} if extra_body else {}),
             )
