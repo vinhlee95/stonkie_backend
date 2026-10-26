@@ -6,6 +6,7 @@ from sqlalchemy.inspection import inspect
 
 from connectors.database import SessionLocal
 from core.financial_statement_type import FinancialStatementType
+from core.quarter_period import quarter_sort_key, sort_quarters_newest_first
 from models.company_financial import CompanyFinancials
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
@@ -100,27 +101,37 @@ class CompanyFinancialConnector:
     def get_company_quarterly_financial_statements_by_quarters(
         self, ticker: str, quarters: List[str]
     ) -> List[CompanyQuarterlyFinancialStatement]:
-        """Fetch quarterly financial statements for specific quarters (e.g., ['2024-Q1', '2024-Q2'])."""
+        """Fetch quarterly financial statements for specific quarters, newest first."""
         with SessionLocal() as db:
-            return (
+            rows = (
                 db.query(CompanyQuarterlyFinancialStatement)
                 .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
                 .filter(CompanyQuarterlyFinancialStatement.period_end_quarter.in_(quarters))
                 .all()
             )
+        return sorted(rows, key=lambda row: quarter_sort_key(row.period_end_quarter), reverse=True)
 
     def get_company_quarterly_financial_statements_recent(
-        self, ticker: str, num_periods: int
+        self, ticker: str, num_periods: int, require_10q_filing: bool = False
     ) -> List[CompanyQuarterlyFinancialStatement]:
-        """Fetch most recent N quarterly financial statements."""
+        """Fetch most recent N quarterly financial statements, newest first.
+
+        period_end_quarter is a "M/D/YYYY" string, so SQL ordering is lexical; sort by the parsed
+        date here (a ticker has ~10 quarterly rows). require_10q_filing skips quarters without a
+        10-Q (fiscal Q4 is reported in the 10-K).
+        """
         with SessionLocal() as db:
-            return (
-                db.query(CompanyQuarterlyFinancialStatement)
-                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
-                .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())
-                .limit(num_periods)
-                .all()
+            query = db.query(CompanyQuarterlyFinancialStatement).filter(
+                CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper()
             )
+            if require_10q_filing:
+                query = query.filter(
+                    CompanyQuarterlyFinancialStatement.filing_10q_url.isnot(None),
+                    CompanyQuarterlyFinancialStatement.filing_10q_url != "",
+                )
+            rows = query.all()
+        rows.sort(key=lambda row: quarter_sort_key(row.period_end_quarter), reverse=True)
+        return rows[:num_periods]
 
     def get_available_periods(self, ticker: str) -> dict[str, list]:
         """Return available annual years and quarterly periods for a ticker. Fast (<10ms)."""
@@ -139,7 +150,7 @@ class CompanyFinancialConnector:
             )
             return {
                 "annual": sorted([r[0] for r in annual_rows], reverse=True),
-                "quarterly": sorted([r[0] for r in quarterly_rows], reverse=True),
+                "quarterly": sort_quarters_newest_first(r[0] for r in quarterly_rows),
             }
 
     def get_available_metrics(self, ticker: str) -> list[str]:
@@ -221,9 +232,9 @@ class CompanyFinancialConnector:
                     )
                     .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
                     .filter(CompanyQuarterlyFinancialStatement.filing_10q_url.isnot(None))
-                    .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())
                     .all()
                 )
+                results.sort(key=lambda result: quarter_sort_key(result.period_end_quarter), reverse=True)
 
                 filings = []
                 for result in results:

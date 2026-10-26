@@ -15,7 +15,7 @@ class AnnualContextBuilder(ContextBuilder):
 
     def _build_short_analysis(self, input: ContextBuilderInput) -> str:
         """Build context for short, scannable analysis (default)."""
-        base_context = PromptComponents.base_context(input.ticker, input.question)
+        base_context = PromptComponents.base_context(input.ticker, input.question, input.quarterly_statements)
 
         # Extract filing URL from annual statement
         filing_url = None
@@ -79,7 +79,7 @@ class AnnualContextBuilder(ContextBuilder):
 
     def _build_deep_analysis(self, input: ContextBuilderInput) -> str:
         """Build context for comprehensive, detailed analysis."""
-        base_context = PromptComponents.base_context(input.ticker, input.question)
+        base_context = PromptComponents.base_context(input.ticker, input.question, input.quarterly_statements)
 
         # Extract filing URL from annual statement
         filing_url = None
