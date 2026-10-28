@@ -2,10 +2,13 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any, List
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 
 from connectors.database import SessionLocal
+from core.annual_periods import AnnualPeriod, plan_annual_row_update
 from core.financial_statement_type import FinancialStatementType
+from core.quarter_period import quarter_sort_key, sort_quarters_newest_first
 from models.company_financial import CompanyFinancials
 from models.company_financial_statement import CompanyFinancialStatement
 from models.company_quarterly_financial_statement import CompanyQuarterlyFinancialStatement
@@ -65,6 +68,55 @@ class CompanyFinancialConnector:
                 .all()
             )
 
+    def get_statement_line_items(self, ticker: str, statement: FinancialStatementType) -> list[dict[str, Any]]:
+        """Stored quarterly + annual line items of one statement, used as unit references for a new scrape."""
+        with SessionLocal() as db:
+            rows = [
+                *db.query(CompanyQuarterlyFinancialStatement)
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+                *db.query(CompanyFinancialStatement)
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+            ]
+            return [values for row in rows if isinstance(values := getattr(row, statement.value), dict)]
+
+    def upsert_annual_statement(
+        self, ticker: str, statement: FinancialStatementType, period: AnnualPeriod, max_retries: int = 3
+    ) -> bool:
+        """Write one scraped annual period, overwriting stale figures. False = refused (TTM onto a fiscal-year row)."""
+        for attempt in range(max_retries):
+            with SessionLocal() as db:
+                try:
+                    row = (
+                        db.query(CompanyFinancialStatement)
+                        .filter(
+                            CompanyFinancialStatement.company_symbol == ticker.upper(),
+                            CompanyFinancialStatement.period_end_year == period.period_end_year,
+                        )
+                        .with_for_update()
+                        .first()
+                    )
+                    update = plan_annual_row_update(row.is_ttm if row else None, period, statement)
+                    if update is None:
+                        return False
+                    if row is None:
+                        row = CompanyFinancialStatement(
+                            company_symbol=ticker.upper(), period_end_year=period.period_end_year
+                        )
+                        db.add(row)
+                    row.is_ttm = update.is_ttm
+                    for field, value in update.fields.items():
+                        setattr(row, field, value)
+                    db.commit()
+                    return True
+                except IntegrityError:
+                    # Another statement's crawl created the row concurrently; retry to lock and update it.
+                    db.rollback()
+                    if attempt == max_retries - 1:
+                        raise
+        raise ValueError("max_retries must be >= 1")
+
     def get_company_quarterly_financial_statements(self, ticker: str) -> List[CompanyQuarterlyFinancialStatement]:
         with SessionLocal() as db:
             return (
@@ -100,27 +152,37 @@ class CompanyFinancialConnector:
     def get_company_quarterly_financial_statements_by_quarters(
         self, ticker: str, quarters: List[str]
     ) -> List[CompanyQuarterlyFinancialStatement]:
-        """Fetch quarterly financial statements for specific quarters (e.g., ['2024-Q1', '2024-Q2'])."""
+        """Fetch quarterly financial statements for specific quarters, newest first."""
         with SessionLocal() as db:
-            return (
+            rows = (
                 db.query(CompanyQuarterlyFinancialStatement)
                 .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
                 .filter(CompanyQuarterlyFinancialStatement.period_end_quarter.in_(quarters))
                 .all()
             )
+        return sorted(rows, key=lambda row: quarter_sort_key(row.period_end_quarter), reverse=True)
 
     def get_company_quarterly_financial_statements_recent(
-        self, ticker: str, num_periods: int
+        self, ticker: str, num_periods: int, require_10q_filing: bool = False
     ) -> List[CompanyQuarterlyFinancialStatement]:
-        """Fetch most recent N quarterly financial statements."""
+        """Fetch most recent N quarterly financial statements, newest first.
+
+        period_end_quarter is a "M/D/YYYY" string, so SQL ordering is lexical; sort by the parsed
+        date here (a ticker has ~10 quarterly rows). require_10q_filing skips quarters without a
+        10-Q (fiscal Q4 is reported in the 10-K).
+        """
         with SessionLocal() as db:
-            return (
-                db.query(CompanyQuarterlyFinancialStatement)
-                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
-                .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())
-                .limit(num_periods)
-                .all()
+            query = db.query(CompanyQuarterlyFinancialStatement).filter(
+                CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper()
             )
+            if require_10q_filing:
+                query = query.filter(
+                    CompanyQuarterlyFinancialStatement.filing_10q_url.isnot(None),
+                    CompanyQuarterlyFinancialStatement.filing_10q_url != "",
+                )
+            rows = query.all()
+        rows.sort(key=lambda row: quarter_sort_key(row.period_end_quarter), reverse=True)
+        return rows[:num_periods]
 
     def get_available_periods(self, ticker: str) -> dict[str, list]:
         """Return available annual years and quarterly periods for a ticker. Fast (<10ms)."""
@@ -139,7 +201,7 @@ class CompanyFinancialConnector:
             )
             return {
                 "annual": sorted([r[0] for r in annual_rows], reverse=True),
-                "quarterly": sorted([r[0] for r in quarterly_rows], reverse=True),
+                "quarterly": sort_quarters_newest_first(r[0] for r in quarterly_rows),
             }
 
     def get_available_metrics(self, ticker: str) -> list[str]:
@@ -221,9 +283,9 @@ class CompanyFinancialConnector:
                     )
                     .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
                     .filter(CompanyQuarterlyFinancialStatement.filing_10q_url.isnot(None))
-                    .order_by(CompanyQuarterlyFinancialStatement.period_end_quarter.desc())
                     .all()
                 )
+                results.sort(key=lambda result: quarter_sort_key(result.period_end_quarter), reverse=True)
 
                 filings = []
                 for result in results:

@@ -3,9 +3,10 @@
 import logging
 import re
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from core.financial_statement_type import FinancialStatementType
+from core.quarter_period import parse_quarter_end
 from services.shared.prompt_utils import visual_output_instructions
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,31 @@ class PromptComponents:
         )
 
     @staticmethod
-    def base_context(ticker: str, question: str) -> str:
+    def answer_date_context(quarterly_statements: Optional[List[Dict]] = None) -> str:
+        """Date context for answer prompts: today's date plus the newest quarter actually in the data.
+
+        Unlike current_date(), this never asserts a calendar quarter as "latest": fiscal quarters
+        and filing lag mean the newest reported quarter is usually older, and the model would
+        relabel the data with it.
+        """
+        today = date.today()
+        context = f"Today is {today.strftime('%B %d, %Y')}."
+        quarter_ends = [parse_quarter_end(stmt.get("period_end_quarter")) for stmt in quarterly_statements or []]
+        quarter_ends = [d for d in quarter_ends if d]
+        if quarter_ends:
+            latest = max(quarter_ends)
+            context += (
+                f" Latest quarter in the financial statements below: the quarter ended {latest.strftime('%B %d, %Y')}."
+            )
+        return (
+            f"{context} Label each period by the period-end date or fiscal year shown in the data; never relabel it "
+            f'as a different quarter or year. "This year"/"YTD" means {today.year}.'
+        )
+
+    @staticmethod
+    def base_context(ticker: str, question: str, quarterly_statements: Optional[List[Dict]] = None) -> str:
         """Build the base context that's common to all prompts."""
-        date_context = PromptComponents.current_date()
+        date_context = PromptComponents.answer_date_context(quarterly_statements)
         return f"""
             You are a seasoned financial analyst. {date_context}
             Your task is to provide an insightful, non-repetitive analysis for the following question.
