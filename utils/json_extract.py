@@ -14,3 +14,11 @@ def extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("JSON block is not an object")
     return parsed
+
+
+def extract_json_array(text: str) -> list[Any]:
+    """The outermost [...] in `text`, parsed. Raises ValueError when there is none or it isn't an array."""
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        raise ValueError("No JSON array found")
+    return json.loads(match.group(0))

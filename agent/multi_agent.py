@@ -36,6 +36,7 @@ class MultiAgent:
         self,
         prompt: str,
         use_google_search: bool = False,
+        max_tokens: int | None = None,
     ) -> Iterable[Union[str, dict]]:
         """
         Generate content using OpenRouter
@@ -44,16 +45,18 @@ class MultiAgent:
             prompt: The user prompt
             model_name: Model name to use (defaults to client's default model)
             use_google_search: If True, enables web search by appending ':online' to model name
+            max_tokens: Output cap; None keeps the client default
 
         Returns:
             Iterable of string chunks (str) and citation annotations (dict) when streaming
         """
-        return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search)
+        cap = {"max_tokens": max_tokens} if max_tokens else {}
+        return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search, **cap)
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, max_tokens: int | None = None) -> str:
         """generate_content collected into one string; citation dicts are dropped.
         Blocking for the whole LLM call: async callers must offload it (asyncio.to_thread)."""
-        return _join_text_chunks(list(self.generate_content(prompt=prompt)))
+        return _join_text_chunks(list(self.generate_content(prompt=prompt, max_tokens=max_tokens)))
 
     @observe(name="generate_content", as_type="generation", capture_input=False, capture_output=False)
     def generate_private_content(self, prompt: str) -> Iterable[Union[str, dict]]:
