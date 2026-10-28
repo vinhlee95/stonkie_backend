@@ -31,108 +31,39 @@ import re
 
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
-from sqlalchemy.exc import IntegrityError
 
 from agent.agent import Agent
-from connectors.database import get_db
+from connectors.company_financial import CompanyFinancialConnector
+from core.annual_periods import label_annual_periods
 from core.financial_statement_type import FinancialStatementType
-from models.company_financial_statement import CompanyFinancialStatement
+from core.statement_units import normalize_periods
 from services.company import CompanyConnector
 
 load_dotenv()
 
 company_connector = CompanyConnector()
+company_financial_connector = CompanyFinancialConnector()
 
 
 def save_to_database(ticker, statement_type, data):
     """
-    Save financial data to the database with concurrency safety
+    Save scraped annual periods, overwriting stale rows (TTM goes to the slot after the latest fiscal year)
     """
     try:
         st = FinancialStatementType(statement_type)
-        db = next(get_db())
-
-        # Find the most recent non-TTM year
-        most_recent_year = None
-        for item in data:
-            if isinstance(item["period_end_year"], int):
-                if most_recent_year is None or item["period_end_year"] > most_recent_year:
-                    most_recent_year = item["period_end_year"]
-
-        # Process each item
-        for item in data:
-            period_end_year = item["period_end_year"]
-            is_ttm = period_end_year == "TTM"
-
-            # If it's TTM, use the most recent year + 1
-            if is_ttm and most_recent_year is not None:
-                period_end_year = most_recent_year + 1
-
-            # Use atomic upsert with retry logic for better concurrency safety
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    # Try to get existing record with SELECT FOR UPDATE to lock it
-                    existing_record = (
-                        db.query(CompanyFinancialStatement)
-                        .filter(
-                            CompanyFinancialStatement.company_symbol == ticker.upper(),
-                            CompanyFinancialStatement.period_end_year == period_end_year,
-                        )
-                        .with_for_update(nowait=False)
-                        .first()
-                    )
-
-                    if existing_record:
-                        field_already_populated = getattr(existing_record, st.value) is not None
-
-                        if field_already_populated:
-                            print(
-                                f"🔄 Skipping existing record for {ticker} {st.value} {period_end_year} because {st.value} is already populated."
-                            )
-                            break
-
-                        print(f"🔄 Updating existing record for {ticker} {st.value} {period_end_year}")
-                        setattr(existing_record, st.value, item["metrics"])
-                        existing_record.is_ttm = is_ttm
-                    else:
-                        print(f"🔄 Creating new record for {ticker} {st.value} {period_end_year}")
-                        record = CompanyFinancialStatement(
-                            company_symbol=ticker.upper(),
-                            period_end_year=period_end_year,
-                            is_ttm=is_ttm,
-                        )
-                        setattr(record, st.value, item["metrics"])
-                        db.add(record)
-
-                    # Commit the transaction
-                    db.commit()
-                    break  # Success, exit retry loop
-
-                except IntegrityError as e:
-                    # Handle race condition where another process created the record
-                    db.rollback()
-                    if attempt < max_retries - 1:
-                        print(f"🔄 Integrity error on attempt {attempt + 1}, retrying... {e}")
-                        continue
-                    else:
-                        print(f"❌ Failed after {max_retries} attempts due to integrity error: {e}")
-                        break
-                except Exception as e:
-                    db.rollback()
-                    if attempt < max_retries - 1:
-                        print(f"🔄 Database error on attempt {attempt + 1}, retrying... {e}")
-                        continue
-                    else:
-                        raise e
+        data = normalize_periods(data, company_financial_connector.get_statement_line_items(ticker, st))
+        for period in label_annual_periods(data):
+            if company_financial_connector.upsert_annual_statement(ticker, st, period):
+                print(f"🔄 Saved {ticker} {st.value} {period.period_end_year} (ttm={period.is_ttm})")
+            else:
+                print(
+                    f"⚠️  Kept fiscal-year row for {ticker} {st.value} {period.period_end_year}; not overwritten by TTM"
+                )
 
         print(f"✅✅✅ Financial data for {ticker} {st.value} has been saved to the database")
 
     except Exception as e:
         print(f"❌❌❌ Failed to save financial data to the database: {e}")
-        db.rollback()
-    finally:
-        db.close()
 
 
 def export_financial_data_to_text(url):

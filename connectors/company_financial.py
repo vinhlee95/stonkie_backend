@@ -2,9 +2,11 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any, List
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 
 from connectors.database import SessionLocal
+from core.annual_periods import AnnualPeriod, plan_annual_row_update
 from core.financial_statement_type import FinancialStatementType
 from core.quarter_period import quarter_sort_key, sort_quarters_newest_first
 from models.company_financial import CompanyFinancials
@@ -65,6 +67,55 @@ class CompanyFinancialConnector:
                 .order_by(CompanyFinancialStatement.period_end_year.desc())
                 .all()
             )
+
+    def get_statement_line_items(self, ticker: str, statement: FinancialStatementType) -> list[dict[str, Any]]:
+        """Stored quarterly + annual line items of one statement, used as unit references for a new scrape."""
+        with SessionLocal() as db:
+            rows = [
+                *db.query(CompanyQuarterlyFinancialStatement)
+                .filter(CompanyQuarterlyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+                *db.query(CompanyFinancialStatement)
+                .filter(CompanyFinancialStatement.company_symbol == ticker.upper())
+                .all(),
+            ]
+            return [values for row in rows if isinstance(values := getattr(row, statement.value), dict)]
+
+    def upsert_annual_statement(
+        self, ticker: str, statement: FinancialStatementType, period: AnnualPeriod, max_retries: int = 3
+    ) -> bool:
+        """Write one scraped annual period, overwriting stale figures. False = refused (TTM onto a fiscal-year row)."""
+        for attempt in range(max_retries):
+            with SessionLocal() as db:
+                try:
+                    row = (
+                        db.query(CompanyFinancialStatement)
+                        .filter(
+                            CompanyFinancialStatement.company_symbol == ticker.upper(),
+                            CompanyFinancialStatement.period_end_year == period.period_end_year,
+                        )
+                        .with_for_update()
+                        .first()
+                    )
+                    update = plan_annual_row_update(row.is_ttm if row else None, period, statement)
+                    if update is None:
+                        return False
+                    if row is None:
+                        row = CompanyFinancialStatement(
+                            company_symbol=ticker.upper(), period_end_year=period.period_end_year
+                        )
+                        db.add(row)
+                    row.is_ttm = update.is_ttm
+                    for field, value in update.fields.items():
+                        setattr(row, field, value)
+                    db.commit()
+                    return True
+                except IntegrityError:
+                    # Another statement's crawl created the row concurrently; retry to lock and update it.
+                    db.rollback()
+                    if attempt == max_retries - 1:
+                        raise
+        raise ValueError("max_retries must be >= 1")
 
     def get_company_quarterly_financial_statements(self, ticker: str) -> List[CompanyQuarterlyFinancialStatement]:
         with SessionLocal() as db:
