@@ -6,7 +6,8 @@ import asyncio
 import logging
 import os
 import threading
-from typing import Any, AsyncGenerator, AsyncIterator, Dict, Iterable, Iterator, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -197,10 +198,13 @@ def _retrieve_routed(
     request_id: str,
     ticker: str | None,
     company_name: str | None = None,
+    company_name_lookup: Optional[Callable[[], Optional[str]]] = None,
     finished: Optional[threading.Event] = None,
 ):
-    """Brave retrieval for the router's standalone question + queries (no reformulator LLM call). Blocking."""
-    try:
+    """Brave retrieval for the router's standalone question + queries (no reformulator LLM call). Blocking.
+    `company_name_lookup` runs alongside the Brave searches; its name feeds the relevance filter."""
+
+    def retrieve(resolve_company_name: Optional[Callable[[], Optional[str]]] = None):
         return retrieve_for_analyze(
             question=routing.standalone_question,
             market=market,
@@ -209,7 +213,14 @@ def _retrieve_routed(
             ticker=ticker,
             company_name=company_name,
             query_reformulator=PrecomputedQueryReformulator(routing.search_queries),
+            resolve_company_name=resolve_company_name,
         )
+
+    try:
+        if company_name_lookup is None:
+            return retrieve()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return retrieve(pool.submit(company_name_lookup).result)
     finally:
         if finished is not None:
             finished.set()
@@ -545,6 +556,10 @@ class CompanySpecificFinanceHandlerV2:
     def _generate_related_questions(self, original_question: str) -> AsyncIterator[Dict[str, str]]:
         return generate_related_questions(original_question)
 
+    def _company_name(self, ticker: str) -> Optional[str]:
+        company = self.company_connector.get_by_ticker(ticker)
+        return company.name if company and company.name else None
+
     async def _stream_fallback_answer(
         self,
         question: str,
@@ -628,6 +643,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
                     request_id=request_id,
                     ticker=ticker_norm.upper(),
                     company_name=ticker_norm.upper(),
+                    company_name_lookup=lambda: self._company_name(ticker_norm),
                     finished=search_finished,
                 )
             )

@@ -277,3 +277,35 @@ async def test_comparison_follow_up_retrieves_and_prompts_with_standalone_questi
 
     assert [c.kwargs["question"] for c in mock_retrieve.call_args_list] == [standalone, standalone]
     assert standalone in mock_agent.generate_content.call_args.kwargs["prompt"]
+
+
+@pytest.mark.asyncio
+@patch(f"{_HANDLERS}.retrieve_for_analyze")
+@patch(f"{_HANDLERS}.MultiAgent")
+async def test_company_specific_search_looks_up_the_company_name_for_relevance(mock_agent_cls, mock_retrieve):
+    mock_agent_cls.return_value = _agent()
+    resolved: list[str | None] = []
+
+    def retrieve(**kwargs):
+        resolved.append(kwargs["resolve_company_name"]())
+        return _retrieval_result()
+
+    mock_retrieve.side_effect = retrieve
+    handler, _ = _specific_handler()
+    handler.company_connector.get_by_ticker.return_value = SimpleNamespace(name="NVIDIA Corporation")
+    routing = _routing()
+
+    async for _ in handler.handle(
+        ticker="NVDA",
+        question="How does that compare?",
+        search_decision=routing.search_decision,
+        use_url_context=False,
+        preferred_model=ModelName.Auto,
+        request_id="req",
+        routing=routing,
+    ):
+        pass
+
+    assert mock_retrieve.call_args.kwargs["company_name"] == "NVDA"
+    assert resolved == ["NVIDIA Corporation"]
+    handler.company_connector.get_by_ticker.assert_called_once_with("nvda")

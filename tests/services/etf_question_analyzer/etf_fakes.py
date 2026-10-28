@@ -40,7 +40,7 @@ def make_source(source_id: str = "s_1", url: str = "https://www.justetf.com/en/e
     return AnalyzeSource(
         id=source_id,
         url=url,
-        title="SXR8 profile",
+        title=f"{source_id} profile",
         publisher="justETF",
         published_at=datetime(2026, 5, 1, tzinfo=UTC),
         is_trusted=True,

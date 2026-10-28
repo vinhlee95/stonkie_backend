@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-from services.analyze_retrieval.ranking import rank_for_chat
+from services.analyze_retrieval.ranking import rank_for_chat, rank_passages_for_chat
+from services.analyze_retrieval.schemas import AnalyzeSource
 from services.market_recap.schemas import Candidate
 
 
@@ -138,3 +139,29 @@ def test_rank_for_chat_etf_asset_class_promotes_etf_issuer_sites() -> None:
         "https://investing.com/etfs/spy",
         "https://www.justetf.com/en/etf-profile.html",
     ]
+
+
+def _analyze_source(source_id: str, raw_content: str) -> AnalyzeSource:
+    return AnalyzeSource(
+        id=source_id,
+        url=f"https://{source_id}.com/a",
+        title=source_id,
+        publisher=source_id,
+        is_trusted=True,
+        raw_content=raw_content,
+    )
+
+
+def test_rank_passages_for_chat_ignores_excluded_company_terms() -> None:
+    sources = [
+        _analyze_source("name", "Coca-Cola Coca-Cola Coca-Cola news today."),
+        _analyze_source("topic", "The quarterly dividend is 53 cents per share."),
+    ]
+
+    with_name = rank_passages_for_chat(question="Coca-Cola dividend?", sources=sources, max_passages=1)
+    without_name = rank_passages_for_chat(
+        question="Coca-Cola dividend?", sources=sources, max_passages=1, excluded_terms={"coca", "cola"}
+    )
+
+    assert [p.source_id for p in with_name] == ["name"]
+    assert [p.source_id for p in without_name] == ["topic"]

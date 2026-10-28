@@ -21,6 +21,8 @@ def log_retrieval(
     selected_domains: list[str] | None = None,
     selected_source_ages: list[str | None] | None = None,
     stale_dropped: int | None = None,
+    title_duplicates_dropped: int | None = None,
+    filtered_off_topic: int | None = None,
     trusted_selected: int | None = None,
     used_untrusted_backfill: bool | None = None,
     raw_brave_response: dict | None = None,
@@ -48,6 +50,10 @@ def log_retrieval(
         payload["selected_source_ages"] = selected_source_ages
     if stale_dropped is not None:
         payload["stale_dropped"] = stale_dropped
+    if title_duplicates_dropped is not None:
+        payload["title_duplicates_dropped"] = title_duplicates_dropped
+    if filtered_off_topic is not None:
+        payload["filtered_off_topic"] = filtered_off_topic
     if trusted_selected is not None:
         payload["trusted_selected"] = trusted_selected
     if used_untrusted_backfill is not None:
