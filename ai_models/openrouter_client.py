@@ -42,6 +42,35 @@ def get_openrouter_model_name(model_name: ModelName) -> str:
     return OPENROUTER_MODEL_MAP.get(model_name, model_name)
 
 
+def _reasoning_text(delta_extra: dict) -> str:
+    """Readable reasoning in a stream delta: `reasoning`, else text/summary reasoning_details (encrypted ones skipped)."""
+    text = delta_extra.get("reasoning")
+    if isinstance(text, str) and text:
+        return text
+    parts = []
+    for detail in delta_extra.get("reasoning_details") or []:
+        if not isinstance(detail, dict):
+            continue
+        if detail.get("type") == "reasoning.text" and isinstance(detail.get("text"), str):
+            parts.append(detail["text"])
+        elif detail.get("type") == "reasoning.summary" and isinstance(detail.get("summary"), str):
+            parts.append(detail["summary"])
+    return "".join(parts)
+
+
+def _usage_event(served_model: str, usage) -> dict:
+    data = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage or {})
+    details = data.get("completion_tokens_details") or {}
+    return {
+        "type": "usage",
+        "model": served_model,
+        "cost": data.get("cost"),
+        "prompt_tokens": data.get("prompt_tokens"),
+        "completion_tokens": data.get("completion_tokens"),
+        "reasoning_tokens": details.get("reasoning_tokens"),
+    }
+
+
 class OpenRouterClient:
     def __init__(self, api_key: str | None = None, base_url: str | None = None, model_name: ModelName | None = None):
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
@@ -56,7 +85,13 @@ class OpenRouterClient:
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 
     def stream_chat(
-        self, prompt: str, use_google_search: bool = False, max_tokens: int = 8192
+        self,
+        prompt: str,
+        use_google_search: bool = False,
+        max_tokens: int = 8192,
+        reasoning: dict | None = None,
+        include_usage: bool = False,
+        auto_router_models: list[str] | None = None,
     ) -> Iterable[Union[str, dict]]:
         """
         Stream chat completions as plain text chunks and citation dicts.
@@ -65,9 +100,13 @@ class OpenRouterClient:
             prompt: The user prompt
             model: Model name (defaults to self.default_model)
             use_google_search: If True, appends ':online' to model name to enable web search
+            reasoning: OpenRouter reasoning config (e.g. {"effort": "low"}); also turns on reasoning dicts
+            include_usage: Request usage accounting and yield one usage dict after the stream
+            auto_router_models: candidate pool for openrouter/auto (auto-router plugin allowed_models)
 
         Yields:
-            str for text chunks, dict for url_citation annotations
+            str for text chunks, dict for url_citation annotations; with `reasoning`,
+            {"type": "reasoning", "text": ...}; with `include_usage`, a final {"type": "usage", ...}
         """
         # model_name is already in OpenRouter format from __init__
         chosen_model = self.model_name
@@ -78,11 +117,22 @@ class OpenRouterClient:
             base_model = chosen_model.split(":")[0] if ":" in chosen_model else chosen_model
             chosen_model = f"{base_model}:online"
 
-        extra_body = {}
+        extra_body: dict = {}
+        plugins = []
         if use_google_search:
-            extra_body["plugins"] = [{"id": "web", "max_results": 3}]
+            plugins.append({"id": "web", "max_results": 3})
+        if auto_router_models:
+            plugins.append({"id": "auto-router", "allowed_models": list(auto_router_models)})
+        if plugins:
+            extra_body["plugins"] = plugins
+        if reasoning is not None:
+            extra_body["reasoning"] = reasoning
+        if include_usage:
+            extra_body["usage"] = {"include": True}
 
-        logger.info(f"OpenRouter stream_chat: model={chosen_model}, google_search={use_google_search}")
+        logger.info(
+            f"OpenRouter stream_chat: model={chosen_model}, google_search={use_google_search}, reasoning={reasoning}"
+        )
 
         try:
             response = self.client.chat.completions.create(
@@ -96,8 +146,19 @@ class OpenRouterClient:
             logger.error(f"OpenRouter API error (model={chosen_model}): {e}")
             raise
 
+        served_model: str | None = None
+        usage = None
         for event in response:
+            served_model = served_model or getattr(event, "model", None)
+            if getattr(event, "usage", None):
+                usage = event.usage
+            if not event.choices:
+                continue  # the usage accounting chunk has no choices
             delta = event.choices[0].delta
+            if reasoning is not None:
+                reasoning_text = _reasoning_text(delta.model_extra or {})
+                if reasoning_text:
+                    yield {"type": "reasoning", "text": reasoning_text}
             if delta.content:
                 yield delta.content
             # OpenRouter extension: url_citation annotations in model_extra
@@ -111,6 +172,18 @@ class OpenRouterClient:
                         "title": citation.get("title"),
                         "content": citation.get("content"),
                     }
+
+        if include_usage:
+            usage_event = _usage_event(served_model or chosen_model, usage)
+            logger.info(
+                "OpenRouter usage: requested=%s served=%s cost=%s completion_tokens=%s reasoning_tokens=%s",
+                chosen_model,
+                usage_event["model"],
+                usage_event["cost"],
+                usage_event["completion_tokens"],
+                usage_event["reasoning_tokens"],
+            )
+            yield usage_event
 
     # Add this new method to the OpenRouterClient class
     def stream_chat_with_pdf(

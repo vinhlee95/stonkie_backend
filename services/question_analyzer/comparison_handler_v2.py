@@ -28,9 +28,10 @@ from services.question_analyzer.context_builders.components import PromptCompone
 from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
     _build_sources_block,
-    _iter_answer_chunks,
     _writing_status,
+    answer_call,
     generate_related_questions,
+    iter_answer_events,
     related_questions_result,
     start_related_questions,
 )
@@ -224,9 +225,14 @@ class CompanyComparisonHandlerV2:
         )
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
-            agent = MultiAgent(model_name=preferred_model)
-            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-                yield {"type": "answer", "body": chunk}
+            answer_model, answer_options = answer_call(
+                preferred_model, routing is not None and routing.needs_calculation
+            )
+            agent = MultiAgent(model_name=answer_model)
+            for event in iter_answer_events(
+                agent.generate_content(prompt=prompt, use_google_search=False, **answer_options)
+            ):
+                yield event
 
             if flat_sources or use_google_search:
                 yield build_sources_event(flat_sources)
