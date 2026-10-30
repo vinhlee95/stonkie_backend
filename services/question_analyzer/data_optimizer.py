@@ -158,9 +158,11 @@ class FinancialDataOptimizer:
         Fetch the requested quarters, newest first.
 
         Exact "M/D/YYYY" keys are looked up as-is. Router labels ("2026-Q3", "latest") never match
-        those keys, so "YYYY-Qn" is matched by the calendar quarter of the period end. "latest", or a
-        quarter newer than any stored row (the router guessing the current quarter), gets the newest
-        rows; an older quarter that isn't stored gets none.
+        those keys. Only labels meaning "the current quarter" are resolved: "latest", or a "YYYY-Qn"
+        newer than the newest stored row, gets the newest rows; one equal to the newest stored
+        row's calendar quarter gets that row. Any older "YYYY-Qn" gets none: users often mean a
+        fiscal quarter (MSFT "Q1 2025" ended 9/30/2024), so a calendar match could be the wrong
+        quarter under the requested label.
         """
         labels = period_requirement.specific_quarters
         if any(parse_quarter_end(label) for label in labels):
@@ -170,18 +172,18 @@ class FinancialDataOptimizer:
             logger.info(f"Fetched {len(statements_raw)} quarterly statement(s) for: {labels}")
             return statements_raw
 
-        rows = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-            ticker, _MAX_QUARTERS, require_10q_filing=require_10q_filing
-        )
+        # Unfiltered, so "newer than stored" isn't fooled by a newest quarter that has only a 10-K
+        rows = self.company_financial_connector.get_company_quarterly_financial_statements_recent(ticker, _MAX_QUARTERS)
+        candidates = [row for row in rows if (row.filing_10q_url or "").strip()] if require_10q_filing else rows
         requested = {parsed for parsed in map(parse_quarter_label, labels) if parsed}
-        newest_n = period_requirement.num_periods or len(labels)
-        matched = [row for row in rows if calendar_quarter(row.period_end_quarter) in requested]
         newest = calendar_quarter(rows[0].period_end_quarter) if rows else None
 
-        if matched:
-            statements_raw = matched
-        elif not requested or (newest and max(requested) > newest):
-            statements_raw = rows[:newest_n]
+        if any(label.strip().lower() == "latest" for label in labels) or (
+            newest and requested and max(requested) > newest
+        ):
+            statements_raw = candidates[: period_requirement.num_periods or len(labels)]
+        elif newest in requested and rows[0] in candidates:
+            statements_raw = [rows[0]]
         else:
             statements_raw = []
         logger.info(
