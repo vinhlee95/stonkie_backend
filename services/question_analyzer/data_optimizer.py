@@ -138,6 +138,16 @@ class FinancialDataOptimizer:
             logger.info(
                 f"Fetched {len(statements_raw)} quarterly statements for: {period_requirement.specific_quarters}"
             )
+            if not statements_raw:
+                # Router labels ("2026-Q3", "latest") never match the DB's "M/D/YYYY" keys
+                num_periods = period_requirement.num_periods or len(period_requirement.specific_quarters)
+                statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
+                    ticker, num_periods
+                )
+                logger.info(
+                    f"No quarter matched {period_requirement.specific_quarters}; "
+                    f"fell back to {len(statements_raw)} most recent quarterly statements"
+                )
         elif period_requirement.num_periods:
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
                 ticker, period_requirement.num_periods
@@ -178,6 +188,14 @@ class FinancialDataOptimizer:
             logger.info(
                 f"Fetched {len(statements_raw)} quarterly statement(s) for: {period_requirement.specific_quarters}"
             )
+            if not statements_raw:
+                # Router labels ("2026-Q3") never match the DB's "M/D/YYYY" keys
+                statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
+                    ticker, 1, require_10q_filing=True
+                )
+                logger.info(
+                    f"No quarter matched {period_requirement.specific_quarters}; fell back to latest quarter with a 10-Q"
+                )
         elif period_requirement and period_requirement.num_periods:
             # Use num_periods if specified (typically 1 for summary questions)
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
