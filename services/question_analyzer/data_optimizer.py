@@ -5,11 +5,15 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from connectors.company_financial import CompanyFinancialConnector
+from core.quarter_period import calendar_quarter, parse_quarter_end, parse_quarter_label
 from external_knowledge.company_fundamental import get_company_fundamental
 
 from .types import FinancialDataRequirement, FinancialPeriodRequirement
 
 logger = logging.getLogger(__name__)
+
+# Upper bound for "all stored quarters" of a ticker (a ticker has ~10 quarterly rows)
+_MAX_QUARTERS = 40
 
 
 class FinancialDataOptimizer:
@@ -132,22 +136,7 @@ class FinancialDataOptimizer:
             List of quarterly statement dictionaries
         """
         if period_requirement.specific_quarters:
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_by_quarters(
-                ticker, period_requirement.specific_quarters
-            )
-            logger.info(
-                f"Fetched {len(statements_raw)} quarterly statements for: {period_requirement.specific_quarters}"
-            )
-            if not statements_raw:
-                # Router labels ("2026-Q3", "latest") never match the DB's "M/D/YYYY" keys
-                num_periods = period_requirement.num_periods or len(period_requirement.specific_quarters)
-                statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                    ticker, num_periods
-                )
-                logger.info(
-                    f"No quarter matched {period_requirement.specific_quarters}; "
-                    f"fell back to {len(statements_raw)} most recent quarterly statements"
-                )
+            statements_raw = self._fetch_specific_quarters(ticker, period_requirement)
         elif period_requirement.num_periods:
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
                 ticker, period_requirement.num_periods
@@ -161,6 +150,45 @@ class FinancialDataOptimizer:
             logger.info(f"Fetched {len(statements_raw)} quarterly statements (default: 4 most recent)")
 
         return [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
+
+    def _fetch_specific_quarters(
+        self, ticker: str, period_requirement: FinancialPeriodRequirement, require_10q_filing: bool = False
+    ) -> List[Any]:
+        """
+        Fetch the requested quarters, newest first.
+
+        Exact "M/D/YYYY" keys are looked up as-is. Router labels ("2026-Q3", "latest") never match
+        those keys, so "YYYY-Qn" is matched by the calendar quarter of the period end. "latest", or a
+        quarter newer than any stored row (the router guessing the current quarter), gets the newest
+        rows; an older quarter that isn't stored gets none.
+        """
+        labels = period_requirement.specific_quarters
+        if any(parse_quarter_end(label) for label in labels):
+            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_by_quarters(
+                ticker, labels
+            )
+            logger.info(f"Fetched {len(statements_raw)} quarterly statement(s) for: {labels}")
+            return statements_raw
+
+        rows = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
+            ticker, _MAX_QUARTERS, require_10q_filing=require_10q_filing
+        )
+        requested = {parsed for parsed in map(parse_quarter_label, labels) if parsed}
+        newest_n = period_requirement.num_periods or len(labels)
+        matched = [row for row in rows if calendar_quarter(row.period_end_quarter) in requested]
+        newest = calendar_quarter(rows[0].period_end_quarter) if rows else None
+
+        if matched:
+            statements_raw = matched
+        elif not requested or (newest and max(requested) > newest):
+            statements_raw = rows[:newest_n]
+        else:
+            statements_raw = []
+        logger.info(
+            f"Resolved quarter labels {labels} to {[row.period_end_quarter for row in statements_raw]} "
+            f"(newest stored: {rows[0].period_end_quarter if rows else None})"
+        )
+        return statements_raw
 
     async def _fetch_quarterly_summary(
         self, ticker: str, period_requirement: Optional[FinancialPeriodRequirement] = None
@@ -182,20 +210,7 @@ class FinancialDataOptimizer:
             and period_requirement.specific_quarters
             and period_requirement.specific_quarters != ["latest"]
         ):
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_by_quarters(
-                ticker, period_requirement.specific_quarters
-            )
-            logger.info(
-                f"Fetched {len(statements_raw)} quarterly statement(s) for: {period_requirement.specific_quarters}"
-            )
-            if not statements_raw:
-                # Router labels ("2026-Q3") never match the DB's "M/D/YYYY" keys
-                statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                    ticker, 1, require_10q_filing=True
-                )
-                logger.info(
-                    f"No quarter matched {period_requirement.specific_quarters}; fell back to latest quarter with a 10-Q"
-                )
+            statements_raw = self._fetch_specific_quarters(ticker, period_requirement, require_10q_filing=True)
         elif period_requirement and period_requirement.num_periods:
             # Use num_periods if specified (typically 1 for summary questions)
             statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
