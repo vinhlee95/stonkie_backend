@@ -1,4 +1,5 @@
-"""ETF v2 answers pull the blocking LLM stream in a worker thread: a slow answer never blocks the event loop.
+"""ETF v2 answers pull the blocking LLM stream in a worker thread: a slow answer never blocks the event loop,
+and a client disconnect closes the stream.
 
 Fakes only: no LLM, DB or Brave calls.
 """
@@ -26,14 +27,31 @@ from tests.services.etf_question_analyzer.etf_fakes import (
 )
 
 
-class _GatedAgent(FakeAgent):
-    def __init__(self, stream: GatedStream):
+class _StreamAgent(FakeAgent):
+    """FakeAgent that returns a given stream object, so the test can inspect how it was consumed."""
+
+    def __init__(self, stream: Any):
         super().__init__()
         self.stream = stream
 
     def generate_content(self, prompt: str, use_google_search: bool = False, **_kwargs):
         super().generate_content(prompt, use_google_search)
         return self.stream
+
+
+class _RecordingStream:
+    def __init__(self, items: list[Any]):
+        self.items = items
+        self.pulled = 0
+        self.closed = False
+
+    def __iter__(self):
+        try:
+            for item in self.items:
+                self.pulled += 1
+                yield item
+        finally:
+            self.closed = True
 
 
 class _ETFConnector:
@@ -84,7 +102,7 @@ def _comparison(agent: FakeAgent):
 @pytest.mark.parametrize("make_handler", [_overview, _comparison], ids=["overview", "comparison"])
 async def test_etf_answer_stream_does_not_block_event_loop(make_handler):
     stream = GatedStream(["Alpha ", {"type": "url_citation"}, "Beta"])
-    handler, params = make_handler(_GatedAgent(stream))
+    handler, params = make_handler(_StreamAgent(stream))
 
     gate = asyncio.create_task(open_gate_when_waiting(stream))
     events = [
@@ -95,3 +113,20 @@ async def test_etf_answer_stream_does_not_block_event_loop(make_handler):
 
     assert stream.opened_in_time is True
     assert [e["body"] for e in events if e["type"] == "answer"] == ["Alpha ", "Beta"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("make_handler", [_overview, _comparison], ids=["overview", "comparison"])
+async def test_etf_close_after_first_answer_closes_llm_stream(make_handler):
+    """A client disconnect closes the handler generator; the LLM stream is closed then, not at GC."""
+    stream = _RecordingStream(["Alpha ", "Beta ", "Gamma"])
+    handler, params = make_handler(_StreamAgent(stream))
+
+    events = handler.handle(routing=_routing(), preferred_model=ModelName.Auto, request_id="req-1", **params)
+    async for event in events:
+        if event["type"] == "answer":
+            break
+    await events.aclose()
+
+    assert stream.pulled == 1
+    assert stream.closed is True

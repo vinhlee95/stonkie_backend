@@ -19,11 +19,11 @@ from services.question_analyzer.handlers_v2 import (
     CompanyGeneralHandlerV2,
     CompanySpecificFinanceHandlerV2,
     GeneralFinanceHandlerV2,
-    _answer_stream,
     _iter_answer_chunks,
 )
 from services.question_analyzer.types import FinancialDataRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
+from services.shared.answer_stream import answer_stream
 from tests.services.answer_stream_fakes import GatedStream, open_gate_when_waiting
 from tests.services.routing_fakes import make_routing
 
@@ -273,7 +273,7 @@ async def test_answer_stream_cancelled_consumer_stops_pulling_after_item_in_flig
             yield i
 
     async def consume():
-        async with _answer_stream(stream()) as chunks:
+        async with answer_stream(stream()) as chunks:
             async for _ in chunks:
                 pass
 

@@ -31,7 +31,6 @@ from services.analyze_retrieval.schemas import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
-    _answer_stream,
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
@@ -43,6 +42,7 @@ from services.question_analyzer.handlers_v2 import (
     start_related_questions,
 )
 from services.question_analyzer.router import ETFRoutingResult, trim_search_query
+from services.shared.answer_stream import answer_stream
 from utils.conversation_format import format_conversation_context
 
 from .context_builders import ETFContextBuilderInput, get_etf_context_builder
@@ -186,7 +186,7 @@ class _ETFHandlerV2Base:
         related_task = await start_related_questions(self._related_questions(question))
         try:
             agent = self._agent_factory(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:

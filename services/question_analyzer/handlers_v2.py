@@ -8,7 +8,7 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional, TypeVar
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
 from ai_models.model_name import ModelName
@@ -29,7 +29,7 @@ from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.router import RoutingResult
 from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement
 from services.search_decision_engine import SearchDecision
-from utils.async_helpers import iterate_in_thread
+from services.shared.answer_stream import answer_stream
 from utils.conversation_format import format_conversation_context
 from utils.url_helper import extract_first_url
 
@@ -82,23 +82,6 @@ def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
     for chunk in chunks:
         if isinstance(chunk, str):
             yield chunk
-
-
-T = TypeVar("T")
-
-# Answer streams hold a worker for their whole length; their own pool keeps a burst of answers from
-# starving the default executor that retrieval, DB and related-questions to_thread calls share.
-ANSWER_LLM_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="analyze-answer-llm")
-
-
-def _answer_stream(stream: Iterable[T]) -> aclosing[AsyncIterator[T]]:
-    """Pull a blocking LLM stream (e.g. ``_iter_answer_chunks(...)``) in ANSWER_LLM_POOL, one item per step,
-    so the event loop serves other requests while the answer streams.
-
-    Use as ``async with _answer_stream(...) as chunks``: leaving the block (client disconnect, error) closes
-    the LLM stream right away, and a cancelled consumer stops pulling after the item in flight.
-    """
-    return aclosing(iterate_in_thread(stream, ANSWER_LLM_POOL))
 
 
 _RELATED_QUESTIONS_MODEL = ModelName.Gemini31FlashLite
@@ -387,7 +370,7 @@ Use short paragraphs and bullet points for readability.
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:
@@ -550,7 +533,7 @@ Keep the answer under 150 words. Break into short paragraphs.
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:
@@ -608,7 +591,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:
@@ -851,7 +834,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=combined_prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:

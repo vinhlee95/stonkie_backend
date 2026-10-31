@@ -19,7 +19,6 @@ from services.analyze_retrieval.retrieval import BraveSearchClient
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeSource, BraveRetrievalError
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
-    _answer_stream,
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
@@ -29,6 +28,7 @@ from services.question_analyzer.handlers_v2 import (
     start_related_questions,
 )
 from services.question_analyzer.router import ETFRoutingResult
+from services.shared.answer_stream import answer_stream
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 from .handlers_v2 import AgentFactory, Retriever, _ETFHandlerV2Base, _fund_query
@@ -197,7 +197,7 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
         related_task = await start_related_questions(self._comparison_related_questions(question, short_analysis))
         try:
             agent = self._agent_factory(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:

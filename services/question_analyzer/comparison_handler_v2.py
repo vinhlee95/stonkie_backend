@@ -26,7 +26,6 @@ from services.question_analyzer.context_builders.comparison_builder import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
-    _answer_stream,
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
@@ -37,6 +36,7 @@ from services.question_analyzer.handlers_v2 import (
 )
 from services.question_analyzer.router import RoutingResult
 from services.search_decision_engine import SearchDecision
+from services.shared.answer_stream import answer_stream
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class CompanyComparisonHandlerV2:
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            async with _answer_stream(
+            async with answer_stream(
                 _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
             ) as chunks:
                 async for chunk in chunks:
