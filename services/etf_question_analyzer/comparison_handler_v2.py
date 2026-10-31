@@ -206,7 +206,7 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
             if flat_sources:
                 yield build_sources_event(flat_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q

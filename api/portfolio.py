@@ -82,7 +82,7 @@ class ChatIn(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     scopeTicker: str | None = Field(default=None, max_length=32)
     conversationId: str | None = Field(default=None, max_length=100)
-    preferredModel: str = Field(default="fastest", max_length=50)
+    preferredModel: str = Field(default="auto", max_length=50)
 
 
 def _normalise_ticker(ticker: str) -> str:

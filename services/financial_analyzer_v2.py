@@ -138,7 +138,7 @@ class FinancialAnalyzerV2:
                 }
                 return
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
         except Exception as e:
             logger.error("Error handling PDF URL question: %s", e)

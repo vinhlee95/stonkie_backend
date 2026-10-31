@@ -82,6 +82,8 @@ class OpenRouterClient:
         DEFAULT_MODEL_NAME = ModelName.Gemini35Flash
         generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
+        # Model OpenRouter actually served on the last stream_chat (openrouter/auto resolves to a concrete one).
+        self.served_model: str | None = None
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 
     def stream_chat(
@@ -146,10 +148,10 @@ class OpenRouterClient:
             logger.error(f"OpenRouter API error (model={chosen_model}): {e}")
             raise
 
-        served_model: str | None = None
+        self.served_model = None
         usage = None
         for event in response:
-            served_model = served_model or getattr(event, "model", None)
+            self.served_model = self.served_model or getattr(event, "model", None)
             if getattr(event, "usage", None):
                 usage = event.usage
             if not event.choices:
@@ -174,7 +176,7 @@ class OpenRouterClient:
                     }
 
         if include_usage:
-            usage_event = _usage_event(served_model or chosen_model, usage)
+            usage_event = _usage_event(self.served_model or chosen_model, usage)
             logger.info(
                 "OpenRouter usage: requested=%s served=%s cost=%s completion_tokens=%s reasoning_tokens=%s",
                 chosen_model,
@@ -244,7 +246,9 @@ class OpenRouterClient:
             stream=True,
         )
 
+        self.served_model = None
         for event in response:
+            self.served_model = self.served_model or getattr(event, "model", None)
             delta = event.choices[0].delta.content
             if delta:
                 yield delta
@@ -302,7 +306,9 @@ class OpenRouterClient:
             stream=True,
         )
 
+        self.served_model = None
         for event in response:
+            self.served_model = self.served_model or getattr(event, "model", None)
             delta = event.choices[0].delta.content
             if delta:
                 yield delta

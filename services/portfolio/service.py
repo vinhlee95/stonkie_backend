@@ -602,7 +602,7 @@ class PortfolioService:
 
         if sources:
             yield build_sources_event(sources)
-        yield {"type": "model_used", "body": agent.model_name}
+        yield {"type": "model_used", "body": agent.served_model_name}
         await _best_effort(append_assistant_message, user_id, chat.CONVERSATION_SCOPE, conv_id, "".join(output))
 
     # Inputs include conversation history with portfolio figures: trace the decision, not the inputs.

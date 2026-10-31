@@ -60,6 +60,11 @@ class MultiAgent:
         """Get the current model name"""
         return self.client.model_name
 
+    @property
+    def served_model_name(self) -> str:
+        """Model that served the last generate_content stream (e.g. what openrouter/auto picked); requested model before."""
+        return self.client.served_model or self.client.model_name
+
     @observe(name="generate_content", as_type="generation", transform_to_string=_join_text_chunks)
     def generate_content(
         self,

@@ -195,7 +195,7 @@ class _ETFHandlerV2Base:
             if retrieved_sources:
                 yield build_sources_event(retrieved_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q

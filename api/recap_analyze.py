@@ -26,7 +26,7 @@ async def analyze_recap(recap_id: int, request: Request) -> StreamingResponse:
     try:
         body = await request.json()
         question = body.get("question")
-        preferred_model_str = body.get("preferredModel", "fastest")
+        preferred_model_str = body.get("preferredModel", "auto")
         conversation_id = body.get("conversationId")
         debug_prompt_context = body.get("debugPromptContext", False)
 

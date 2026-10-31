@@ -99,6 +99,15 @@ def test_iter_answer_events_keeps_reasoning_before_answer_and_drops_other_dicts(
     assert all(isinstance(e["body"], str) for e in events)
 
 
+def test_iter_answer_events_yields_the_writing_status_after_reasoning_before_the_answer():
+    status = {"type": "thinking_status", "body": "Writing your answer..."}
+
+    events = list(iter_answer_events(_STREAM, status))
+
+    assert [e["type"] for e in events] == ["reasoning", "reasoning", "thinking_status", "answer", "answer"]
+    assert events[2] is status
+
+
 def test_answer_call_turns_on_reasoning_only_for_calculation_questions_on_the_default_model():
     model, options = answer_call(ModelName.Fastest, True)
     assert model == REASONING_ANSWER_MODEL == ModelName.Auto
@@ -109,6 +118,9 @@ def test_answer_call_turns_on_reasoning_only_for_calculation_questions_on_the_de
     }
 
     assert answer_call(ModelName.Fastest, False) == (ModelName.Fastest, {"include_usage": True})
+    # Auto (the client default) reasons like fastest; otherwise unrestricted openrouter/auto.
+    assert answer_call(ModelName.Auto, True) == (model, options)
+    assert answer_call(ModelName.Auto, False) == (ModelName.Auto, {"include_usage": True})
     # An explicitly chosen model is kept, without reasoning.
     assert answer_call(ModelName.Sonnet46, True) == (ModelName.Sonnet46, {"include_usage": True})
 
@@ -146,6 +158,14 @@ async def test_company_specific_passes_reasoning_from_the_router(mock_agent_cls,
     assert "".join(e["body"] for e in events if e["type"] == "answer") == "Gross margin fell to 67.2%."
     types = [e["type"] for e in events]
     assert types.index("model_used") > max(i for i, t in enumerate(types) if t == "answer")
+    writing = next(
+        i for i, e in enumerate(events) if e["type"] == "thinking_status" and "writing your answer" in e["body"].lower()
+    )
+    if needs_calculation:  # reasoning first, then "Writing your answer", then the answer
+        assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
+    else:
+        assert writing < types.index("reasoning")
+    assert events[types.index("model_used")]["body"] is agent.served_model_name
 
 
 @pytest.mark.asyncio

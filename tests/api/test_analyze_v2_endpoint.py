@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 import main as main_module
+from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import BraveRetrievalError
 from services.semantic_analysis_cache import SEMANTIC_CACHE_ENABLED_ENV
 
@@ -90,6 +91,7 @@ def test_v2_analyze_passes_previous_conversation_context_to_financial_analyzer()
     assert captured_kwargs["conversation_messages"] == prior_messages
     assert captured_kwargs["conversation_id"] == "conv-existing"
     assert captured_kwargs["anon_user_id"] == "anon-existing"
+    assert captured_kwargs["preferred_model"] == ModelName.Auto  # no preferredModel sent → Auto Router
 
 
 def test_v2_analyze_streams_etf_analyzer_events_under_etf_conversation_namespace(monkeypatch):

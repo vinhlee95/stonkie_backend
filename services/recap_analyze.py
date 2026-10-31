@@ -397,7 +397,7 @@ Output ONLY JSON:
         else:
             yield build_sources_event(_recap_sources(recap))
 
-        yield {"type": "model_used", "body": agent.model_name}
+        yield {"type": "model_used", "body": agent.served_model_name}
 
         if assistant_output_buffer:
             append_assistant_message(anon_user_id, storage_scope, conv_id, "".join(assistant_output_buffer))

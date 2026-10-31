@@ -78,6 +78,7 @@ class FakeAgent:
     def __init__(self, chunks: list[Any] | None = None, model_name: str = "test-model"):
         self.chunks = chunks if chunks is not None else ["Alpha ", {"type": "url_citation"}, "Beta"]
         self.model_name = model_name
+        self.served_model_name = model_name
         self.prompts: list[str] = []
         self.search_flags: list[bool] = []
 

@@ -135,3 +135,13 @@ def test_stream_chat_usage_without_a_usage_chunk_reports_the_requested_model():
     assert usage["type"] == "usage"
     assert usage["model"] == "openrouter/auto"
     assert usage["cost"] is None
+
+
+def test_stream_chat_records_the_model_auto_router_served():
+    client, _ = _streaming_client(_REASONING_EVENTS)
+    assert client.served_model is None
+
+    list(client.stream_chat("p"))
+
+    assert client.model_name == "openrouter/auto"
+    assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
