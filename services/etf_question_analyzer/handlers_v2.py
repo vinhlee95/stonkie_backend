@@ -31,6 +31,7 @@ from services.analyze_retrieval.schemas import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
+    _answer_stream,
     _build_prompt_debug_event,
     _build_sources_block,
     _iter_answer_chunks,
@@ -185,8 +186,11 @@ class _ETFHandlerV2Base:
         related_task = await start_related_questions(self._related_questions(question))
         try:
             agent = self._agent_factory(model_name=preferred_model)
-            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-                yield {"type": "answer", "body": chunk}
+            async with _answer_stream(
+                _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
+            ) as chunks:
+                async for chunk in chunks:
+                    yield {"type": "answer", "body": chunk}
 
             if retrieved_sources:
                 yield build_sources_event(retrieved_sources)
