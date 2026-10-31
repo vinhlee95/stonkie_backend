@@ -1,5 +1,6 @@
 """Optimizes financial data fetching based on question requirements."""
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -52,7 +53,7 @@ class FinancialDataOptimizer:
         # Fetch basic company data if needed
         if data_requirement in [FinancialDataRequirement.BASIC]:
             t_start = time.perf_counter()
-            company_fundamental = get_company_fundamental(ticker)
+            company_fundamental = await asyncio.to_thread(get_company_fundamental, ticker)
             t_end = time.perf_counter()
             logger.info(f"Profiling get_company_fundamental: {t_end - t_start:.4f}s")
 
@@ -104,20 +105,26 @@ class FinancialDataOptimizer:
             List of annual statement dictionaries
         """
         if period_requirement.specific_years:
-            statements_raw = self.company_financial_connector.get_company_financial_statements_by_years(
-                ticker, period_requirement.specific_years
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_by_years,
+                ticker,
+                period_requirement.specific_years,
             )
             logger.info(
                 f"Fetched {len(statements_raw)} annual statements for years: {period_requirement.specific_years}"
             )
         elif period_requirement.num_periods:
-            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(
-                ticker, period_requirement.num_periods
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_recent,
+                ticker,
+                period_requirement.num_periods,
             )
             logger.info(f"Fetched {len(statements_raw)} most recent annual statements")
         else:
             # Fallback: get last 3 years by default
-            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(ticker, 3)
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_recent, ticker, 3
+            )
             logger.info(f"Fetched {len(statements_raw)} annual statements (default: 3 most recent)")
 
         return [CompanyFinancialConnector.to_dict(item) for item in statements_raw]
@@ -136,16 +143,18 @@ class FinancialDataOptimizer:
             List of quarterly statement dictionaries
         """
         if period_requirement.specific_quarters:
-            statements_raw = self._fetch_specific_quarters(ticker, period_requirement)
+            statements_raw = await asyncio.to_thread(self._fetch_specific_quarters, ticker, period_requirement)
         elif period_requirement.num_periods:
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, period_requirement.num_periods
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_quarterly_financial_statements_recent,
+                ticker,
+                period_requirement.num_periods,
             )
             logger.info(f"Fetched {len(statements_raw)} most recent quarterly statements")
         else:
             # Fallback: get last 4 quarters by default
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, 4
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_quarterly_financial_statements_recent, ticker, 4
             )
             logger.info(f"Fetched {len(statements_raw)} quarterly statements (default: 4 most recent)")
 
@@ -212,17 +221,25 @@ class FinancialDataOptimizer:
             and period_requirement.specific_quarters
             and period_requirement.specific_quarters != ["latest"]
         ):
-            statements_raw = self._fetch_specific_quarters(ticker, period_requirement, require_10q_filing=True)
+            statements_raw = await asyncio.to_thread(
+                self._fetch_specific_quarters, ticker, period_requirement, require_10q_filing=True
+            )
         elif period_requirement and period_requirement.num_periods:
             # Use num_periods if specified (typically 1 for summary questions)
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, period_requirement.num_periods, require_10q_filing=True
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_quarterly_financial_statements_recent,
+                ticker,
+                period_requirement.num_periods,
+                require_10q_filing=True,
             )
             logger.info(f"Fetched {period_requirement.num_periods} most recent quarterly statement(s) for summary")
         else:
             # Default: fetch only the most recent quarter with a 10-Q
-            statements_raw = self.company_financial_connector.get_company_quarterly_financial_statements_recent(
-                ticker, 1, require_10q_filing=True
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_quarterly_financial_statements_recent,
+                ticker,
+                1,
+                require_10q_filing=True,
             )
             logger.info("Fetched latest quarterly statement for summary")
 
@@ -257,21 +274,27 @@ class FinancialDataOptimizer:
         """
         # Check if specific years are requested
         if period_requirement and period_requirement.specific_years:
-            statements_raw = self.company_financial_connector.get_company_financial_statements_by_years(
-                ticker, period_requirement.specific_years
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_by_years,
+                ticker,
+                period_requirement.specific_years,
             )
             logger.info(
                 f"Fetched {len(statements_raw)} annual statement(s) for years: {period_requirement.specific_years}"
             )
         elif period_requirement and period_requirement.num_periods:
             # Use num_periods if specified (typically 1 for summary questions)
-            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(
-                ticker, period_requirement.num_periods
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_recent,
+                ticker,
+                period_requirement.num_periods,
             )
             logger.info(f"Fetched {period_requirement.num_periods} most recent annual statement(s) for summary")
         else:
             # Default: fetch only the most recent year
-            statements_raw = self.company_financial_connector.get_company_financial_statements_recent(ticker, 1)
+            statements_raw = await asyncio.to_thread(
+                self.company_financial_connector.get_company_financial_statements_recent, ticker, 1
+            )
             logger.info("Fetched latest annual statement for summary")
 
         # Convert to dict - filing_10k_url is already included in the model

@@ -170,7 +170,7 @@ class FinancialAnalyzerV2:
             )
         )
         try:
-            # Let the router hand its LLM call to a worker thread before the extractor (sync LLM calls) runs.
+            # Let the router hand its LLM call to a worker thread before the extractor runs.
             await asyncio.sleep(0)
             comparison_tickers: list[str] = []
             try:

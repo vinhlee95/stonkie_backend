@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, AsyncGenerator
@@ -59,7 +60,7 @@ class AnalyzeV2StreamService:
         normalized_ticker = normalize_route_ticker(ticker)
 
         is_etf = False
-        if normalized_ticker and get_etf_by_ticker(normalized_ticker):
+        if normalized_ticker and await asyncio.to_thread(get_etf_by_ticker, normalized_ticker):
             is_etf = True
 
         conv_id = conversation_id or generate_conversation_id()

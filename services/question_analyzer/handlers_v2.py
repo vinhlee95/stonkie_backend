@@ -338,7 +338,7 @@ class CompanyGeneralHandlerV2:
         routing: RoutingResult,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         progress = ThinkingProgress()
-        company = self.company_connector.get_by_ticker(ticker)
+        company = await asyncio.to_thread(self.company_connector.get_by_ticker, ticker)
         company_name = company.name if company else ticker.upper()
 
         conversation_context = ""

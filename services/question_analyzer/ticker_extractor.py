@@ -1,5 +1,6 @@
 """Extract stock tickers from comparison questions."""
 
+import asyncio
 import json
 import logging
 import re
@@ -178,6 +179,10 @@ class StockTickerExtractor:
         self.agent = MultiAgent(model_name=ModelName.Gemini31FlashLite)
 
     async def _preprocess_question_with_context(self, question: str, current_ticker: str) -> str:
+        """Blocking LLM call, run in a worker thread so the event loop keeps serving other streams."""
+        return await asyncio.to_thread(self._preprocess_question_with_context_sync, question, current_ticker)
+
+    def _preprocess_question_with_context_sync(self, question: str, current_ticker: str) -> str:
         """
         Use AI to resolve contextual references in the question.
 
@@ -247,7 +252,7 @@ Return ONLY the rewritten question, no explanation."""
                     logger.info(f"Context resolved: '{question}' → '{processed_question}'")
 
             # Stage 1: Try regex extraction (fast, free)
-            regex_tickers = self._extract_via_regex(processed_question)
+            regex_tickers = await asyncio.to_thread(self._extract_via_regex, processed_question)
             if len(regex_tickers) >= 2:
                 logger.info(f"[ticker_extractor] Stage 1 (regex): extracted {regex_tickers}")
                 return regex_tickers
@@ -296,6 +301,10 @@ Return ONLY the rewritten question, no explanation."""
         return valid_tickers[:4] if len(valid_tickers) >= 2 else []
 
     async def _extract_via_ai(self, question: str) -> list[str]:
+        """Blocking LLM call + DB lookups, run in a worker thread so the event loop keeps serving other streams."""
+        return await asyncio.to_thread(self._extract_via_ai_sync, question)
+
+    def _extract_via_ai_sync(self, question: str) -> list[str]:
         """
         Extract tickers using AI to handle company names.
 
