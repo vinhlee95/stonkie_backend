@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
@@ -28,6 +29,7 @@ from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.router import RoutingResult
 from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement
 from services.search_decision_engine import SearchDecision
+from services.shared.answer_stream import answer_stream
 from utils.conversation_format import format_conversation_context
 from utils.url_helper import extract_first_url
 
@@ -411,10 +413,11 @@ Use short paragraphs and bullet points for readability.
         try:
             answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
-            for event in iter_answer_events(
-                agent.generate_content(prompt=prompt, use_google_search=False, **answer_options)
-            ):
-                yield event
+            async with answer_stream(
+                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+            ) as events:
+                async for event in events:
+                    yield event
 
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)
@@ -574,10 +577,11 @@ Keep the answer under 150 words. Break into short paragraphs.
         try:
             answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
-            for event in iter_answer_events(
-                agent.generate_content(prompt=prompt, use_google_search=False, **answer_options)
-            ):
-                yield event
+            async with answer_stream(
+                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+            ) as events:
+                async for event in events:
+                    yield event
 
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)
@@ -631,8 +635,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=preferred_model)
-            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-                yield {"type": "answer", "body": chunk}
+            async with answer_stream(
+                _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
+            ) as chunks:
+                async for chunk in chunks:
+                    yield {"type": "answer", "body": chunk}
             yield {"type": "model_used", "body": agent.model_name}
 
             for related_q in await related_questions_result(related_task):
@@ -660,10 +667,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
         # Fallback 1: missing/undefined ticker + conversation
         if (not ticker_norm or ticker_norm in ["undefined", "null", "none", ""]) and conversation_messages:
             yield progress.status("Writing your answer from our conversation...", phase=AnalysisPhase.ANALYZE)
-            async for event in self._stream_fallback_answer(
-                question, ticker_norm, "", conversation_messages, preferred_model
-            ):
-                yield event
+            async with aclosing(
+                self._stream_fallback_answer(question, ticker_norm, "", conversation_messages, preferred_model)
+            ) as events:
+                async for event in events:
+                    yield event
             return
 
         data_requirement = routing.data_requirement
@@ -754,10 +762,13 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 phase=AnalysisPhase.ANALYZE,
             )
             company_name = company_fundamental.get("Name", "") if company_fundamental else ""
-            async for event in self._stream_fallback_answer(
-                question, ticker_norm, company_name, conversation_messages, preferred_model
-            ):
-                yield event
+            async with aclosing(
+                self._stream_fallback_answer(
+                    question, ticker_norm, company_name, conversation_messages, preferred_model
+                )
+            ) as events:
+                async for event in events:
+                    yield event
             return
 
         has_financials = bool(company_fundamental) or bool(annual_statements) or bool(quarterly_statements)
@@ -868,10 +879,13 @@ Provide a helpful, general answer that builds on what we discussed before."""
         try:
             answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
-            for event in iter_answer_events(
-                agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options)
-            ):
-                yield event
+            async with answer_stream(
+                iter_answer_events(
+                    agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options)
+                )
+            ) as events:
+                async for event in events:
+                    yield event
 
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)

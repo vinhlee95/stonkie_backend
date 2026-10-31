@@ -42,6 +42,7 @@ from services.question_analyzer.handlers_v2 import (
     start_related_questions,
 )
 from services.question_analyzer.router import ETFRoutingResult, trim_search_query
+from services.shared.answer_stream import answer_stream
 from utils.conversation_format import format_conversation_context
 
 from .context_builders import ETFContextBuilderInput, get_etf_context_builder
@@ -185,8 +186,11 @@ class _ETFHandlerV2Base:
         related_task = await start_related_questions(self._related_questions(question))
         try:
             agent = self._agent_factory(model_name=preferred_model)
-            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-                yield {"type": "answer", "body": chunk}
+            async with answer_stream(
+                _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
+            ) as chunks:
+                async for chunk in chunks:
+                    yield {"type": "answer", "body": chunk}
 
             if retrieved_sources:
                 yield build_sources_event(retrieved_sources)

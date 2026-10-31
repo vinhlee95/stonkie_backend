@@ -28,6 +28,7 @@ from services.question_analyzer.handlers_v2 import (
     start_related_questions,
 )
 from services.question_analyzer.router import ETFRoutingResult
+from services.shared.answer_stream import answer_stream
 
 from .context_builders.comparison_builder import ComparisonContextBuilderInput, ComparisonETFBuilder
 from .handlers_v2 import AgentFactory, Retriever, _ETFHandlerV2Base, _fund_query
@@ -196,8 +197,11 @@ class ETFComparisonHandlerV2(_ETFHandlerV2Base):
         related_task = await start_related_questions(self._comparison_related_questions(question, short_analysis))
         try:
             agent = self._agent_factory(model_name=preferred_model)
-            for chunk in _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False)):
-                yield {"type": "answer", "body": chunk}
+            async with answer_stream(
+                _iter_answer_chunks(agent.generate_content(prompt=prompt, use_google_search=False))
+            ) as chunks:
+                async for chunk in chunks:
+                    yield {"type": "answer", "body": chunk}
 
             if flat_sources:
                 yield build_sources_event(flat_sources)

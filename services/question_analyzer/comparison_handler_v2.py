@@ -37,6 +37,7 @@ from services.question_analyzer.handlers_v2 import (
 )
 from services.question_analyzer.router import RoutingResult
 from services.search_decision_engine import SearchDecision
+from services.shared.answer_stream import answer_stream
 
 logger = logging.getLogger(__name__)
 
@@ -229,10 +230,11 @@ class CompanyComparisonHandlerV2:
                 preferred_model, routing is not None and routing.needs_calculation
             )
             agent = MultiAgent(model_name=answer_model)
-            for event in iter_answer_events(
-                agent.generate_content(prompt=prompt, use_google_search=False, **answer_options)
-            ):
-                yield event
+            async with answer_stream(
+                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+            ) as events:
+                async for event in events:
+                    yield event
 
             if flat_sources or use_google_search:
                 yield build_sources_event(flat_sources)
