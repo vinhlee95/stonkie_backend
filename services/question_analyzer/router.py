@@ -102,6 +102,8 @@ class RoutingResult:
     search_decision: SearchDecision
     search_queries: list[str]
     standalone_question: str
+    # The answer needs computing (ratios, growth, margins, trends, comparisons); turns on answer reasoning.
+    needs_calculation: bool = False
 
 
 @dataclass(frozen=True)
@@ -218,8 +220,10 @@ Fields:
 
 8. search_queries (array of strings): when use_web_search is true, 1-{MAX_SEARCH_QUERIES} web-search queries built from standalone_question (1 for simple questions, up to {MAX_SEARCH_QUERIES} for multi-part ones). Search-engine keywords, under 15 words each, include the company NAME (not ticker), add the current year/quarter when relevant, no research-firm names (IDC, Canalys, Statista). When use_web_search is false: [].
 
+9. needs_calculation (boolean): true when a correct answer requires computing from numbers: ratios, margins, growth rates, averages, trends or changes across periods, or comparisons of figures between periods or companies (e.g. "What's the profit margin trend?", "How fast is revenue growing?", "Compare Apple and Microsoft margins"). false for single-fact lookups ("What was revenue last quarter?", "What is the P/E ratio?"), definitions, explanations of concepts, news and company facts.
+
 Output ONLY the JSON object, no markdown, with exactly these keys:
-{{"standalone_question": "...", "question_type": "...", "comparison_tickers": [], "data_requirement": "...", "period_requirement": null, "relevant_statements": null, "use_web_search": true, "reason_code": "...", "search_queries": ["..."]}}"""
+{{"standalone_question": "...", "question_type": "...", "comparison_tickers": [], "data_requirement": "...", "period_requirement": null, "relevant_statements": null, "use_web_search": true, "reason_code": "...", "search_queries": ["..."], "needs_calculation": false}}"""
 
 
 def _extract_json_object(raw: str) -> dict:
@@ -381,6 +385,8 @@ def parse_routing_response(raw: str, *, question: str, ticker: str, model_name: 
         ),
         search_queries=search_queries if use_web_search else [],
         standalone_question=standalone,
+        # Missing or non-boolean -> no reasoning (the pre-field behaviour), never a parse failure.
+        needs_calculation=obj.get("needs_calculation") is True,
     )
 
 
@@ -684,12 +690,13 @@ class QuestionRouter:
             )
             return None
         logger.info(
-            "QuestionRouter %.2fs: type=%s data=%s search=%s reason=%s queries=%s standalone=%r",
+            "QuestionRouter %.2fs: type=%s data=%s search=%s reason=%s calc=%s queries=%s standalone=%r",
             time.perf_counter() - t_start,
             result.question_type,
             result.data_requirement.value,
             result.search_decision.use_google_search,
             result.search_decision.reason_code,
+            result.needs_calculation,
             result.search_queries,
             result.standalone_question,
         )

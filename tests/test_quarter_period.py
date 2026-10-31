@@ -1,6 +1,6 @@
 from datetime import date
 
-from core.quarter_period import parse_quarter_end, sort_quarters_newest_first
+from core.quarter_period import calendar_quarter, parse_quarter_end, parse_quarter_label, sort_quarters_newest_first
 
 
 def test_parse_quarter_end_handles_single_digit_month():
@@ -24,3 +24,20 @@ def test_sort_quarters_newest_first_uses_date_not_string_order():
 
 def test_sort_quarters_newest_first_puts_unparseable_last():
     assert sort_quarters_newest_first(["TTM", "6/30/2026", None, "9/30/2025"])[:2] == ["6/30/2026", "9/30/2025"]
+
+
+def test_parse_quarter_label():
+    assert parse_quarter_label("2026-Q3") == (2026, 3)
+    assert parse_quarter_label("2025-q1") == (2025, 1)
+    assert parse_quarter_label("latest") is None
+    assert parse_quarter_label("2026-Q5") is None
+    assert parse_quarter_label("6/30/2026") is None
+    assert parse_quarter_label(None) is None
+
+
+def test_calendar_quarter():
+    assert calendar_quarter("3/31/2026") == (2026, 1)
+    assert calendar_quarter("4/30/2026") == (2026, 2)
+    assert calendar_quarter("6/30/2026") == (2026, 2)
+    assert calendar_quarter("12/31/2025") == (2025, 4)
+    assert calendar_quarter("TTM") is None

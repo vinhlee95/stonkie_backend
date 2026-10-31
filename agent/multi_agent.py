@@ -1,14 +1,43 @@
+import logging
 import re
-from typing import Iterable, Union
+from typing import Iterable, Iterator, Union
 
-from langfuse import observe
+from langfuse import get_client, observe
 
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
+logger = logging.getLogger(__name__)
+
 
 def _join_text_chunks(chunks: list) -> str:
     return "".join(c for c in chunks if isinstance(c, str))
+
+
+def _record_usage(chunks: Iterable[Union[str, dict]]) -> Iterator[Union[str, dict]]:
+    """Put the client's usage dict (served model, cost, tokens) on the current Langfuse generation; drop it."""
+    for chunk in chunks:
+        if isinstance(chunk, dict) and chunk.get("type") == "usage":
+            usage_details = {
+                key: chunk[source]
+                for key, source in (
+                    ("input", "prompt_tokens"),
+                    ("output", "completion_tokens"),
+                    ("reasoning", "reasoning_tokens"),
+                )
+                if isinstance(chunk.get(source), int)
+            }
+            cost = chunk.get("cost")
+            try:
+                get_client().update_current_generation(
+                    model=chunk.get("model"),
+                    usage_details=usage_details or None,
+                    cost_details={"total": float(cost)} if isinstance(cost, (int, float)) else None,
+                )
+            except Exception:
+                logger.warning("Failed to record LLM usage on Langfuse", exc_info=True)
+            continue
+        yield chunk
 
 
 class MultiAgent:
@@ -37,6 +66,9 @@ class MultiAgent:
         prompt: str,
         use_google_search: bool = False,
         max_tokens: int | None = None,
+        reasoning: dict | None = None,
+        include_usage: bool = False,
+        auto_router_models: list[str] | None = None,
     ) -> Iterable[Union[str, dict]]:
         """
         Generate content using OpenRouter
@@ -46,12 +78,23 @@ class MultiAgent:
             model_name: Model name to use (defaults to client's default model)
             use_google_search: If True, enables web search by appending ':online' to model name
             max_tokens: Output cap; None keeps the client default
+            reasoning: OpenRouter reasoning config (e.g. {"effort": "low"}); the stream then also yields
+                {"type": "reasoning", "text": ...} dicts
+            include_usage: record the served model, tokens and cost on this Langfuse generation
+            auto_router_models: candidate pool when the model is openrouter/auto
 
         Returns:
             Iterable of string chunks (str) and citation annotations (dict) when streaming
         """
-        cap = {"max_tokens": max_tokens} if max_tokens else {}
-        return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search, **cap)
+        options: dict = {"max_tokens": max_tokens} if max_tokens else {}
+        if reasoning is not None:
+            options["reasoning"] = reasoning
+        if auto_router_models:
+            options["auto_router_models"] = auto_router_models
+        if include_usage:
+            options["include_usage"] = True
+            return _record_usage(self.client.stream_chat(prompt=prompt, use_google_search=use_google_search, **options))
+        return self.client.stream_chat(prompt=prompt, use_google_search=use_google_search, **options)
 
     def generate_text(self, prompt: str, max_tokens: int | None = None) -> str:
         """generate_content collected into one string; citation dicts are dropped.
