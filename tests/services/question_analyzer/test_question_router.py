@@ -337,3 +337,30 @@ def test_downgrade_leaves_non_comparisons_alone():
     routed = parse_routing_response(json.dumps(_payload()), question="q", ticker="NVDA", model_name="m")
 
     assert downgrade_unresolved_comparison(routed, ticker="NVDA") is routed
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"needs_calculation": True}, True),
+        ({"needs_calculation": False}, False),
+        ({}, False),  # missing: today's no-reasoning behaviour
+        ({"needs_calculation": "yes"}, False),
+        ({"needs_calculation": 1}, False),
+        ({"needs_calculation": None}, False),
+    ],
+)
+def test_needs_calculation_is_true_only_for_a_json_true(overrides, expected):
+    assert _parse(_payload(**overrides)).needs_calculation is expected
+
+
+def test_needs_calculation_survives_fast_paths_and_default_routing_is_false():
+    routed = _parse(_payload(needs_calculation=True))
+    assert apply_fast_paths(routed, question="Summarize the latest quarterly report").needs_calculation is True
+    assert default_routing(question="What's the margin trend?", ticker="NVDA").needs_calculation is False
+
+
+def test_prompt_asks_for_needs_calculation():
+    prompt = build_router_prompt(question="q", ticker="NVDA")
+    assert "needs_calculation (boolean)" in prompt
+    assert '"needs_calculation": false}' in prompt
