@@ -501,6 +501,26 @@ Exports quarterly financial reports via Playwright/Chromium browser automation.
 | Timeout | 3600s |
 | Max retries | 1 |
 
+### Required env vars
+
+`DATABASE_URL`, `OPENROUTER_API_KEY` (statement extraction), `FINNHUB_API_KEY` (10-Q filing URLs; optional — missing key only fails that phase), `PINECONE_API_KEY` (import-time only via `connectors/vector_store.py`; a placeholder like `unused` is fine).
+
+### Choose tickers (no redeploy)
+
+By default the job crawls every ticker in `company_fundamental`. Pass `--tickers=AAPL,MSFT` (comma-separated) to crawl only those — same option as the annual script (`scripts/export_annual_financial_report.py`). On the job, override the container command (the Dockerfile has only a `CMD`, so `--args` alone would replace it) — no image rebuild:
+
+```bash
+gcloud run jobs update quarterly-financial-export \
+  --region=europe-north1 \
+  --command=python \
+  --args="^|^scripts/export_quarter_financial_report.py|--tickers=AAPL,MSFT,NVDA"
+
+# Back to all DB tickers (empty string resets to the image CMD)
+gcloud run jobs update quarterly-financial-export --region=europe-north1 --command="" --args=""
+```
+
+The `^|^` prefix switches gcloud's list delimiter so the commas stay inside the `--tickers` value.
+
 ### Build and deploy
 
 ```bash

@@ -1,3 +1,15 @@
+"""
+Export Quarterly Financial Reports for Tickers
+
+Usage:
+    # Export data for specific tickers
+    python export_quarter_financial_report.py --tickers=AAPL,TSLA,MSFT
+
+    # Export data for all tickers in the database (default)
+    python export_quarter_financial_report.py
+"""
+
+import argparse
 import concurrent.futures
 import re
 import sys
@@ -598,13 +610,29 @@ def fetch_filing_urls_worker(ticker):
 
 
 def main():
-    # Get all ticker symbols from database
-    company_fundamental_connector = CompanyConnector()
-    tickers = company_fundamental_connector.get_all_company_tickers()
+    parser = argparse.ArgumentParser(description="Export quarterly financial data for ticker symbols")
+    parser.add_argument(
+        "--tickers",
+        type=str,
+        required=False,
+        help="Comma-separated list of ticker symbols (e.g., AAPL,TSLA,MSFT). If not provided, all tickers from database will be used.",
+    )
+    args = parser.parse_args()
 
-    if not tickers:
-        print("❌ No tickers found in database")
-        return
+    if args.tickers:
+        print(f"🎯 Using specified tickers: {args.tickers}")
+        tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
+        if not tickers:
+            print("❌ No valid tickers provided")
+            return
+    else:
+        # Get all ticker symbols from database
+        company_fundamental_connector = CompanyConnector()
+        tickers = company_fundamental_connector.get_all_company_tickers()
+
+        if not tickers:
+            print("❌ No tickers found in database")
+            return
 
     print(f"🚀 Starting parallel export for {len(tickers)} tickers: {tickers}")
 
