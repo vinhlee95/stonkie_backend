@@ -59,7 +59,10 @@ class FinnhubFilingsClient:
         """
         url = f"{self.BASE_URL}/stock/filings"
 
-        params: Dict[str, str] = {"token": self.api_key}
+        # Token goes in a header, never in params: params are logged, and the URL
+        # (incl. query string) appears in requests' HTTPError messages.
+        headers = {"X-Finnhub-Token": self.api_key}
+        params: Dict[str, str] = {}
 
         if symbol:
             params["symbol"] = symbol
@@ -76,7 +79,7 @@ class FinnhubFilingsClient:
 
         try:
             logger.info(f"Fetching filings with params: {params}")
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, headers=headers, timeout=30)
             response.raise_for_status()
 
             data = response.json()
