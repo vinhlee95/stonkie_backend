@@ -29,6 +29,11 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
 }
 
 
+# openrouter/auto price band (low|medium|high|xhigh|max). With no setting OpenRouter routes "roughly low";
+# pinned so the band can't drift. See: https://openrouter.ai/docs/features/model-routing
+AUTO_ROUTER_COST_TIER = "low"
+
+
 def get_openrouter_model_name(model_name: ModelName) -> str:
     """Convert generic model name to OpenRouter-specific format.
 
@@ -58,6 +63,16 @@ def _reasoning_text(delta_extra: dict) -> str:
     return "".join(parts)
 
 
+def _auto_router_plugin(model_name: str, allowed_models: list[str] | None = None) -> dict | None:
+    """auto-router plugin for openrouter/auto: pinned cost tier, plus the candidate pool when given."""
+    if model_name != OPENROUTER_MODEL_MAP[ModelName.Auto]:
+        return None
+    plugin: dict = {"id": "auto-router", "cost_tier": AUTO_ROUTER_COST_TIER}
+    if allowed_models:
+        plugin["allowed_models"] = list(allowed_models)
+    return plugin
+
+
 def _usage_event(served_model: str, usage) -> dict:
     data = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage or {})
     details = data.get("completion_tokens_details") or {}
@@ -82,6 +97,10 @@ class OpenRouterClient:
         DEFAULT_MODEL_NAME = ModelName.Gemini35Flash
         generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
+        # Model OpenRouter served on this client's latest stream (openrouter/auto resolves to a concrete one).
+        # Reset when a stream starts and set from its first chunk, so read it only after draining the stream,
+        # and only on a per-request client: a client shared across requests is overwritten by each stream.
+        self.served_model: str | None = None
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 
     def stream_chat(
@@ -121,8 +140,9 @@ class OpenRouterClient:
         plugins = []
         if use_google_search:
             plugins.append({"id": "web", "max_results": 3})
-        if auto_router_models:
-            plugins.append({"id": "auto-router", "allowed_models": list(auto_router_models)})
+        auto_router = _auto_router_plugin(self.model_name, auto_router_models)
+        if auto_router:
+            plugins.append(auto_router)
         if plugins:
             extra_body["plugins"] = plugins
         if reasoning is not None:
@@ -146,10 +166,10 @@ class OpenRouterClient:
             logger.error(f"OpenRouter API error (model={chosen_model}): {e}")
             raise
 
-        served_model: str | None = None
+        self.served_model = None
         usage = None
         for event in response:
-            served_model = served_model or getattr(event, "model", None)
+            self.served_model = self.served_model or getattr(event, "model", None)
             if getattr(event, "usage", None):
                 usage = event.usage
             if not event.choices:
@@ -174,7 +194,7 @@ class OpenRouterClient:
                     }
 
         if include_usage:
-            usage_event = _usage_event(served_model or chosen_model, usage)
+            usage_event = _usage_event(self.served_model or chosen_model, usage)
             logger.info(
                 "OpenRouter usage: requested=%s served=%s cost=%s completion_tokens=%s reasoning_tokens=%s",
                 chosen_model,
@@ -235,6 +255,9 @@ class OpenRouterClient:
                 },
             }
         ]
+        auto_router = _auto_router_plugin(self.model_name)
+        if auto_router:
+            plugins.append(auto_router)
 
         # Stream the response
         response = self.client.chat.completions.create(
@@ -244,7 +267,9 @@ class OpenRouterClient:
             stream=True,
         )
 
+        self.served_model = None
         for event in response:
+            self.served_model = self.served_model or getattr(event, "model", None)
             delta = event.choices[0].delta.content
             if delta:
                 yield delta
@@ -293,6 +318,9 @@ class OpenRouterClient:
                 },
             }
         ]
+        auto_router = _auto_router_plugin(self.model_name)
+        if auto_router:
+            plugins.append(auto_router)
 
         # Stream the response
         response = self.client.chat.completions.create(
@@ -302,7 +330,9 @@ class OpenRouterClient:
             stream=True,
         )
 
+        self.served_model = None
         for event in response:
+            self.served_model = self.served_model or getattr(event, "model", None)
             delta = event.choices[0].delta.content
             if delta:
                 yield delta

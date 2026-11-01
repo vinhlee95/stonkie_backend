@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import StreamingResponse
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from ai_models.model_display import for_client
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.deps import get_current_user
 from connectors.user import UserDto
@@ -82,7 +83,7 @@ class ChatIn(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     scopeTicker: str | None = Field(default=None, max_length=32)
     conversationId: str | None = Field(default=None, max_length=100)
-    preferredModel: str = Field(default="fastest", max_length=50)
+    preferredModel: str = Field(default="auto", max_length=50)
 
 
 def _normalise_ticker(ticker: str) -> str:
@@ -213,7 +214,7 @@ async def chat(
                 conversation_id=body.conversationId,
                 is_disconnected=request.is_disconnected,
             ):
-                yield json.dumps(event) + "\n\n"
+                yield json.dumps(for_client(event)) + "\n\n"
         except asyncio.CancelledError:
             return
         except Exception:

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_models.model_name import ModelName
 from main import app
 from services.analyze_retrieval.schemas import BraveRetrievalError
 
@@ -78,7 +79,7 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources():
                 }
             ],
         }
-        yield {"type": "model_used", "body": "test-model"}
+        yield {"type": "model_used", "body": "google/gemini-3.5-flash"}
 
     with (
         patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=recap),
@@ -99,6 +100,7 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources():
     assert events[0] == {"type": "conversation", "body": {"conversationId": "conv-recap"}}
     assert events[1]["type"] == "answer"
     assert events[2]["type"] == "sources"
+    assert events[3] == {"type": "model_used", "body": "Gemini 3.5"}  # display name, not the OpenRouter id
     assert "related_question" not in [event["type"] for event in events]
 
 
@@ -144,6 +146,7 @@ def test_recap_analyze_uses_per_recap_conversation_scope():
     assert captured["recap"].id == recap.id
     assert captured["conversation_id"] == "conv-existing"
     assert captured["anon_user_id"] == "anon-existing"
+    assert captured["preferred_model"] == ModelName.Auto  # no preferredModel sent
 
 
 def test_recap_analyze_translates_brave_failure_to_sse_error():

@@ -71,3 +71,22 @@ def test_generate_content_passes_reasoning_options_and_records_usage_on_langfuse
     mock_get_client.return_value.update_current_generation.assert_called_once_with(
         model="deepseek/x", usage_details={"input": 6000, "output": 900}, cost_details={"total": 0.0021}
     )
+
+
+def test_served_model_name_is_the_requested_model_until_a_stream_reports_one(monkeypatch):
+    from ai_models.model_name import ModelName
+    from tests.ai_models.test_openrouter_client import _event, _FakeOpenAI, _StreamingCompletions
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    agent = MultiAgent(model_name=ModelName.Auto)
+    fake = _FakeOpenAI()
+    fake.completions = _StreamingCompletions([_event(content="x", model="z-ai/glm-5.3-flash")])
+    agent.client.client = fake
+    assert agent.served_model_name == "openrouter/auto"
+
+    list(agent.generate_content(prompt="p", include_usage=True))
+    assert agent.served_model_name == "z-ai/glm-5.3-flash"
+
+    fake.completions.events = [_event(content="y", model=None)]  # no model reported: fall back to the requested one
+    list(agent.generate_content(prompt="p"))
+    assert agent.served_model_name == "openrouter/auto"

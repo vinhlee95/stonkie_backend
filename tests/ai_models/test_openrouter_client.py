@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
@@ -32,6 +34,7 @@ def test_stream_chat_keeps_the_8192_default_output_cap():
 
     assert completions.calls[0]["max_tokens"] == 8192
     assert completions.calls[0]["model"] == "openai/gpt-4.1-mini"
+    assert "extra_body" not in completions.calls[0]  # no auto-router plugin for a concrete model
 
 
 def test_stream_chat_sends_a_requested_output_cap():
@@ -84,13 +87,13 @@ _REASONING_EVENTS = [
 ]
 
 
-def test_stream_chat_without_reasoning_sends_no_extra_body_and_yields_no_reasoning():
+def test_stream_chat_without_reasoning_sends_only_the_auto_cost_tier_and_yields_no_reasoning():
     client, completions = _streaming_client(_REASONING_EVENTS)
 
     chunks = list(client.stream_chat("p"))
 
     assert chunks == ["Margins fell."]
-    assert "extra_body" not in completions.calls[0]
+    assert completions.calls[0]["extra_body"] == {"plugins": [{"id": "auto-router", "cost_tier": "low"}]}
 
 
 def test_stream_chat_yields_reasoning_dicts_before_text_and_a_final_usage_dict():
@@ -121,7 +124,7 @@ def test_stream_chat_yields_reasoning_dicts_before_text_and_a_final_usage_dict()
     call = completions.calls[0]
     assert call["model"] == "openrouter/auto"
     assert call["extra_body"] == {
-        "plugins": [{"id": "auto-router", "allowed_models": ["deepseek/deepseek-v4.1-flash-1017"]}],
+        "plugins": [{"id": "auto-router", "cost_tier": "low", "allowed_models": ["deepseek/deepseek-v4.1-flash-1017"]}],
         "reasoning": {"effort": "low"},
         "usage": {"include": True},
     }
@@ -135,3 +138,34 @@ def test_stream_chat_usage_without_a_usage_chunk_reports_the_requested_model():
     assert usage["type"] == "usage"
     assert usage["model"] == "openrouter/auto"
     assert usage["cost"] is None
+
+
+def test_stream_chat_records_the_model_auto_router_served():
+    client, _ = _streaming_client(_REASONING_EVENTS)
+    assert client.served_model is None
+
+    list(client.stream_chat("p"))
+
+    assert client.model_name == "openrouter/auto"
+    assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        lambda c: c.stream_chat("p"),
+        lambda c: c.stream_chat_with_pdf("p", b"%PDF"),
+        lambda c: c.stream_chat_with_pdf_url("p", "https://example.com/a.pdf"),
+    ],
+    ids=["chat", "pdf", "pdf_url"],
+)
+def test_every_stream_records_the_served_model_and_resets_it_on_the_next_one(stream):
+    client, completions = _streaming_client([_event(content="x")])
+
+    list(stream(client))
+    assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
+    assert {"id": "auto-router", "cost_tier": "low"} in completions.calls[0]["extra_body"]["plugins"]
+
+    completions.events = [_event(content="y", model=None)]
+    list(stream(client))
+    assert client.served_model is None

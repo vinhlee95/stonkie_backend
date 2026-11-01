@@ -86,9 +86,10 @@ def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
 
 # Calculation questions (router `needs_calculation`) are answered with reasoning on: without it the fast model
 # states a trend direction before computing it ("margin expanded from 69.0% to 67.2%"). Only when the client
-# sends the default model (fastest); an explicitly chosen model is used as is.
+# sends auto (the default) or fastest; an explicitly chosen model is used as is.
 REASONING_ANSWER_MODEL = ModelName.Auto
 REASONING_ANSWER_CONFIG = {"effort": "low"}
+REASONING_STATUS = "Working through the numbers..."
 # openrouter/auto candidate pool: fast, cheap models that stream readable reasoning. Exact ids: a
 # "deepseek-v4.1-flash*" wildcard would also match the :batch variant.
 REASONING_AUTO_ROUTER_MODELS = ("deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash")
@@ -96,7 +97,7 @@ REASONING_AUTO_ROUTER_MODELS = ("deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3
 
 def answer_call(preferred_model: ModelName, needs_calculation: bool) -> tuple[ModelName, dict[str, Any]]:
     """Model + generate_content options for a v2 answer call. Usage (served model, cost) is always recorded."""
-    if needs_calculation and preferred_model == ModelName.Fastest:
+    if needs_calculation and preferred_model in (ModelName.Auto, ModelName.Fastest):
         return REASONING_ANSWER_MODEL, {
             "reasoning": dict(REASONING_ANSWER_CONFIG),
             "auto_router_models": list(REASONING_AUTO_ROUTER_MODELS),
@@ -105,15 +106,18 @@ def answer_call(preferred_model: ModelName, needs_calculation: bool) -> tuple[Mo
     return preferred_model, {"include_usage": True}
 
 
-def iter_answer_events(chunks: Iterable[Any]) -> Iterator[Dict[str, str]]:
+def iter_answer_events(chunks: Iterable[Any], writing_status: Optional[dict] = None) -> Iterator[Dict[str, Any]]:
     """`reasoning` and `answer` events from an LLM stream, each as soon as the LLM produces it.
 
     Reasoning dicts become `reasoning` events only before the first answer text, so the event order stays
     reasoning* -> answer*. Every other dict (url_citation) is dropped; no dict ever reaches an answer event.
+    ``writing_status`` is yielded right before the first answer text, i.e. after the reasoning.
     """
     answer_started = False
     for chunk in chunks:
         if isinstance(chunk, str):
+            if not answer_started and writing_status:
+                yield writing_status
             answer_started = True
             yield {"type": "answer", "body": chunk}
         elif (
@@ -124,6 +128,25 @@ def iter_answer_events(chunks: Iterable[Any]) -> Iterator[Dict[str, str]]:
             and chunk["text"]
         ):
             yield {"type": "reasoning", "body": chunk["text"]}
+
+
+def answer_events(
+    chunks: Iterable[Any],
+    answer_options: dict[str, Any],
+    progress: ThinkingProgress,
+    writing_status: Callable[[], dict],
+) -> Iterator[Dict[str, Any]]:
+    """The answer call's events in order, statuses included; `answer_options` comes from `answer_call`.
+
+    Reasoning off: the writing status, then the answer. Reasoning on: a status that holds while the model reasons
+    (readable reasoning may never stream), the reasoning, then the writing status right before the answer text.
+    """
+    if "reasoning" not in answer_options:
+        yield writing_status()
+        yield from iter_answer_events(chunks)
+        return
+    yield progress.status(REASONING_STATUS, phase=AnalysisPhase.ANALYZE)
+    yield from iter_answer_events(chunks, writing_status())
 
 
 _RELATED_QUESTIONS_MODEL = ModelName.Gemini31FlashLite
@@ -408,13 +431,17 @@ Use short paragraphs and bullet points for readability.
                 selected_passages=selected_passages,
             )
 
-        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
+        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
-            answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+                answer_events(
+                    agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
+                )
             ) as events:
                 async for event in events:
                     yield event
@@ -422,7 +449,7 @@ Use short paragraphs and bullet points for readability.
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q
@@ -572,13 +599,17 @@ Keep the answer under 150 words. Break into short paragraphs.
                 selected_passages=selected_passages,
             )
 
-        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
+        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
-            answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+                answer_events(
+                    agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
+                )
             ) as events:
                 async for event in events:
                     yield event
@@ -586,7 +617,7 @@ Keep the answer under 150 words. Break into short paragraphs.
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q
@@ -640,7 +671,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             ) as chunks:
                 async for chunk in chunks:
                     yield {"type": "answer", "body": chunk}
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q
@@ -874,14 +905,16 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 selected_passages=selected_passages,
             )
 
-        yield _writing_status(progress, [] if is_url_grounded else retrieved_sources)
+        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
-            answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(
-                    agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options)
+                answer_events(
+                    agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options),
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
                 )
             ) as events:
                 async for event in events:
@@ -890,7 +923,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
             if retrieved_sources and not is_url_grounded:
                 yield build_sources_event(retrieved_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             for related_q in await related_questions_result(related_task):
                 yield related_q

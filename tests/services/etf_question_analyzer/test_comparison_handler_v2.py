@@ -141,6 +141,7 @@ async def test_search_on_fans_out_per_ticker_with_etf_policy_and_grounding():
     types = _types(events)
     last_answer = max(i for i, t in enumerate(types) if t == "answer")
     assert types[last_answer + 1 :] == ["sources", "model_used", "related_question", "related_question"]
+    assert events[types.index("model_used")]["body"] == "served-model"
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ai_models.model_display import for_client
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.chat_limit import limit_chat
 from services.analyze_retrieval.schemas import BraveRetrievalError
@@ -26,7 +27,7 @@ async def analyze_recap(recap_id: int, request: Request) -> StreamingResponse:
     try:
         body = await request.json()
         question = body.get("question")
-        preferred_model_str = body.get("preferredModel", "fastest")
+        preferred_model_str = body.get("preferredModel", "auto")
         conversation_id = body.get("conversationId")
         debug_prompt_context = body.get("debugPromptContext", False)
 
@@ -51,7 +52,7 @@ async def analyze_recap(recap_id: int, request: Request) -> StreamingResponse:
                     is_disconnected=request.is_disconnected,
                     debug_prompt_context=debug_prompt_context,
                 ):
-                    yield json.dumps(event) + "\n\n"
+                    yield json.dumps(for_client(event)) + "\n\n"
             except BraveRetrievalError:
                 logger.exception("recap analyze retrieval failed", extra={"recap_id": recap_id})
                 yield json.dumps({"type": "error", "code": "retrieval_failed", "body": "Retrieval failed"}) + "\n\n"

@@ -164,7 +164,7 @@ async def test_general_search_on_retrieves_with_router_queries_and_grounds_on_so
 
     assert [e["body"] for e in events if e["type"] == "answer"] == ["Alpha ", "Beta"]
     _assert_tail_order(events, with_sources=True)
-    assert events[_types(events).index("model_used")]["body"] == "test-model"
+    assert events[_types(events).index("model_used")]["body"] == "served-model"
 
 
 @pytest.mark.asyncio

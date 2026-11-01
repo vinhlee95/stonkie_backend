@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ai_models.model_display import for_client
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.chat_limit import limit_chat
 from services.analyze_v2_stream import AnalyzeV2StreamService
@@ -30,7 +31,7 @@ async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingR
         question = body.get("question")
         use_url_context = body.get("useUrlContext", False)
         deep_analysis = False  # disabled — see .claude/plans/deep-analysis-agent-sdk-prd.json "abort" section
-        preferred_model_str = body.get("preferredModel", "fastest")
+        preferred_model_str = body.get("preferredModel", "auto")
         conversation_id = body.get("conversationId")
         disable_cache = body.get("disableCache", False)
         debug_prompt_context = body.get("debugPromptContext", False)
@@ -56,7 +57,7 @@ async def analyze_financial_data_v2(ticker: str, request: Request) -> StreamingR
                     disable_cache=disable_cache,
                     debug_prompt_context=debug_prompt_context,
                 ):
-                    yield json.dumps(event) + "\n\n"
+                    yield json.dumps(for_client(event)) + "\n\n"
             except asyncio.CancelledError:
                 return
 

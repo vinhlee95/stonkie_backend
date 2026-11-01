@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import os
@@ -36,6 +37,10 @@ from utils.json_extract import extract_json_object
 from utils.visual_stream import VisualAnswerStreamSplitter
 
 logger = logging.getLogger(__name__)
+
+# The relevance gate is a tiny strict-JSON call on the blocking path: a fixed fast model, never the
+# user's preferred one (Auto would add router latency and may pick a model that breaks the JSON).
+RELEVANCE_MODEL = ModelName.Gemini31FlashLite
 
 RecapRoute = Literal["recap_related", "market_search", "unrelated_nonfinance"]
 
@@ -226,7 +231,6 @@ class RecapAnalyzeStreamService:
         question: str,
         recap_context: str,
         conversation_context: str,
-        preferred_model: ModelName,
     ) -> RecapRelevanceDecision:
         if _asks_after_recap(question):
             return RecapRelevanceDecision(
@@ -253,7 +257,7 @@ Output ONLY JSON:
         """.strip()
 
         try:
-            agent = MultiAgent(model_name=preferred_model)
+            agent = MultiAgent(model_name=RELEVANCE_MODEL)
             raw = "".join(
                 chunk
                 for chunk in agent.generate_content(prompt=prompt, use_google_search=False)
@@ -303,11 +307,12 @@ Output ONLY JSON:
         recap_context = _build_recap_context(recap)
         conversation_context = format_conversation(conversation_messages)
         yield thinking_status("Reading the recap context...", phase=AnalysisPhase.ANALYZE, step=1, total_steps=3)
-        decision = self._classify_relevance(
+        # Blocking LLM call: off the event loop.
+        decision = await asyncio.to_thread(
+            self._classify_relevance,
             question=question,
             recap_context=recap_context,
             conversation_context=conversation_context,
-            preferred_model=preferred_model,
         )
 
         if decision.route == "unrelated_nonfinance":
@@ -397,7 +402,7 @@ Output ONLY JSON:
         else:
             yield build_sources_event(_recap_sources(recap))
 
-        yield {"type": "model_used", "body": agent.model_name}
+        yield {"type": "model_used", "body": agent.served_model_name}
 
         if assistant_output_buffer:
             append_assistant_message(anon_user_id, storage_scope, conv_id, "".join(assistant_output_buffer))

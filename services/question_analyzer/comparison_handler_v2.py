@@ -30,8 +30,8 @@ from services.question_analyzer.handlers_v2 import (
     _build_sources_block,
     _writing_status,
     answer_call,
+    answer_events,
     generate_related_questions,
-    iter_answer_events,
     related_questions_result,
     start_related_questions,
 )
@@ -218,20 +218,22 @@ class CompanyComparisonHandlerV2:
                 selected_passages=flat_passages,
             )
 
-        yield _writing_status(
-            progress,
-            flat_sources,
-            ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
-            lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
-        )
+        answer_model, answer_options = answer_call(preferred_model, routing is not None and routing.needs_calculation)
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
-            answer_model, answer_options = answer_call(
-                preferred_model, routing is not None and routing.needs_calculation
-            )
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(agent.generate_content(prompt=prompt, use_google_search=False, **answer_options))
+                answer_events(
+                    agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(
+                        progress,
+                        flat_sources,
+                        ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
+                        lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
+                    ),
+                )
             ) as events:
                 async for event in events:
                     yield event
@@ -239,7 +241,7 @@ class CompanyComparisonHandlerV2:
             if flat_sources or use_google_search:
                 yield build_sources_event(flat_sources)
 
-            yield {"type": "model_used", "body": agent.model_name}
+            yield {"type": "model_used", "body": agent.served_model_name}
 
             # data_sources provenance event (DB vs training data per ticker) alongside the Brave sources
             yield {
