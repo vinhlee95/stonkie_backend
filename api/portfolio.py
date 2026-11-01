@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import StreamingResponse
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from ai_models.model_display import for_client
 from ai_models.model_mapper import map_frontend_model_to_enum
 from api.deps import get_current_user
 from connectors.user import UserDto
@@ -213,7 +214,7 @@ async def chat(
                 conversation_id=body.conversationId,
                 is_disconnected=request.is_disconnected,
             ):
-                yield json.dumps(event) + "\n\n"
+                yield json.dumps(for_client(event)) + "\n\n"
         except asyncio.CancelledError:
             return
         except Exception:

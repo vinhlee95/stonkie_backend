@@ -680,6 +680,17 @@ def test_chat_forwards_mapped_preferred_model(client, fake_chat):
     assert fake_chat.calls[0]["preferred_model"] == map_frontend_model_to_enum("fastest")
 
 
+def test_chat_sends_the_model_display_name(client, monkeypatch):
+    async def stream_chat(self, **_kwargs):
+        yield {"type": "model_used", "body": "anthropic/claude-sonnet-4.6"}
+
+    monkeypatch.setattr(PortfolioService, "stream_chat", stream_chat)
+
+    response = client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
+
+    assert _parse_stream(response.content) == [{"type": "model_used", "body": "Claude Sonnet 4.6"}]
+
+
 def test_chat_defaults_to_auto_model(client, fake_chat):
     client.post("/api/me/portfolio/chat", json={"question": "hi"}, headers=auth())
 

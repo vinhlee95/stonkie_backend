@@ -79,7 +79,7 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources():
                 }
             ],
         }
-        yield {"type": "model_used", "body": "test-model"}
+        yield {"type": "model_used", "body": "google/gemini-3.5-flash"}
 
     with (
         patch("api.recap_analyze.recap_analyze_stream_service.get_recap", return_value=recap),
@@ -100,6 +100,7 @@ def test_recap_analyze_streams_recap_grounded_answer_and_sources():
     assert events[0] == {"type": "conversation", "body": {"conversationId": "conv-recap"}}
     assert events[1]["type"] == "answer"
     assert events[2]["type"] == "sources"
+    assert events[3] == {"type": "model_used", "body": "Gemini 3.5"}  # display name, not the OpenRouter id
     assert "related_question" not in [event["type"] for event in events]
 
 

@@ -20,7 +20,7 @@ def _parse_sse(raw: bytes) -> list[dict]:
 def test_v2_analyze_preserves_cookie_and_conversation_stream_contract():
     async def fake_analyze(*_args, **_kwargs):
         yield {"type": "answer", "body": "live answer"}
-        yield {"type": "model_used", "body": "test-model"}
+        yield {"type": "model_used", "body": "deepseek/deepseek-v4.1-flash-1017"}
 
     with (
         patch("services.analyze_v2_stream.append_user_message"),
@@ -45,7 +45,7 @@ def test_v2_analyze_preserves_cookie_and_conversation_stream_contract():
     events = _parse_sse(body)
     assert events[0] == {"type": "conversation", "body": {"conversationId": "conv-v2-1"}}
     assert events[1] == {"type": "answer", "body": "live answer"}
-    assert events[2] == {"type": "model_used", "body": "test-model"}
+    assert events[2] == {"type": "model_used", "body": "DeepSeek 4.1"}  # display name, not the OpenRouter id
 
 
 def test_v2_analyze_passes_previous_conversation_context_to_financial_analyzer():
