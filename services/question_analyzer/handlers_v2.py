@@ -89,6 +89,7 @@ def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
 # sends auto (the default) or fastest; an explicitly chosen model is used as is.
 REASONING_ANSWER_MODEL = ModelName.Auto
 REASONING_ANSWER_CONFIG = {"effort": "low"}
+REASONING_STATUS = "Working through the numbers..."
 # openrouter/auto candidate pool: fast, cheap models that stream readable reasoning. Exact ids: a
 # "deepseek-v4.1-flash*" wildcard would also match the :batch variant.
 REASONING_AUTO_ROUTER_MODELS = ("deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash")
@@ -127,6 +128,25 @@ def iter_answer_events(chunks: Iterable[Any], writing_status: Optional[dict] = N
             and chunk["text"]
         ):
             yield {"type": "reasoning", "body": chunk["text"]}
+
+
+def answer_events(
+    chunks: Iterable[Any],
+    answer_options: dict[str, Any],
+    progress: ThinkingProgress,
+    writing_status: Callable[[], dict],
+) -> Iterator[Dict[str, Any]]:
+    """The answer call's events in order, statuses included; `answer_options` comes from `answer_call`.
+
+    Reasoning off: the writing status, then the answer. Reasoning on: a status that holds while the model reasons
+    (readable reasoning may never stream), the reasoning, then the writing status right before the answer text.
+    """
+    if "reasoning" not in answer_options:
+        yield writing_status()
+        yield from iter_answer_events(chunks)
+        return
+    yield progress.status(REASONING_STATUS, phase=AnalysisPhase.ANALYZE)
+    yield from iter_answer_events(chunks, writing_status())
 
 
 _RELATED_QUESTIONS_MODEL = ModelName.Gemini31FlashLite
@@ -223,11 +243,6 @@ def _writing_status(
     body += "..."
     body = f"{lead}{body}" if lead else body[0].upper() + body[1:]
     return progress.status(body, phase=AnalysisPhase.ANALYZE)
-
-
-def _writing_status_order(status: dict, answer_options: dict) -> tuple[Optional[dict], Optional[dict]]:
-    """(status to yield now, status for iter_answer_events): with reasoning on, it follows the reasoning."""
-    return (None, status) if "reasoning" in answer_options else (status, None)
 
 
 def _period_wording(
@@ -417,18 +432,15 @@ Use short paragraphs and bullet points for readability.
             )
 
         answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
-        writing_status, deferred_status = _writing_status_order(
-            _writing_status(progress, [] if is_url_grounded else retrieved_sources), answer_options
-        )
-        if writing_status:
-            yield writing_status
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(
+                answer_events(
                     agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
-                    deferred_status,
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
                 )
             ) as events:
                 async for event in events:
@@ -588,18 +600,15 @@ Keep the answer under 150 words. Break into short paragraphs.
             )
 
         answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
-        writing_status, deferred_status = _writing_status_order(
-            _writing_status(progress, [] if is_url_grounded else retrieved_sources), answer_options
-        )
-        if writing_status:
-            yield writing_status
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(
+                answer_events(
                     agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
-                    deferred_status,
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
                 )
             ) as events:
                 async for event in events:
@@ -897,18 +906,15 @@ Provide a helpful, general answer that builds on what we discussed before."""
             )
 
         answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
-        writing_status, deferred_status = _writing_status_order(
-            _writing_status(progress, [] if is_url_grounded else retrieved_sources), answer_options
-        )
-        if writing_status:
-            yield writing_status
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(
+                answer_events(
                     agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options),
-                    deferred_status,
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
                 )
             ) as events:
                 async for event in events:

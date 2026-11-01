@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ai_models.model_name import ModelName
+from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 from services.question_analyzer.context_builders.comparison_builder import CompanyComparisonData
 from services.question_analyzer.handlers_v2 import (
     REASONING_ANSWER_CONFIG,
     REASONING_ANSWER_MODEL,
     REASONING_AUTO_ROUTER_MODELS,
+    REASONING_STATUS,
+    CompanyGeneralHandlerV2,
     CompanySpecificFinanceHandlerV2,
     GeneralFinanceHandlerV2,
     answer_call,
+    answer_events,
     iter_answer_events,
 )
 from services.question_analyzer.router import RoutingResult
@@ -85,6 +90,61 @@ def _specific_handler() -> CompanySpecificFinanceHandlerV2:
 
 def _answer_flow(events: list[dict]) -> list[str]:
     return [e["type"] for e in events if e["type"] in ("reasoning", "answer")]
+
+
+def _assert_status_order(events: list[dict], reasoning: bool) -> None:
+    """Reasoning on: the reasoning status, the reasoning, "Writing your answer", the answer.
+    Off: "Writing your answer" before everything (the fake stream still carries reasoning dicts)."""
+    types = [e["type"] for e in events]
+    statuses = {e["body"]: i for i, e in enumerate(events) if e["type"] == "thinking_status"}
+    writing = next(i for body, i in statuses.items() if "writing your answer" in body.lower())
+    if reasoning:
+        assert statuses[REASONING_STATUS] < types.index("reasoning")
+        assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
+    else:
+        assert REASONING_STATUS not in statuses
+        assert writing < types.index("reasoning")
+
+
+def _writing(progress: ThinkingProgress):
+    return lambda: progress.status("Writing your answer...", phase=AnalysisPhase.ANALYZE)
+
+
+def test_answer_events_without_reasoning_starts_with_the_writing_status():
+    progress = ThinkingProgress()
+
+    events = list(answer_events(iter(_STREAM), {"include_usage": True}, progress, _writing(progress)))
+
+    assert [e["type"] for e in events][:2] == ["thinking_status", "reasoning"]
+    assert events[0]["body"] == "Writing your answer..."
+
+
+def test_answer_events_with_reasoning_holds_a_status_then_writes_after_the_reasoning():
+    progress = ThinkingProgress()
+    options = {"reasoning": {"effort": "low"}, "include_usage": True}
+
+    events = list(answer_events(iter(_STREAM), options, progress, _writing(progress)))
+
+    assert [e["type"] for e in events] == [
+        "thinking_status",
+        "reasoning",
+        "reasoning",
+        "thinking_status",
+        "answer",
+        "answer",
+    ]
+    statuses = [e for e in events if e["type"] == "thinking_status"]
+    assert [(e["body"], e["step"]) for e in statuses] == [(REASONING_STATUS, 1), ("Writing your answer...", 2)]
+
+
+def test_answer_events_drops_the_writing_status_when_no_answer_text_arrives():
+    progress = ThinkingProgress()
+    options = {"reasoning": {"effort": "low"}}
+
+    events = list(answer_events(iter(({"type": "reasoning", "text": "x"},)), options, progress, _writing(progress)))
+
+    # No answer to introduce: the reasoning status is the last one, nothing claims an answer is being written.
+    assert [(e["type"], e["body"]) for e in events] == [("thinking_status", REASONING_STATUS), ("reasoning", "x")]
 
 
 def test_iter_answer_events_keeps_reasoning_before_answer_and_drops_other_dicts():
@@ -158,13 +218,7 @@ async def test_company_specific_passes_reasoning_from_the_router(mock_agent_cls,
     assert "".join(e["body"] for e in events if e["type"] == "answer") == "Gross margin fell to 67.2%."
     types = [e["type"] for e in events]
     assert types.index("model_used") > max(i for i, t in enumerate(types) if t == "answer")
-    writing = next(
-        i for i, e in enumerate(events) if e["type"] == "thinking_status" and "writing your answer" in e["body"].lower()
-    )
-    if needs_calculation:  # reasoning first, then "Writing your answer", then the answer
-        assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
-    else:
-        assert writing < types.index("reasoning")
+    _assert_status_order(events, reasoning=needs_calculation)
     assert events[types.index("model_used")]["body"] is agent.served_model_name
 
 
@@ -190,6 +244,7 @@ async def test_general_finance_streams_reasoning_before_answer(mock_agent_cls):
 
     assert agent.generate_content.call_args.kwargs["reasoning"] == {"effort": "low"}
     assert _answer_flow(events) == ["reasoning", "reasoning", "answer", "answer"]
+    _assert_status_order(events, reasoning=True)
 
 
 @pytest.mark.asyncio
@@ -220,3 +275,32 @@ async def test_comparison_uses_the_router_flag_and_defaults_to_no_reasoning(mock
 
     assert ("reasoning" in agent.generate_content.call_args.kwargs) is expects_reasoning
     assert _answer_flow(events) == ["reasoning", "reasoning", "answer", "answer"]
+    _assert_status_order(events, reasoning=expects_reasoning)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("needs_calculation", [True, False])
+@patch(f"{_HANDLERS}.MultiAgent")
+async def test_company_general_orders_statuses_around_reasoning(mock_agent_cls, needs_calculation):
+    agent = _agent()
+    mock_agent_cls.return_value = agent
+    company_connector = MagicMock()
+    company_connector.get_by_ticker.return_value = SimpleNamespace(name="Microsoft", country="United States")
+    handler = CompanyGeneralHandlerV2(company_connector=company_connector)
+    handler._generate_related_questions = _no_related  # type: ignore[method-assign]
+    routing = _routing(needs_calculation, QuestionType.COMPANY_GENERAL)
+
+    events = [
+        e
+        async for e in handler.handle(
+            ticker="MSFT",
+            question="How much did Microsoft's headcount grow?",
+            search_decision=routing.search_decision,
+            use_url_context=False,
+            preferred_model=ModelName.Auto,
+            routing=routing,
+        )
+    ]
+
+    assert ("reasoning" in agent.generate_content.call_args.kwargs) is needs_calculation
+    _assert_status_order(events, reasoning=needs_calculation)

@@ -4,8 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
+from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzeRetrievalResult, AnalyzeSource
-from services.recap_analyze import RecapAnalyzeStreamService
+from services.recap_analyze import RELEVANCE_MODEL, RecapAnalyzeStreamService
 
 
 def _recap():
@@ -68,15 +69,17 @@ async def _collect(service, **overrides):
 
 class FakeAgent:
     prompts: list[str] = []
+    models: list = []
     gate_route = "recap_related"
     answer = "Recap-grounded answer."
 
     def __init__(self, model_name):
         self.model_name = model_name
-        self.served_model_name = model_name
+        self.served_model_name = "served-model"  # what openrouter/auto picked; must reach model_used
 
     def generate_content(self, *, prompt: str, use_google_search: bool):
         self.prompts.append(prompt)
+        self.models.append(self.model_name)
         if "strict JSON classifier" in prompt:
             yield f'{{"route":"{self.gate_route}","reason":"test"}}'
             return
@@ -96,11 +99,16 @@ def _conversation_store_patches():
 @pytest.mark.asyncio
 async def test_recap_analyze_service_answers_recap_related_question_from_recap_sources():
     FakeAgent.prompts = []
+    FakeAgent.models = []
     FakeAgent.gate_route = "recap_related"
     FakeAgent.answer = "Tech earnings offset rate worries in the recap."
 
     with patch("services.recap_analyze.MultiAgent", FakeAgent):
-        events = await _collect(RecapAnalyzeStreamService())
+        events = await _collect(RecapAnalyzeStreamService(), preferred_model=ModelName.Auto)
+
+    # The relevance gate runs on a fixed fast model; only the answer uses the requested one.
+    assert FakeAgent.models == [RELEVANCE_MODEL, ModelName.Auto]
+    assert next(e for e in events if e["type"] == "model_used")["body"] == "served-model"
 
     event_types = [event["type"] for event in events]
     assert event_types[0] == "conversation"

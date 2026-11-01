@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
@@ -145,3 +147,23 @@ def test_stream_chat_records_the_model_auto_router_served():
 
     assert client.model_name == "openrouter/auto"
     assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        lambda c: c.stream_chat("p"),
+        lambda c: c.stream_chat_with_pdf("p", b"%PDF"),
+        lambda c: c.stream_chat_with_pdf_url("p", "https://example.com/a.pdf"),
+    ],
+    ids=["chat", "pdf", "pdf_url"],
+)
+def test_every_stream_records_the_served_model_and_resets_it_on_the_next_one(stream):
+    client, completions = _streaming_client([_event(content="x")])
+
+    list(stream(client))
+    assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
+
+    completions.events = [_event(content="y", model=None)]
+    list(stream(client))
+    assert client.served_model is None

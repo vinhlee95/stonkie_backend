@@ -82,7 +82,9 @@ class OpenRouterClient:
         DEFAULT_MODEL_NAME = ModelName.Gemini35Flash
         generic_name = model_name or DEFAULT_MODEL_NAME
         self.model_name = get_openrouter_model_name(generic_name)
-        # Model OpenRouter actually served on the last stream_chat (openrouter/auto resolves to a concrete one).
+        # Model OpenRouter served on this client's latest stream (openrouter/auto resolves to a concrete one).
+        # Reset when a stream starts and set from its first chunk, so read it only after draining the stream,
+        # and only on a per-request client: a client shared across requests is overwritten by each stream.
         self.served_model: str | None = None
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120.0, max_retries=2)
 

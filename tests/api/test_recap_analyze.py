@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_models.model_name import ModelName
 from main import app
 from services.analyze_retrieval.schemas import BraveRetrievalError
 
@@ -144,6 +145,7 @@ def test_recap_analyze_uses_per_recap_conversation_scope():
     assert captured["recap"].id == recap.id
     assert captured["conversation_id"] == "conv-existing"
     assert captured["anon_user_id"] == "anon-existing"
+    assert captured["preferred_model"] == ModelName.Auto  # no preferredModel sent
 
 
 def test_recap_analyze_translates_brave_failure_to_sse_error():

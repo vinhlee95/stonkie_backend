@@ -357,7 +357,7 @@ class FakeAgent:
 
     def __init__(self, model_name):
         self.model_name = model_name
-        self.served_model_name = model_name
+        self.served_model_name = "served-model"  # what openrouter/auto picked; must reach model_used
         FakeAgent.models.append(model_name)
 
     def generate_content(self, *, prompt: str, use_google_search: bool):
@@ -441,6 +441,7 @@ async def test_portfolio_only_answer_grounded_in_context():
     assert events[0]["body"] == {"conversationId": "conv-1"}
     assert answer_text(events) == "".join(ANSWER)
     assert types[-1] == "model_used"
+    assert events[-1]["body"] == "served-model"
     assert "sources" not in types
     statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
     assert statuses[0] == "Reading your portfolio…"

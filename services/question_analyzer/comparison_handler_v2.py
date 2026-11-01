@@ -29,10 +29,9 @@ from services.question_analyzer.handlers_v2 import (
     _build_prompt_debug_event,
     _build_sources_block,
     _writing_status,
-    _writing_status_order,
     answer_call,
+    answer_events,
     generate_related_questions,
-    iter_answer_events,
     related_questions_result,
     start_related_questions,
 )
@@ -220,24 +219,20 @@ class CompanyComparisonHandlerV2:
             )
 
         answer_model, answer_options = answer_call(preferred_model, routing is not None and routing.needs_calculation)
-        writing_status, deferred_status = _writing_status_order(
-            _writing_status(
-                progress,
-                flat_sources,
-                ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
-                lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
-            ),
-            answer_options,
-        )
-        if writing_status:
-            yield writing_status
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
             agent = MultiAgent(model_name=answer_model)
             async with answer_stream(
-                iter_answer_events(
+                answer_events(
                     agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
-                    deferred_status,
+                    answer_options,
+                    progress,
+                    lambda: _writing_status(
+                        progress,
+                        flat_sources,
+                        ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
+                        lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
+                    ),
                 )
             ) as events:
                 async for event in events:
