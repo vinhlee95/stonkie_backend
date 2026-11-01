@@ -12,6 +12,7 @@ from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 from services.question_analyzer.context_builders.comparison_builder import CompanyComparisonData
 from services.question_analyzer.handlers_v2 import (
+    CHECKING_STATUS,
     REASONING_ANSWER_CONFIG,
     REASONING_ANSWER_MODEL,
     REASONING_AUTO_ROUTER_MODELS,
@@ -93,17 +94,15 @@ def _answer_flow(events: list[dict]) -> list[str]:
 
 
 def _assert_status_order(events: list[dict], reasoning: bool) -> None:
-    """Reasoning on: the reasoning status, the reasoning, "Writing your answer", the answer.
-    Off: "Writing your answer" before everything (the fake stream still carries reasoning dicts)."""
+    """Answers with the web_search tool hold a status (the reasoning status, or "Checking what's behind the
+    numbers..." without reasoning), then the reasoning, "Writing your answer", the answer."""
     types = [e["type"] for e in events]
     statuses = {e["body"]: i for i, e in enumerate(events) if e["type"] == "thinking_status"}
     writing = next(i for body, i in statuses.items() if "writing your answer" in body.lower())
-    if reasoning:
-        assert statuses[REASONING_STATUS] < types.index("reasoning")
-        assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
-    else:
-        assert REASONING_STATUS not in statuses
-        assert writing < types.index("reasoning")
+    holding, absent = (REASONING_STATUS, CHECKING_STATUS) if reasoning else (CHECKING_STATUS, REASONING_STATUS)
+    assert statuses[holding] < types.index("reasoning")
+    assert absent not in statuses
+    assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
 
 
 def _writing(progress: ThinkingProgress):

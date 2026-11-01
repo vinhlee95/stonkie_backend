@@ -21,5 +21,6 @@ class BasicContextBuilder(ContextBuilder):
 
             This question requires basic financial metrics. Use the fundamental data provided to answer the question.
             Focus on key metrics like market cap, P/E ratio, basic profitability, and market performance.
-            Keep the response concise (under 150 words) but insightful.
+
+            {PromptComponents.narrative_answer_format()}
         """

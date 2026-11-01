@@ -44,12 +44,56 @@ class PromptComponents:
         )
 
     @staticmethod
+    def narrative_answer_format() -> str:
+        """Answer shape for stock v2 answers: the story behind the numbers, not a restatement of them."""
+        return (
+            "**How to write the answer — tell the story behind the numbers:**\n"
+            "1. Lead with the takeaway in plain words: what is happening and why. No list of numbers in the first sentence.\n"
+            "2. Then the drivers: the business and real-world causes (product cycles, demand shifts, pricing, costs, "
+            "deals, one-off gains or charges, regulation, macro). Tie each driver to what the Sources report. Use only "
+            "the few numbers that prove the point.\n"
+            "3. End with what it means: the implication for the business or investors, or what to watch next.\n"
+            "- A single-fact question gets the fact first, then a compact context paragraph (driver, relevant event, "
+            "implication). An analytical question gets a few short paragraphs, or 2-3 bold section headings when it "
+            "spans several topics. No fixed sentence limit, but keep it well short of a page.\n"
+            "- Events, names and dates are allowed only when they appear in the Sources (including web_search results). "
+            "Never add events from training knowledge.\n"
+            "- If a notable move is not explained by the sources, say so plainly. You may give a clearly labelled "
+            'inference from the numbers (e.g. "likely a non-operating gain such as an investment mark-up"), never an '
+            "invented event.\n"
+            "- Do not list every period's value, do not restate a chart in prose, and do not open with remarks like "
+            '"X is not a reported metric": interpret the user\'s wording (e.g. "comp profit margin" means the '
+            "company's profit margins) and answer.\n"
+            '- Bold the key figures. Use the largest sensible unit ("$1.5 billion", not "$1,500 million").'
+        )
+
+    @staticmethod
+    def search_instruction() -> str:
+        """Tells the answer model when to call its web_search tool (stock v2 answers with tools)."""
+        return (
+            "**Before writing:** check every notable move in the data (large jumps or drops in a line item, margin "
+            "step changes, one-off gains or charges). If the Sources do not explain a move, call `web_search` with "
+            "a specific query (company name, period, line item) to find the cause. Call tools before writing any "
+            "text and do not announce that you are searching. If the Sources already explain the picture, answer "
+            "directly."
+        )
+
+    @staticmethod
     def no_data_decline() -> str:
         """Used when no sources AND no DB data are available — instruct the model to decline rather than freelance from training."""
         return (
             "**No current data available.** No web sources or financial data were retrieved for this question. "
             "Do not answer from training knowledge. Reply briefly that you do not have current data to answer reliably, "
             "and suggest the user retry or rephrase."
+        )
+
+    @staticmethod
+    def no_sources_search_first() -> str:
+        """No sources yet but the answer model has web_search: search first, decline only if that finds nothing too."""
+        return (
+            "**No web sources yet.** The initial search found nothing relevant. Call `web_search` for what the "
+            "question needs. If it also finds nothing, reply briefly that you do not have current data to answer "
+            "reliably and suggest the user retry or rephrase; do not answer from training knowledge."
         )
 
     @staticmethod

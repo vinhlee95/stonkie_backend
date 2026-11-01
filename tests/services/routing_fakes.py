@@ -41,7 +41,7 @@ def make_routing(
     standalone_question: str = "q",
     **overrides: Any,
 ) -> RoutingResult:
-    """A RoutingResult as the router would return it; search on gets [standalone_question] as its query."""
+    """A RoutingResult as the router + fast paths return it; [standalone_question] is the default query."""
     values: dict[str, Any] = {
         "question_type": question_type,
         "comparison_tickers": [],
@@ -55,9 +55,8 @@ def make_routing(
             decision_model="router:test",
             decision_fallback="none",
         ),
-        "search_queries": search_queries
-        if search_queries is not None
-        else ([standalone_question] if use_search else []),
+        # Search always runs: after fast paths every routing has at least one query.
+        "search_queries": search_queries if search_queries is not None else [standalone_question],
         "standalone_question": standalone_question,
     }
     values.update(overrides)

@@ -241,7 +241,9 @@ async def test_static_fact_fast_path_overrides_router_search():
     decision = handlers["general"].calls[0]["search_decision"]
     assert decision.use_google_search is False
     assert decision.reason_code == "stable_concept"
-    assert handlers["general"].calls[0]["routing"].search_queries == []
+    assert handlers["general"].calls[0]["routing"].search_queries == [
+        "Nvidia data center revenue Q3 2026"
+    ]  # search always runs
     assert [e["body"] for e in events if e["type"] == "thinking_status"] == ["Understanding your question..."]
 
 

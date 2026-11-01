@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, AsyncGenerator
 from unittest.mock import MagicMock, patch
 
@@ -82,7 +83,8 @@ async def test_analyzer_v2_dispatches_company_general_handler_and_forwards_searc
 
     assert handler.calls
     assert handler.calls[0]["search_decision"] == routing.search_decision
-    assert handler.calls[0]["routing"] == routing
+    # Search always runs: fast paths give a no-search routing its standalone question as the query.
+    assert handler.calls[0]["routing"] == replace(routing, search_queries=["What does Apple do?"])
     assert handler.calls[0]["ticker"] == "AAPL"
     assert [event["type"] for event in events] == [
         "thinking_status",

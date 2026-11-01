@@ -26,8 +26,10 @@ from services.question_analyzer.context_builders.comparison_builder import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
+    MAX_TOOL_ROUNDS,
     _build_prompt_debug_event,
     _build_sources_block,
+    _web_search_tool,
     _writing_status,
     answer_call,
     answer_events,
@@ -145,47 +147,50 @@ class CompanyComparisonHandlerV2:
             yield {"type": "error", "body": "Need at least 2 companies for comparison."}
             return
 
-        google_search_tickers = [c.ticker for c in companies_data if c.data_source == "google_search"]
-        use_google_search = search_decision.use_google_search or bool(google_search_tickers)
+        # Search always runs (news context for the comparison); the router's decision only shows in logs.
+        use_google_search = True
 
         retrieved_per_ticker: list[tuple[str, list[AnalyzeSource], list[AnalyzePassage]]] = []
         failed_tickers: list[str] = []
-        if use_google_search:
-            yield progress.status(
-                f"Searching the web for {', '.join(c.ticker for c in companies_data)}...", phase=AnalysisPhase.SEARCH
-            )
-            sem = asyncio.Semaphore(_CONCURRENCY_CAP)
-            country_by_ticker: dict[str, Optional[str]] = {}
-            for c in companies_data:
-                country = None
-                if c.fundamental:
-                    country = (
-                        getattr(c.fundamental, "country", None)
-                        if not isinstance(c.fundamental, dict)
-                        else (c.fundamental.get("Country") or c.fundamental.get("country"))
-                    )
-                country_by_ticker[c.ticker] = country
-
-            coros = [
-                self._retrieve_one_ticker(
-                    ticker=c.ticker,
-                    question=retrieval_question,
-                    market=resolve_market(country_by_ticker.get(c.ticker), question),
-                    request_id=request_id,
-                    sem=sem,
-                    company_name=_comparison_company_name(c),
+        yield progress.status(
+            f"Searching the web for {', '.join(c.ticker for c in companies_data)}...", phase=AnalysisPhase.SEARCH
+        )
+        sem = asyncio.Semaphore(_CONCURRENCY_CAP)
+        country_by_ticker: dict[str, Optional[str]] = {}
+        for c in companies_data:
+            country = None
+            if c.fundamental:
+                country = (
+                    getattr(c.fundamental, "country", None)
+                    if not isinstance(c.fundamental, dict)
+                    else (c.fundamental.get("Country") or c.fundamental.get("country"))
                 )
-                for c in companies_data
-            ]
-            results = await asyncio.gather(*coros)
-            for ticker, sources, passages, err in results:
-                if err is not None:
-                    failed_tickers.append(ticker)
-                else:
-                    retrieved_per_ticker.append((ticker, sources, passages))
+            country_by_ticker[c.ticker] = country
 
-            if not retrieved_per_ticker:
-                raise BraveRetrievalError(f"All ticker retrievals failed: {', '.join(failed_tickers)}")
+        coros = [
+            self._retrieve_one_ticker(
+                ticker=c.ticker,
+                question=retrieval_question,
+                market=resolve_market(country_by_ticker.get(c.ticker), question),
+                request_id=request_id,
+                sem=sem,
+                company_name=_comparison_company_name(c),
+            )
+            for c in companies_data
+        ]
+        results = await asyncio.gather(*coros)
+        for ticker, sources, passages, err in results:
+            if err is not None:
+                failed_tickers.append(ticker)
+            else:
+                retrieved_per_ticker.append((ticker, sources, passages))
+
+        if not retrieved_per_ticker:
+            logger.info("v2 comparison search found nothing for %s", ", ".join(failed_tickers))
+            yield progress.status(
+                f"No relevant web results for {', '.join(failed_tickers)}, using their financials...",
+                phase=AnalysisPhase.SEARCH,
+            )
 
         # Concatenate sources in ticker order; one article found for several tickers is listed once
         flat_sources, flat_passages = merge_sources(
@@ -209,6 +214,7 @@ class CompanyComparisonHandlerV2:
             )
 
         prompt += _build_sources_block(flat_sources, flat_passages)
+        prompt += "\n\n" + PromptComponents.search_instruction()
 
         if debug_prompt_context:
             yield _build_prompt_debug_event(
@@ -218,7 +224,20 @@ class CompanyComparisonHandlerV2:
                 selected_passages=flat_passages,
             )
 
-        answer_model, answer_options = answer_call(preferred_model, routing is not None and routing.needs_calculation)
+        first_country = country_by_ticker.get(companies_data[0].ticker)
+        web_search = _web_search_tool(
+            market=resolve_market(first_country, question),
+            request_id=request_id,
+            ticker=None,
+            company_name=None,
+            known_sources=flat_sources,
+        )
+        answer_model, answer_options = answer_call(
+            preferred_model,
+            routing is not None and routing.needs_calculation,
+            tools=[web_search.chat_tool()],
+            max_tool_rounds=MAX_TOOL_ROUNDS * len(companies_data),  # budget per ticker
+        )
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:
             agent = MultiAgent(model_name=answer_model)
@@ -229,17 +248,19 @@ class CompanyComparisonHandlerV2:
                     progress,
                     lambda: _writing_status(
                         progress,
-                        flat_sources,
+                        web_search.merged_sources(flat_sources, [])[0],
                         ticker_list=[t for t, _sources, _passages in retrieved_per_ticker],
-                        lead=f"No web results for {', '.join(failed_tickers)}, " if failed_tickers else "",
+                        # All tickers failed: the search status already said so.
+                        lead=f"No web results for {', '.join(failed_tickers)}, "
+                        if failed_tickers and retrieved_per_ticker
+                        else "",
                     ),
                 )
             ) as events:
                 async for event in events:
                     yield event
 
-            if flat_sources or use_google_search:
-                yield build_sources_event(flat_sources)
+            yield build_sources_event(web_search.merged_sources(flat_sources, flat_passages)[0])
 
             yield {"type": "model_used", "body": agent.served_model_name}
 

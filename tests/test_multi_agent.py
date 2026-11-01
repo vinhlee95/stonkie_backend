@@ -90,3 +90,19 @@ def test_served_model_name_is_the_requested_model_until_a_stream_reports_one(mon
     fake.completions.events = [_event(content="y", model=None)]  # no model reported: fall back to the requested one
     list(agent.generate_content(prompt="p"))
     assert agent.served_model_name == "openrouter/auto"
+
+
+def test_generate_content_passes_tools_through():
+    calls = []
+    tools = [object()]
+
+    class _ToolClient(_FakeClient):
+        def stream_chat(self, prompt, use_google_search=False, **kwargs):
+            calls.append(kwargs)
+            yield from self._chunks
+
+    with patch("agent.multi_agent.OpenRouterClient", return_value=_ToolClient(["a"])):
+        agent = MultiAgent()
+
+    assert list(agent.generate_content("p", tools=tools, max_tool_rounds=2)) == ["a"]
+    assert calls == [{"tools": tools, "max_tool_rounds": 2}]

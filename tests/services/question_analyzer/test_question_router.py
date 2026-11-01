@@ -106,10 +106,23 @@ def test_unknown_reason_code_maps_to_other():
     assert _parse(_payload(reason_code="because")).search_decision.reason_code == "other"
 
 
-def test_search_off_drops_queries():
+def test_queries_kept_when_web_search_false():
+    # Search always runs now (background context for the answer); use_web_search is kept for logging.
     result = _parse(_payload(use_web_search=False, reason_code="db_data_sufficient", search_queries=["x"]))
     assert result.search_decision.use_google_search is False
-    assert result.search_queries == []
+    assert result.search_queries == ["x"]
+
+
+def test_empty_queries_fall_back_to_standalone():
+    routed = _parse(_payload(use_web_search=False, reason_code="db_data_sufficient", search_queries=[]))
+    result = apply_fast_paths(routed, question="What is Nvidia's revenue?")
+    assert result.search_queries == [routed.standalone_question]
+
+
+def test_prompt_asks_for_queries_even_without_web_search():
+    prompt = build_router_prompt(question="What is Nvidia's revenue?", ticker="NVDA")
+    assert "ALWAYS 1-" in prompt
+    assert "When use_web_search is false: []" not in prompt
 
 
 def test_queries_are_capped_and_deduped():
@@ -185,11 +198,12 @@ def test_prompt_without_ticker_or_history():
     assert "Financial data in our database" not in prompt
 
 
-def test_fast_path_static_fact_turns_search_off():
-    result = apply_fast_paths(_parse(_payload()), question="Who founded Nvidia?")
+def test_fast_path_static_fact_keeps_queries():
+    routed = _parse(_payload())
+    result = apply_fast_paths(routed, question="Who founded Nvidia?")
     assert result.search_decision.use_google_search is False
     assert result.search_decision.reason_code == "stable_concept"
-    assert result.search_queries == []
+    assert result.search_queries == routed.search_queries
 
 
 def test_fast_path_forced_search_reason_wins():
@@ -280,7 +294,7 @@ def test_default_routing_applies_fast_paths():
     static = default_routing(question="Who founded Nvidia?", ticker="NVDA")
     assert static.search_decision.use_google_search is False
     assert static.search_decision.reason_code == "stable_concept"
-    assert static.search_queries == []
+    assert static.search_queries == ["Who founded Nvidia?"]
 
     report = default_routing(question="Summarize the latest quarterly report", ticker="NVDA")
     assert report.data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY

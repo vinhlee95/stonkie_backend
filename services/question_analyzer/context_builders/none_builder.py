@@ -17,5 +17,6 @@ class NoneContextBuilder(ContextBuilder):
             {PromptComponents.grounding_rules()}
 
             This is a general question about {input.ticker.upper()}.
-            Keep the response under 150 words and make it engaging.
+
+            {PromptComponents.narrative_answer_format()}
         """
