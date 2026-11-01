@@ -364,3 +364,9 @@ def test_prompt_asks_for_needs_calculation():
     prompt = build_router_prompt(question="q", ticker="NVDA")
     assert "needs_calculation (boolean)" in prompt
     assert '"needs_calculation": false}' in prompt
+
+
+def test_prompt_keeps_user_named_products_verbatim():
+    # Router must not swap an unfamiliar product ("iPhone Duo") for one from history ("iPhone 17e") or its training.
+    prompt = build_router_prompt(question="What are iphone duo critics?", ticker="AAPL")
+    assert "Keep every product, model and proper name the user wrote" in prompt
