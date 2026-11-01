@@ -29,6 +29,11 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
 }
 
 
+# openrouter/auto price band (low|medium|high|xhigh|max). With no setting OpenRouter routes "roughly low";
+# pinned so the band can't drift. See: https://openrouter.ai/docs/features/model-routing
+AUTO_ROUTER_COST_TIER = "low"
+
+
 def get_openrouter_model_name(model_name: ModelName) -> str:
     """Convert generic model name to OpenRouter-specific format.
 
@@ -56,6 +61,16 @@ def _reasoning_text(delta_extra: dict) -> str:
         elif detail.get("type") == "reasoning.summary" and isinstance(detail.get("summary"), str):
             parts.append(detail["summary"])
     return "".join(parts)
+
+
+def _auto_router_plugin(model_name: str, allowed_models: list[str] | None = None) -> dict | None:
+    """auto-router plugin for openrouter/auto: pinned cost tier, plus the candidate pool when given."""
+    if model_name != OPENROUTER_MODEL_MAP[ModelName.Auto]:
+        return None
+    plugin: dict = {"id": "auto-router", "cost_tier": AUTO_ROUTER_COST_TIER}
+    if allowed_models:
+        plugin["allowed_models"] = list(allowed_models)
+    return plugin
 
 
 def _usage_event(served_model: str, usage) -> dict:
@@ -125,8 +140,9 @@ class OpenRouterClient:
         plugins = []
         if use_google_search:
             plugins.append({"id": "web", "max_results": 3})
-        if auto_router_models:
-            plugins.append({"id": "auto-router", "allowed_models": list(auto_router_models)})
+        auto_router = _auto_router_plugin(self.model_name, auto_router_models)
+        if auto_router:
+            plugins.append(auto_router)
         if plugins:
             extra_body["plugins"] = plugins
         if reasoning is not None:
@@ -239,6 +255,9 @@ class OpenRouterClient:
                 },
             }
         ]
+        auto_router = _auto_router_plugin(self.model_name)
+        if auto_router:
+            plugins.append(auto_router)
 
         # Stream the response
         response = self.client.chat.completions.create(
@@ -299,6 +318,9 @@ class OpenRouterClient:
                 },
             }
         ]
+        auto_router = _auto_router_plugin(self.model_name)
+        if auto_router:
+            plugins.append(auto_router)
 
         # Stream the response
         response = self.client.chat.completions.create(

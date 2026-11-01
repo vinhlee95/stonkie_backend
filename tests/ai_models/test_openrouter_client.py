@@ -34,6 +34,7 @@ def test_stream_chat_keeps_the_8192_default_output_cap():
 
     assert completions.calls[0]["max_tokens"] == 8192
     assert completions.calls[0]["model"] == "openai/gpt-4.1-mini"
+    assert "extra_body" not in completions.calls[0]  # no auto-router plugin for a concrete model
 
 
 def test_stream_chat_sends_a_requested_output_cap():
@@ -86,13 +87,13 @@ _REASONING_EVENTS = [
 ]
 
 
-def test_stream_chat_without_reasoning_sends_no_extra_body_and_yields_no_reasoning():
+def test_stream_chat_without_reasoning_sends_only_the_auto_cost_tier_and_yields_no_reasoning():
     client, completions = _streaming_client(_REASONING_EVENTS)
 
     chunks = list(client.stream_chat("p"))
 
     assert chunks == ["Margins fell."]
-    assert "extra_body" not in completions.calls[0]
+    assert completions.calls[0]["extra_body"] == {"plugins": [{"id": "auto-router", "cost_tier": "low"}]}
 
 
 def test_stream_chat_yields_reasoning_dicts_before_text_and_a_final_usage_dict():
@@ -123,7 +124,7 @@ def test_stream_chat_yields_reasoning_dicts_before_text_and_a_final_usage_dict()
     call = completions.calls[0]
     assert call["model"] == "openrouter/auto"
     assert call["extra_body"] == {
-        "plugins": [{"id": "auto-router", "allowed_models": ["deepseek/deepseek-v4.1-flash-1017"]}],
+        "plugins": [{"id": "auto-router", "cost_tier": "low", "allowed_models": ["deepseek/deepseek-v4.1-flash-1017"]}],
         "reasoning": {"effort": "low"},
         "usage": {"include": True},
     }
@@ -163,6 +164,7 @@ def test_every_stream_records_the_served_model_and_resets_it_on_the_next_one(str
 
     list(stream(client))
     assert client.served_model == "deepseek/deepseek-v4.1-flash-1017"
+    assert {"id": "auto-router", "cost_tier": "low"} in completions.calls[0]["extra_body"]["plugins"]
 
     completions.events = [_event(content="y", model=None)]
     list(stream(client))
