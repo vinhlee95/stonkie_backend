@@ -183,6 +183,7 @@ LATEST question: {question}
 Fields:
 
 1. standalone_question (string): the latest question rewritten so it is fully understandable on its own. Resolve "it", "that", "they", "the company", "this stock" and topics implied by the recent conversation (e.g. after a question about Nvidia's data center revenue, "How does that compare with AMD?" -> "How does Nvidia's data center revenue last quarter compare with AMD's?"). Keep the user's language. If it is already standalone, copy it unchanged.
+   Keep every product, model and proper name the user wrote exactly as written, even if you don't recognize it (it may be newer than your knowledge). Never replace it with a different one from the conversation or your knowledge (e.g. "iphone duo critics" -> "What are the criticisms of the iPhone Duo?", never "iPhone 17e" or "iPhone"). The search_queries must contain that name too.
 
 2. question_type, exactly one of:
    - "company-specific-finance": needs the viewed company's financial statements, metrics or performance (revenue, profit, margins, earnings, cash flow, debt, growth, quarterly/annual results, valuation, dividends, buy/sell). ONLY when a ticker is given.
@@ -521,6 +522,7 @@ LATEST question: {question}
 Fields:
 
 1. standalone_question (string): the latest question rewritten so it is fully understandable on its own. Resolve "it", "this ETF", "this fund", "that" and topics implied by the recent conversation, naming the fund by its NAME (e.g. after a question about SXR8's fees, "What about its top holdings?" -> "What are the top holdings of the iShares Core S&P 500 UCITS ETF?"). Keep the user's language. If it is already standalone, copy it unchanged.
+   Keep every product, model and proper name the user wrote (funds, indexes, companies, products) exactly as written, even if you don't recognize it (it may be newer than your knowledge). Never replace it with a different one from the conversation or your knowledge. The search_queries must contain that name too.
 
 2. question_type, exactly one of:
    - "general_etf": general ETF education not specific to the viewed fund (what is an ETF, TER, tracking difference, physical vs synthetic replication, accumulating vs distributing), or any question when no ETF is selected.

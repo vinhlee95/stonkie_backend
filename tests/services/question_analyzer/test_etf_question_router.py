@@ -281,3 +281,8 @@ def test_general_etf_with_search_on_keeps_its_reason():
 def test_fund_specific_search_off_keeps_its_reason():
     result = _parse(_payload(use_web_search=False, reason_code="db_data_sufficient"))
     assert result.search_decision.reason_code == "db_data_sufficient"
+
+
+def test_etf_prompt_keeps_user_named_products_verbatim():
+    prompt = build_etf_router_prompt(question="How does it compare with the new Vanguard fund?", ticker="SXR8")
+    assert "Keep every product, model and proper name the user wrote" in prompt
