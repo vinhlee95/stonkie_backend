@@ -219,7 +219,7 @@ Fields:
    - true + latest_info: the latest/most recent quarter or year, earnings, or a summary of a quarterly/annual report (the newest results may be newer than our database).
    - If unsure, true + ambiguous_default_on.
 
-8. search_queries (array of strings): when use_web_search is true, 1-{MAX_SEARCH_QUERIES} web-search queries built from standalone_question (1 for simple questions, up to {MAX_SEARCH_QUERIES} for multi-part ones). Search-engine keywords, under 15 words each, include the company NAME (not ticker), add the current year/quarter when relevant, no research-firm names (IDC, Canalys, Statista). When use_web_search is false: [].
+8. search_queries (array of strings): ALWAYS 1-{MAX_SEARCH_QUERIES} web-search queries built from standalone_question, also when use_web_search is false (they fetch news context that explains the numbers). 1 for simple questions, up to {MAX_SEARCH_QUERIES} for multi-part ones; for metric or trend questions, aim at what drives the numbers (e.g. "Alphabet Q2 2026 earnings margin drivers"). Search-engine keywords, under 15 words each, include the company NAME (not ticker), add the current year/quarter when relevant, no research-firm names (IDC, Canalys, Statista).
 
 9. needs_calculation (boolean): true when a correct answer requires computing from numbers: ratios, margins, growth rates, averages, trends or changes across periods, or comparisons of figures between periods or companies (e.g. "What's the profit margin trend?", "How fast is revenue growing?", "Compare Apple and Microsoft margins"). false for single-fact lookups ("What was revenue last quarter?", "What is the P/E ratio?"), definitions, explanations of concepts, news and company facts.
 
@@ -384,7 +384,7 @@ def parse_routing_response(raw: str, *, question: str, ticker: str, model_name: 
             decision_model=f"{ROUTER_MODEL_TAG}:{model_name}",
             decision_fallback="none",
         ),
-        search_queries=search_queries if use_web_search else [],
+        search_queries=search_queries,
         standalone_question=standalone,
         # Missing or non-boolean -> no reasoning (the pre-field behaviour), never a parse failure.
         needs_calculation=obj.get("needs_calculation") is True,
@@ -420,11 +420,8 @@ def apply_fast_paths(
     elif any(k in question_lower for k in ANNUAL_REPORT_KEYWORDS):
         data_requirement, period_requirement, relevant_statements = FinancialDataRequirement.ANNUAL_SUMMARY, None, None
 
-    search_queries = result.search_queries
-    if decision.use_google_search and not search_queries:
-        search_queries = [result.standalone_question]
-    if not decision.use_google_search:
-        search_queries = []
+    # Search always runs (news context for every answer); use_google_search/reason_code are kept for logging.
+    search_queries = result.search_queries or [trim_search_query(result.standalone_question)]
 
     return replace(
         result,

@@ -278,10 +278,11 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(
         events.append(event)
 
     thinking_events = [event for event in events if event["type"] == "thinking_status"]
-    assert len(thinking_events) == 2
+    assert len(thinking_events) == 3
     assert thinking_events[0]["body"].startswith("Searching for ")
-    assert "Reuters" in thinking_events[1]["body"]
-    assert "Example Blog" not in thinking_events[1]["body"]
+    assert thinking_events[1]["body"] == "Checking for more context..."  # web_search tool round
+    assert "Reuters" in thinking_events[2]["body"]
+    assert "Example Blog" not in thinking_events[2]["body"]
     assert mock_retrieve_for_analyze.call_count == 1
 
     answer_events = [event for event in events if event["type"] == "answer"]

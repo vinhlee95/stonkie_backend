@@ -168,6 +168,7 @@ async def test_company_specific_basic_searches_after_fetch_with_fundamentals_mar
     statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
     assert statuses == [
         'Searching for "Nvidia data center revenue Q3 2026"...',
+        "Checking what's behind the numbers...",
         "Writing your answer from 1 source: Reuters...",
     ]
 
@@ -175,8 +176,10 @@ async def test_company_specific_basic_searches_after_fetch_with_fundamentals_mar
 @pytest.mark.asyncio
 @patch(f"{_HANDLERS}.retrieve_for_analyze")
 @patch(f"{_HANDLERS}.MultiAgent")
-async def test_company_specific_search_off_never_retrieves(mock_agent_cls, mock_retrieve):
+async def test_company_specific_router_search_off_still_retrieves(mock_agent_cls, mock_retrieve):
+    # Search always runs (news context for the numbers); an empty query list falls back to the question.
     mock_agent_cls.return_value = _agent()
+    mock_retrieve.return_value = _retrieval_result()
     handler, _ = _specific_handler()
     routing = _routing(search_decision=_decision(False), search_queries=[])
 
@@ -187,8 +190,8 @@ async def test_company_specific_search_off_never_retrieves(mock_agent_cls, mock_
         )
     ]
 
-    mock_retrieve.assert_not_called()
-    assert not any(e["type"] == "sources" for e in events)
+    mock_retrieve.assert_called_once()
+    assert [e["type"] for e in events].count("sources") == 1
 
 
 @pytest.mark.asyncio

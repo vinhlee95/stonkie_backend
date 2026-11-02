@@ -190,6 +190,7 @@ async def test_router_search_with_statements_reports_analysis_while_search_runs(
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{_QUERY}"...'),
         ("analyze", "Analyzing AAPL financials..."),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer from 3 sources: Reuters, CNBC..."),
     ]
 
@@ -210,6 +211,7 @@ async def test_router_search_finished_during_db_fetch_skips_analyzing(mock_agent
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{_QUERY}"...'),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -221,7 +223,7 @@ async def test_router_search_finished_during_db_fetch_skips_analyzing(mock_agent
 )
 @patch(f"{_HANDLERS}.retrieve_for_analyze")
 @patch(f"{_HANDLERS}.MultiAgent")
-async def test_router_search_off_loads_statements_with_human_period_wording(
+async def test_router_search_off_still_searches_alongside_the_statements(
     mock_agent_cls, mock_retrieve, period_type, wording
 ):
     mock_agent_cls.return_value = _agent()
@@ -232,10 +234,14 @@ async def test_router_search_off_loads_statements_with_human_period_wording(
 
     events = await _run(analyzer)
 
-    mock_retrieve.assert_not_called()
-    assert _sequence(events) == [
+    # Search always runs now; the router's "off" only shows in logs. Brave runs alongside the DB fetch, so the
+    # search status replaces "Loading ..."; the conftest's offline Brave finds nothing.
+    mock_retrieve.assert_called_once()
+    sequence = [step for step in _sequence(events) if step != ("analyze", "Analyzing AAPL financials...")]
+    assert sequence == [
         ("classify", "Understanding your question..."),
-        ("data_fetch", f"Loading AAPL {wording} financial reports..."),
+        ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -265,6 +271,7 @@ async def test_router_failure_default_routing_announces_the_question_as_the_quer
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", searching),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -283,6 +290,7 @@ async def test_unresolved_router_comparison_is_downgraded_and_keeps_the_status_s
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{_QUERY}"...'),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -351,13 +359,14 @@ async def test_data_requirement_none_with_search_claims_no_financials(mock_agent
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{_QUERY}"...'),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
 
 @pytest.mark.asyncio
 @patch(f"{_HANDLERS}.MultiAgent")
-async def test_data_requirement_none_without_search(mock_agent_cls):
+async def test_data_requirement_none_router_search_off_still_searches(mock_agent_cls):
     mock_agent_cls.return_value = _agent()
     analyzer = _analyzer(routing=_routing(use_search=False, data_requirement=FinancialDataRequirement.NONE))
 
@@ -365,6 +374,9 @@ async def test_data_requirement_none_without_search(mock_agent_cls):
 
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
+        ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
+        ("search", "No relevant web results, analyzing AAPL financials..."),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -406,7 +418,7 @@ async def test_fallback_2_no_financials_answers_from_conversation(mock_agent_cls
 
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
-        ("data_fetch", "Loading AAPL quarterly financial reports..."),
+        ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
         ("analyze", "No AAPL financials found, writing your answer from our conversation..."),
     ]
     assert [e["type"] for e in events].count("answer") == 2
@@ -431,13 +443,14 @@ async def test_company_general_searches_before_writing(mock_agent_cls, mock_retr
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{query}"...'),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 2 sources: Reuters..."),
     ]
 
 
 @pytest.mark.asyncio
 @patch(f"{_HANDLERS}.MultiAgent")
-async def test_company_general_without_search(mock_agent_cls):
+async def test_company_general_router_search_off_still_searches(mock_agent_cls):
     mock_agent_cls.return_value = _agent()
     analyzer = _analyzer(routing=_routing(QuestionType.COMPANY_GENERAL, use_search=False))
 
@@ -445,6 +458,9 @@ async def test_company_general_without_search(mock_agent_cls):
 
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
+        ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
+        ("search", "No relevant web results, answering from the available data..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -476,6 +492,9 @@ async def test_no_ticker_general_finance_makes_no_database_claim(mock_agent_cls)
 
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
+        ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
+        ("search", "No relevant web results, answering from the available data..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -496,6 +515,7 @@ async def test_general_finance_with_search(mock_agent_cls, mock_retrieve, routed
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{query}"...'),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source..."),
     ]
 
@@ -517,6 +537,7 @@ async def test_comparison_searches_all_tickers_then_writes(mock_agent_cls, mock_
         ("classify", "Understanding your question..."),
         ("data_fetch", "Loading financial data for NVDA, AMD..."),
         ("search", "Searching the web for NVDA, AMD..."),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer from 2 sources across NVDA, AMD: Reuters..."),
     ]
 
@@ -541,6 +562,7 @@ async def test_comparison_with_a_failed_ticker_folds_the_failure_into_the_final_
         ("classify", "Understanding your question..."),
         ("data_fetch", "Loading financial data for NVDA, AMD..."),
         ("search", "Searching the web for NVDA, AMD..."),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "No web results for AMD, writing your answer from 2 sources: Reuters, CNBC..."),
     ]
 
@@ -548,8 +570,9 @@ async def test_comparison_with_a_failed_ticker_folds_the_failure_into_the_final_
 @pytest.mark.asyncio
 @patch(f"{_COMPARISON}.retrieve_for_analyze")
 @patch(f"{_COMPARISON}.MultiAgent")
-async def test_comparison_without_search(mock_agent_cls, mock_retrieve):
+async def test_comparison_router_search_off_still_searches(mock_agent_cls, mock_retrieve):
     mock_agent_cls.return_value = _agent()
+    mock_retrieve.side_effect = BraveRetrievalError("nothing relevant")
     analyzer = _analyzer(
         routing=_routing(QuestionType.COMPANY_GENERAL, use_search=False),
         extractor_tickers=["NVDA", "AMD"],
@@ -561,10 +584,13 @@ async def test_comparison_without_search(mock_agent_cls, mock_retrieve):
 
     events = await _run(analyzer, ticker="NVDA", question="NVDA vs AMD margins")
 
-    mock_retrieve.assert_not_called()
+    assert mock_retrieve.call_count == 2
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("data_fetch", "Loading financial data for NVDA, AMD..."),
+        ("search", "Searching the web for NVDA, AMD..."),
+        ("search", "No relevant web results for NVDA, AMD, using their financials..."),
+        ("analyze", "Checking what's behind the numbers..."),
         ("analyze", "Writing your answer..."),
     ]
 

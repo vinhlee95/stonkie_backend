@@ -4,6 +4,7 @@ from typing import Iterable, Iterator, Union
 
 from langfuse import get_client, observe
 
+from ai_models.chat_tool import ChatTool
 from ai_models.model_name import ModelName
 from ai_models.openrouter_client import OpenRouterClient
 
@@ -78,6 +79,8 @@ class MultiAgent:
         reasoning: dict | None = None,
         include_usage: bool = False,
         auto_router_models: list[str] | None = None,
+        tools: list[ChatTool] | None = None,
+        max_tool_rounds: int = 0,
     ) -> Iterable[Union[str, dict]]:
         """
         Generate content using OpenRouter
@@ -91,6 +94,7 @@ class MultiAgent:
                 {"type": "reasoning", "text": ...} dicts
             include_usage: record the served model, tokens and cost on this Langfuse generation
             auto_router_models: candidate pool when the model is openrouter/auto
+            tools: function tools the model may call, for up to `max_tool_rounds` rounds (see stream_chat)
 
         Returns:
             Iterable of string chunks (str) and citation annotations (dict) when streaming
@@ -100,6 +104,9 @@ class MultiAgent:
             options["reasoning"] = reasoning
         if auto_router_models:
             options["auto_router_models"] = auto_router_models
+        if tools:
+            options["tools"] = tools
+            options["max_tool_rounds"] = max_tool_rounds
         if include_usage:
             options["include_usage"] = True
             return _record_usage(self.client.stream_chat(prompt=prompt, use_google_search=use_google_search, **options))

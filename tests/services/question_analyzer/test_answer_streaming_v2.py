@@ -198,8 +198,6 @@ async def test_handler_streams_first_chunk_before_generation_ends(
             pulled_at_first_answer = stream.pulled
         events.append(event)
 
-    mock_retrieve.assert_not_called()
-    mock_cmp_retrieve.assert_not_called()
     assert pulled_at_first_answer == 1
     assert [e["body"] for e in events if e["type"] == "answer"] == ["First ", "second ", "third"]
     types = [e["type"] for e in events]

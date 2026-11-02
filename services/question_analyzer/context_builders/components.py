@@ -44,12 +44,63 @@ class PromptComponents:
         )
 
     @staticmethod
+    def narrative_answer_format() -> str:
+        """Answer shape for stock v2 answers: the story behind the numbers, not a restatement of them."""
+        return (
+            "**How to write the answer — tell the story behind the numbers:**\n"
+            "1. Open with a one- or two-sentence summary in plain words, with no figures: what is happening and why. "
+            "The numbers come after, as evidence.\n"
+            "2. Then the drivers: the two or three business or real-world causes that matter most (product cycles, "
+            "demand shifts, pricing, costs, deals, one-off gains or charges, regulation, macro). Tie each to what the "
+            'Sources report and skip minor ones. Use only the few numbers that prove the point: at most two or three figures per paragraph; describe the rest in words (e.g. "costs grew faster than revenue").\n'
+            "3. End with what it means: one or two sentences on the implication or what to watch next.\n"
+            "- Be brief. A single-fact question gets the fact first, then a compact context paragraph: about 120 words "
+            "in total. An analytical or comparison question: about 250 words in a few short paragraphs, with bold "
+            "section headings only when it spans several topics. These are soft targets, not limits; stay well short "
+            "of a page.\n"
+            "- Events, names and dates are allowed only when they appear in the Sources (including web_search results). "
+            "Never add events from training knowledge.\n"
+            "- If a notable move is not explained by the sources, say so plainly. You may give a clearly labelled "
+            'inference from the numbers (e.g. "likely a non-operating gain such as an investment mark-up"), never an '
+            "invented event.\n"
+            "- A series of three or more periods belongs in the chart or table, not in the text. When the answer has "
+            "a chart or table, the text names at most the start, end or peak and spends its words on why.\n"
+            "- Do not list every period's value (give the start and end of a trend, plus any outlier), do not restate "
+            "a chart in prose, and do not open with remarks like "
+            '"X is not a reported metric": interpret the user\'s wording (e.g. "comp profit margin" means the '
+            "company's profit margins) and answer.\n"
+            '- Name periods as quarters and fiscal years ("Q1 2026", "end of Q1 2026", "FY2025"), never as dates like '
+            '"3/31/2026" or "the quarter ended 6/30/2026".\n'
+            '- Bold the key figures. Use the largest sensible unit ("$1.5 billion", not "$1,500 million").'
+        )
+
+    @staticmethod
+    def search_instruction() -> str:
+        """Tells the answer model when to call its web_search tool (stock v2 answers with tools)."""
+        return (
+            "**Before writing:** check every notable move in the data (large jumps or drops in a line item, margin "
+            "step changes, one-off gains or charges). If the Sources do not explain a move, call `web_search` with "
+            "a specific query (company name, period, line item) to find the cause. Call tools before writing any "
+            "text and do not announce that you are searching. If the Sources already explain the picture, answer "
+            "directly."
+        )
+
+    @staticmethod
     def no_data_decline() -> str:
         """Used when no sources AND no DB data are available — instruct the model to decline rather than freelance from training."""
         return (
             "**No current data available.** No web sources or financial data were retrieved for this question. "
             "Do not answer from training knowledge. Reply briefly that you do not have current data to answer reliably, "
             "and suggest the user retry or rephrase."
+        )
+
+    @staticmethod
+    def no_sources_search_first() -> str:
+        """No sources yet but the answer model has web_search: search first, decline only if that finds nothing too."""
+        return (
+            "**No web sources yet.** The initial search found nothing relevant. Call `web_search` for what the "
+            "question needs. If it also finds nothing, reply briefly that you do not have current data to answer "
+            "reliably and suggest the user retry or rephrase; do not answer from training knowledge."
         )
 
     @staticmethod

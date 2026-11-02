@@ -57,7 +57,7 @@ def _make_handler_deps(
 
 @pytest.mark.asyncio
 @patch("services.question_analyzer.handlers_v2.MultiAgent")
-async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
+async def test_router_search_off_still_searches_and_reports_no_results(mock_multi_agent_cls):
     from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
 
     company_connector, plan, optimizer = _make_handler_deps()
@@ -91,8 +91,13 @@ async def test_no_search_emits_v1_like_sequence(mock_multi_agent_cls):
         events.append(event)
 
     thinking_bodies = [e["body"] for e in events if e["type"] == "thinking_status"]
-    # The router planned the data, so there is no "Figuring out what AAPL data you need..." step.
-    assert thinking_bodies == ["Writing your answer..."]
+    # Search always runs now; the conftest's offline Brave finds nothing, so the answer uses the financials only.
+    assert thinking_bodies == [
+        'Searching for "q"...',
+        "No relevant web results, analyzing AAPL financials...",
+        "Checking what's behind the numbers...",
+        "Writing your answer...",
+    ]
     assert all(e["type"] != "sources" for e in events)
     assert [e["type"] for e in events].count("answer") == 2
 

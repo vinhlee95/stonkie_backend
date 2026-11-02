@@ -11,6 +11,7 @@ from contextlib import aclosing
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
+from ai_models.chat_tool import ChatTool
 from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
@@ -21,13 +22,15 @@ from services.analyze_retrieval.freshness import build_temporal_context_block
 from services.analyze_retrieval.market import resolve_market
 from services.analyze_retrieval.query_reformulator import PrecomputedQueryReformulator
 from services.analyze_retrieval.retrieval import retrieve_for_analyze
-from services.analyze_retrieval.schemas import AnalyzePassage
+from services.analyze_retrieval.schemas import AnalyzePassage, BraveRetrievalError
 from services.analyze_retrieval.url_ingest import UrlIngestError, ingest_url
 from services.question_analyzer.context_builders import ContextBuilderInput, get_context_builder
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.data_optimizer import FinancialDataOptimizer
 from services.question_analyzer.router import RoutingResult
 from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement
+from services.question_analyzer.web_search_tool import WEB_SEARCH_TOOL_NAME, WebSearchTool
+from services.question_analyzer.web_search_tool import build_sources_block as _build_sources_block
 from services.search_decision_engine import SearchDecision
 from services.shared.answer_stream import answer_stream
 from utils.conversation_format import format_conversation_context
@@ -60,18 +63,28 @@ _STABLE_CONCEPT_ALLOW = (
     "This is a well-known, stable fact (e.g. founding date, founders, headquarters). "
     "You may answer from your training knowledge. Be concise and confident."
 )
+_STABLE_CONCEPT_OVERRIDE = (
+    f"**Exception for this question:** {_STABLE_CONCEPT_ALLOW} This overrides the Sources-only rules above for the "
+    "stable fact itself; use the Sources for anything recent."
+)
 
 
 def _select_grounding(
-    retrieved_sources: list, search_decision: SearchDecision, *, is_url_grounded: bool = False
+    retrieved_sources: list,
+    search_decision: SearchDecision,
+    *,
+    is_url_grounded: bool = False,
+    has_search_tool: bool = False,
 ) -> str:
     if is_url_grounded:
         return _URL_GROUNDED_RULES
+    if search_decision.reason_code == "stable_concept":
+        # Search always runs: stable facts keep the training-knowledge allowance even when news was found.
+        return f"{_GROUNDING_RULES}\n\n{_STABLE_CONCEPT_OVERRIDE}" if retrieved_sources else _STABLE_CONCEPT_ALLOW
     if retrieved_sources:
         return _GROUNDING_RULES
-    if search_decision.reason_code == "stable_concept":
-        return _STABLE_CONCEPT_ALLOW
-    return _NO_DATA_DECLINE
+    # A fixed decline would stop the model from using its web_search tool, or contradict what it finds.
+    return PromptComponents.no_sources_search_first() if has_search_tool else _NO_DATA_DECLINE
 
 
 def _iter_answer_chunks(chunks: Iterable[Any]) -> Iterator[str]:
@@ -95,31 +108,97 @@ REASONING_STATUS = "Working through the numbers..."
 REASONING_AUTO_ROUTER_MODELS = ("deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash")
 
 
-def answer_call(preferred_model: ModelName, needs_calculation: bool) -> tuple[ModelName, dict[str, Any]]:
+# Answer model's web_search tool: rounds of extra searches per answer (comparison: per ticker, up to a cap).
+MAX_TOOL_ROUNDS = 2
+MAX_COMPARISON_TOOL_ROUNDS = 4
+CHECKING_STATUS = "Checking what's behind the numbers..."
+CONTEXT_STATUS = "Checking for more context..."  # holding status when the answer isn't about financial data
+_STATUS_QUERY_CHARS = 80
+_STATUS_PUBLISHERS = 3
+
+
+def answer_call(
+    preferred_model: ModelName,
+    needs_calculation: bool,
+    tools: Optional[List[ChatTool]] = None,
+    max_tool_rounds: int = MAX_TOOL_ROUNDS,
+) -> tuple[ModelName, dict[str, Any]]:
     """Model + generate_content options for a v2 answer call. Usage (served model, cost) is always recorded."""
     if needs_calculation and preferred_model in (ModelName.Auto, ModelName.Fastest):
-        return REASONING_ANSWER_MODEL, {
-            "reasoning": dict(REASONING_ANSWER_CONFIG),
-            "auto_router_models": list(REASONING_AUTO_ROUTER_MODELS),
-            "include_usage": True,
-        }
-    return preferred_model, {"include_usage": True}
+        model, options = (
+            REASONING_ANSWER_MODEL,
+            {
+                "reasoning": dict(REASONING_ANSWER_CONFIG),
+                "auto_router_models": list(REASONING_AUTO_ROUTER_MODELS),
+                "include_usage": True,
+            },
+        )
+    else:
+        model, options = preferred_model, {"include_usage": True}
+    if tools:
+        options["tools"] = list(tools)
+        options["max_tool_rounds"] = max_tool_rounds
+    return model, options
 
 
-def iter_answer_events(chunks: Iterable[Any], writing_status: Optional[dict] = None) -> Iterator[Dict[str, Any]]:
+def _status_query(chunk: dict) -> str:
+    query = " ".join(str((chunk.get("arguments") or {}).get("query") or "").split())
+    return query if len(query) <= _STATUS_QUERY_CHARS else f"{query[:_STATUS_QUERY_CHARS]}…"
+
+
+def tool_status_event(progress: ThinkingProgress, chunk: dict) -> Optional[dict]:
+    """The thinking_status for a tool-loop dict from generate_content (tool_call / tool_result / budget), else None."""
+    kind = chunk.get("type")
+    if kind == "tool_budget_exhausted":
+        return progress.status("Search limit reached, writing with what I found...", phase=AnalysisPhase.ANALYZE)
+    if kind not in ("tool_call", "tool_result") or chunk.get("name") != WEB_SEARCH_TOOL_NAME:
+        return None
+    query = _status_query(chunk)
+    if kind == "tool_call":
+        return progress.status(f'Digging deeper: "{query}"...', phase=AnalysisPhase.SEARCH)
+    meta = chunk.get("meta") or {}
+    count = meta.get("source_count") or 0
+    if not chunk.get("ok") or count <= 0:
+        return progress.status(f'Nothing new on "{query}", continuing...', phase=AnalysisPhase.SEARCH)
+    body = f'Found {count} source{"" if count == 1 else "s"} on "{query}"'
+    publishers = list(meta.get("publishers") or [])[:_STATUS_PUBLISHERS]
+    if publishers:
+        body += f": {', '.join(publishers)}"
+    return progress.status(body, phase=AnalysisPhase.SEARCH)
+
+
+def iter_answer_events(
+    chunks: Iterable[Any],
+    writing_status: Optional[dict] | Callable[[], dict] = None,
+    tool_status: Optional[Callable[[dict], Optional[dict]]] = None,
+) -> Iterator[Dict[str, Any]]:
     """`reasoning` and `answer` events from an LLM stream, each as soon as the LLM produces it.
 
     Reasoning dicts become `reasoning` events only before the first answer text, so the event order stays
-    reasoning* -> answer*. Every other dict (url_citation) is dropped; no dict ever reaches an answer event.
-    ``writing_status`` is yielded right before the first answer text, i.e. after the reasoning.
+    reasoning* -> answer*. Tool-loop dicts become ``tool_status`` events (also after a streamed preamble). Every other
+    dict (url_citation) is dropped; no dict ever reaches an answer event. ``writing_status`` (a status, or a
+    callable building it then, so it can count the tool rounds' sources) is yielded right before the first answer text.
     """
     answer_started = False
     for chunk in chunks:
         if isinstance(chunk, str):
             if not answer_started and writing_status:
-                yield writing_status
+                yield writing_status() if callable(writing_status) else writing_status
             answer_started = True
             yield {"type": "answer", "body": chunk}
+        elif tool_status is not None and isinstance(chunk, dict):
+            # Tool statuses can follow a streamed preamble (the model wrote text, then searched).
+            status = tool_status(chunk)
+            if status is not None:
+                yield status
+                continue
+            if (
+                not answer_started
+                and chunk.get("type") == "reasoning"
+                and isinstance(chunk.get("text"), str)
+                and chunk["text"]
+            ):
+                yield {"type": "reasoning", "body": chunk["text"]}
         elif (
             not answer_started
             and isinstance(chunk, dict)
@@ -135,12 +214,20 @@ def answer_events(
     answer_options: dict[str, Any],
     progress: ThinkingProgress,
     writing_status: Callable[[], dict],
+    holding_status: str = CHECKING_STATUS,
 ) -> Iterator[Dict[str, Any]]:
     """The answer call's events in order, statuses included; `answer_options` comes from `answer_call`.
 
     Reasoning off: the writing status, then the answer. Reasoning on: a status that holds while the model reasons
     (readable reasoning may never stream), the reasoning, then the writing status right before the answer text.
     """
+    if "tools" in answer_options:
+        # Tool rounds run before any answer text: hold a status, report each search, write status last so it
+        # counts the sources the searches added.
+        holding = REASONING_STATUS if "reasoning" in answer_options else holding_status
+        yield progress.status(holding, phase=AnalysisPhase.ANALYZE)
+        yield from iter_answer_events(chunks, writing_status, lambda chunk: tool_status_event(progress, chunk))
+        return
     if "reasoning" not in answer_options:
         yield writing_status()
         yield from iter_answer_events(chunks)
@@ -293,6 +380,47 @@ def _retrieve_routed(
             finished.set()
 
 
+NO_WEB_RESULTS_STATUS = "No relevant web results, answering from the available data..."
+# Old fixed-length format, kept for URL-grounded answers (no narrative search there).
+_URL_ANSWER_FORMAT = {
+    "company_general": "Keep response concise under 200 words.\nUse short paragraphs and bullet points for readability.",
+    "general_finance": "Keep the answer under 150 words. Break into short paragraphs.",
+}
+
+
+def _search_label(routing: RoutingResult) -> str:
+    return routing.search_queries[0] if routing.search_queries else routing.standalone_question
+
+
+def _narrative_instructions() -> str:
+    return f"{PromptComponents.narrative_answer_format()}\n\n{PromptComponents.search_instruction()}"
+
+
+def _web_search_tool(
+    *,
+    market,
+    request_id: str,
+    ticker: str | None,
+    company_name: str | None,
+    known_sources: list,
+) -> WebSearchTool:
+    """The answer model's web_search tool: one Brave retrieval per query, same relevance filter as the prompt's."""
+    brave_client = BraveClient(api_key=os.getenv("BRAVE_API_KEY", ""))
+
+    def search(query: str):
+        return retrieve_for_analyze(
+            question=query,
+            market=market,
+            request_id=request_id,
+            brave_client=brave_client,
+            ticker=ticker,
+            company_name=company_name,
+            query_reformulator=PrecomputedQueryReformulator([query]),
+        )
+
+    return WebSearchTool(search, known_sources=known_sources)
+
+
 def _consume_task_exception(task: asyncio.Future) -> None:
     if not task.cancelled():
         task.exception()
@@ -374,6 +502,7 @@ class CompanyGeneralHandlerV2:
         sources_context = ""
         selected_passages: list[AnalyzePassage] = []
         is_url_grounded = False
+        market = resolve_market(getattr(company, "country", None), question)
         user_url = extract_first_url(question) if use_url_context else None
         if user_url:
             yield progress.status("Reading the attached document...", phase=AnalysisPhase.SEARCH)
@@ -387,24 +516,29 @@ class CompanyGeneralHandlerV2:
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search:
-            yield _searching_status(progress, routing.search_queries[0])
-            retrieval_result = await asyncio.to_thread(
-                _retrieve_routed,
-                routing,
-                market=resolve_market(getattr(company, "country", None), question),
-                request_id=request_id,
-                ticker=ticker.upper(),
-                company_name=company_name,
-            )
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+        else:
+            yield _searching_status(progress, _search_label(routing))
+            try:
+                retrieval_result = await asyncio.to_thread(
+                    _retrieve_routed,
+                    routing,
+                    market=market,
+                    request_id=request_id,
+                    ticker=ticker.upper(),
+                    company_name=company_name,
+                )
+                retrieved_sources = retrieval_result.sources
+                selected_passages = retrieval_result.selected_passages
+                sources_context = _build_sources_block(retrieved_sources, selected_passages)
+            except BraveRetrievalError:
+                logger.info("v2 initial search found nothing relevant", extra={"request_id": request_id})
+                yield progress.status(NO_WEB_RESULTS_STATUS, phase=AnalysisPhase.SEARCH)
 
         grounding_directive = _select_grounding(
             retrieved_sources,
             search_decision,
             is_url_grounded=is_url_grounded,
+            has_search_tool=not is_url_grounded,
         )
 
         temporal_context = build_temporal_context_block(question)
@@ -416,8 +550,7 @@ Answer this question about {company_name} (ticker: {ticker}):
 {grounding_directive}
 
 IMPORTANT: Always respond in same language as the current question.
-Keep response concise under 200 words.
-Use short paragraphs and bullet points for readability.
+{_URL_ANSWER_FORMAT["company_general"] if is_url_grounded else _narrative_instructions()}
 {conversation_context}
 {sources_context}
 {_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
@@ -431,7 +564,16 @@ Use short paragraphs and bullet points for readability.
                 selected_passages=selected_passages,
             )
 
-        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
+        web_search = _web_search_tool(
+            market=market,
+            request_id=request_id,
+            ticker=ticker.upper(),
+            company_name=company_name,
+            known_sources=retrieved_sources,
+        )
+        answer_model, answer_options = answer_call(
+            preferred_model, routing.needs_calculation, tools=None if is_url_grounded else [web_search.chat_tool()]
+        )
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
@@ -440,14 +582,18 @@ Use short paragraphs and bullet points for readability.
                     agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
                     answer_options,
                     progress,
-                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
+                    lambda: _writing_status(
+                        progress, [] if is_url_grounded else web_search.merged_sources(retrieved_sources, [])[0]
+                    ),
+                    holding_status=CONTEXT_STATUS,
                 )
             ) as events:
                 async for event in events:
                     yield event
 
-            if retrieved_sources and not is_url_grounded:
-                yield build_sources_event(retrieved_sources)
+            footer_sources = web_search.merged_sources(retrieved_sources, selected_passages)[0]
+            if footer_sources and not is_url_grounded:
+                yield build_sources_event(footer_sources)
 
             yield {"type": "model_used", "body": agent.served_model_name}
 
@@ -472,42 +618,6 @@ def _ingest_user_url(url: str, question: str, request_id: str):
         request_id=request_id,
         source_kind="user_url",
     )
-
-
-def _build_sources_block(
-    retrieved_sources,
-    selected_passages: list[AnalyzePassage] | None = None,
-    *,
-    use_excerpt_labels: bool = False,
-) -> str:
-    if not retrieved_sources:
-        return ""
-    passages_by_source_id: dict[str, list[AnalyzePassage]] = {}
-    for passage in selected_passages or []:
-        passages_by_source_id.setdefault(passage.source_id, []).append(passage)
-    blocks = []
-    for idx, source in enumerate(retrieved_sources, start=1):
-        published = source.published_at.isoformat() if source.published_at else "null"
-        passage_lines = []
-        for passage in passages_by_source_id.get(source.id, []):
-            if use_excerpt_labels:
-                passage_lines.append(f"Extracted paragraph: {passage.content}")
-            else:
-                passage_lines.append(f"Passage {passage.passage_index}: {passage.content}")
-        if not passage_lines:
-            fallback_content = (source.raw_content or "").strip()
-            if fallback_content:
-                passage_lines.append(f"Content: {fallback_content}")
-        block_lines = [
-            f"Document {idx}" if use_excerpt_labels else f"Source {idx}",
-            f"Title: {source.title}",
-            f"URL: {source.url}",
-            f"Published: {published}",
-            *passage_lines,
-        ]
-        blocks.append("\n".join(block_lines))
-    block_header = "Extracted document context" if use_excerpt_labels else "Sources"
-    return f"\n\n{block_header}:\n" + "\n\n".join(blocks)
 
 
 class GeneralFinanceHandlerV2:
@@ -558,23 +668,28 @@ class GeneralFinanceHandlerV2:
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_context = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search:
-            yield _searching_status(progress, routing.search_queries[0])
-            retrieval_result = await asyncio.to_thread(
-                _retrieve_routed,
-                routing,
-                market=resolve_market(None, question),
-                request_id=request_id,
-                ticker=None,
-            )
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_context = _build_sources_block(retrieved_sources, selected_passages)
+        else:
+            yield _searching_status(progress, _search_label(routing))
+            try:
+                retrieval_result = await asyncio.to_thread(
+                    _retrieve_routed,
+                    routing,
+                    market=resolve_market(None, question),
+                    request_id=request_id,
+                    ticker=None,
+                )
+                retrieved_sources = retrieval_result.sources
+                selected_passages = retrieval_result.selected_passages
+                sources_context = _build_sources_block(retrieved_sources, selected_passages)
+            except BraveRetrievalError:
+                logger.info("v2 initial search found nothing relevant", extra={"request_id": request_id})
+                yield progress.status(NO_WEB_RESULTS_STATUS, phase=AnalysisPhase.SEARCH)
 
         grounding_directive = _select_grounding(
             retrieved_sources,
             search_decision,
             is_url_grounded=is_url_grounded,
+            has_search_tool=not is_url_grounded,
         )
 
         temporal_context = build_temporal_context_block(question)
@@ -585,7 +700,7 @@ Please explain this financial concept or answer this question:
 {grounding_directive}
 
 IMPORTANT: Always respond in the same language as the current question.
-Keep the answer under 150 words. Break into short paragraphs.
+{_URL_ANSWER_FORMAT["general_finance"] if is_url_grounded else _narrative_instructions()}
 {conversation_context}
 {sources_context}
 {_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ""}
@@ -599,7 +714,16 @@ Keep the answer under 150 words. Break into short paragraphs.
                 selected_passages=selected_passages,
             )
 
-        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
+        web_search = _web_search_tool(
+            market=resolve_market(None, question),
+            request_id=request_id,
+            ticker=None,
+            company_name=None,
+            known_sources=retrieved_sources,
+        )
+        answer_model, answer_options = answer_call(
+            preferred_model, routing.needs_calculation, tools=None if is_url_grounded else [web_search.chat_tool()]
+        )
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
@@ -608,14 +732,18 @@ Keep the answer under 150 words. Break into short paragraphs.
                     agent.generate_content(prompt=prompt, use_google_search=False, **answer_options),
                     answer_options,
                     progress,
-                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
+                    lambda: _writing_status(
+                        progress, [] if is_url_grounded else web_search.merged_sources(retrieved_sources, [])[0]
+                    ),
+                    holding_status=CONTEXT_STATUS,
                 )
             ) as events:
                 async for event in events:
                     yield event
 
-            if retrieved_sources and not is_url_grounded:
-                yield build_sources_event(retrieved_sources)
+            footer_sources = web_search.merged_sources(retrieved_sources, selected_passages)[0]
+            if footer_sources and not is_url_grounded:
+                yield build_sources_event(footer_sources)
 
             yield {"type": "model_used", "body": agent.served_model_name}
 
@@ -716,12 +844,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
         search_task: Optional[asyncio.Future] = None
         search_finished = threading.Event()  # set in the worker thread; the task only notices once the loop runs
         if (
-            search_decision.use_google_search
-            and not user_url
+            not user_url
             and data_requirement not in _FILING_REQUIREMENTS
             and data_requirement != FinancialDataRequirement.BASIC
         ):
-            yield _searching_status(progress, routing.search_queries[0])
+            yield _searching_status(progress, _search_label(routing))
             search_task = asyncio.ensure_future(
                 asyncio.to_thread(
                     _retrieve_routed,
@@ -832,6 +959,10 @@ Provide a helpful, general answer that builds on what we discussed before."""
         selected_passages: list[AnalyzePassage] = []
         is_url_grounded = False
 
+        country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
+        market = resolve_market(country, question)
+        company_name = (company_fundamental or {}).get("Name") or ticker_norm.upper()
+
         report_url: str | None = None
         if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and len(quarterly_statements) == 1:
             report_url = quarterly_statements[0].get("filing_10q_url")
@@ -868,33 +999,41 @@ Provide a helpful, general answer that builds on what we discussed before."""
             selected_passages = url_result.selected_passages
             is_url_grounded = True
             sources_block = _build_sources_block(retrieved_sources, selected_passages, use_excerpt_labels=True)
-        elif search_decision.use_google_search:
-            if search_task is None:
-                country = (company_fundamental or {}).get("Country") or (company_fundamental or {}).get("country")
-                yield _searching_status(progress, routing.search_queries[0])
-                retrieval_result = await asyncio.to_thread(
-                    _retrieve_routed,
-                    routing,
-                    market=resolve_market(country, question),
-                    request_id=request_id,
-                    ticker=ticker_norm.upper(),
-                    company_name=(company_fundamental or {}).get("Name") or ticker_norm.upper(),
+        else:
+            try:
+                if search_task is None:
+                    yield _searching_status(progress, _search_label(routing))
+                    retrieval_result = await asyncio.to_thread(
+                        _retrieve_routed,
+                        routing,
+                        market=market,
+                        request_id=request_id,
+                        ticker=ticker_norm.upper(),
+                        company_name=company_name,
+                    )
+                else:
+                    retrieval_result = await search_task
+                retrieved_sources = retrieval_result.sources
+                selected_passages = retrieval_result.selected_passages
+                sources_block = _build_sources_block(retrieved_sources, selected_passages)
+            except BraveRetrievalError:
+                logger.info("v2 initial search found nothing relevant", extra={"request_id": request_id})
+                yield progress.status(
+                    f"No relevant web results, analyzing {ticker_norm.upper()} financials...",
+                    phase=AnalysisPhase.SEARCH,
                 )
-            else:
-                retrieval_result = await search_task
-            retrieved_sources = retrieval_result.sources
-            selected_passages = retrieval_result.selected_passages
-            sources_block = _build_sources_block(retrieved_sources, selected_passages)
 
         visual_prompt = PromptComponents.visual_output_instructions()
         temporal_context = build_temporal_context_block(question)
         url_grounding_directive = f"\n\n{_URL_GROUNDED_RULES}" if is_url_grounded else ""
+        search_directive = "" if is_url_grounded else f"\n\n{PromptComponents.search_instruction()}"
         combined_prompt = (
             f"{financial_context}{conversation_context}{temporal_context}\n\n"
             f"{url_grounding_directive}"
             f"{visual_prompt}"
             f"{sources_block}"
             f"{_URL_FINAL_RESPONSE_FORMAT if is_url_grounded else ''}"
+            f"{search_directive}"
         )
 
         if debug_prompt_context:
@@ -905,7 +1044,16 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 selected_passages=selected_passages,
             )
 
-        answer_model, answer_options = answer_call(preferred_model, routing.needs_calculation)
+        web_search = _web_search_tool(
+            market=market,
+            request_id=request_id,
+            ticker=ticker_norm.upper(),
+            company_name=company_name,
+            known_sources=retrieved_sources,
+        )
+        answer_model, answer_options = answer_call(
+            preferred_model, routing.needs_calculation, tools=None if is_url_grounded else [web_search.chat_tool()]
+        )
         related_task = await start_related_questions(self._generate_related_questions(question))
         try:
             agent = MultiAgent(model_name=answer_model)
@@ -914,14 +1062,17 @@ Provide a helpful, general answer that builds on what we discussed before."""
                     agent.generate_content(prompt=combined_prompt, use_google_search=False, **answer_options),
                     answer_options,
                     progress,
-                    lambda: _writing_status(progress, [] if is_url_grounded else retrieved_sources),
+                    lambda: _writing_status(
+                        progress, [] if is_url_grounded else web_search.merged_sources(retrieved_sources, [])[0]
+                    ),
                 )
             ) as events:
                 async for event in events:
                     yield event
 
-            if retrieved_sources and not is_url_grounded:
-                yield build_sources_event(retrieved_sources)
+            footer_sources = web_search.merged_sources(retrieved_sources, selected_passages)[0]
+            if footer_sources and not is_url_grounded:
+                yield build_sources_event(footer_sources)
 
             yield {"type": "model_used", "body": agent.served_model_name}
 

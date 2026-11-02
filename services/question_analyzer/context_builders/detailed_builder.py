@@ -20,7 +20,7 @@ class DetailedContextBuilder(ContextBuilder):
     def _build_short_analysis(self, input: ContextBuilderInput) -> str:
         """Build context for short, scannable analysis (default)."""
         base_context = PromptComponents.base_context(input.ticker, input.question, input.quarterly_statements)
-        section_structure = PromptComponents.section_structure_template()
+        answer_format = PromptComponents.narrative_answer_format()
         available_sources = PromptComponents.available_sources(
             input.ticker, input.annual_statements, input.quarterly_statements
         )
@@ -46,13 +46,11 @@ class DetailedContextBuilder(ContextBuilder):
 
             **Instructions for your analysis:**
 
-            Analyze the financial data and provide a clear, direct answer to the user's question.
-            Choose the response format that best serves the answer — a direct response for simple questions, or organized sections for complex multi-topic analysis.
-            Use AT MOST 2-3 sections. Start each section heading on its own line in markdown bold: **Section Title**
+            Analyze the financial data and answer the user's question.
 
-            {section_structure}
+            {answer_format}
 
-            Answer in a professional, informative tone. Prioritize clarity and directness.
+            Answer in a professional, informative tone.
         """
 
     def _build_deep_analysis(self, input: ContextBuilderInput) -> str:

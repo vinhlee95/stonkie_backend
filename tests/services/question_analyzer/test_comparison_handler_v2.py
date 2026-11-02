@@ -316,13 +316,14 @@ async def test_partial_failure_proceeds_with_successes(mock_multi_agent_cls, moc
 @pytest.mark.asyncio
 @patch("services.question_analyzer.comparison_handler_v2.retrieve_for_analyze")
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
-async def test_all_failures_raises_brave_retrieval_error(mock_multi_agent_cls, mock_retrieve):
+async def test_all_failures_still_answers_from_financials(mock_multi_agent_cls, mock_retrieve):
     from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 
     mock_retrieve.side_effect = BraveRetrievalError("down")
 
     mock_agent = MagicMock()
     mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["ok"])
     mock_multi_agent_cls.return_value = mock_agent
 
     handler = CompanyComparisonHandlerV2()
@@ -334,8 +335,9 @@ async def test_all_failures_raises_brave_retrieval_error(mock_multi_agent_cls, m
 
     handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
 
-    with pytest.raises(BraveRetrievalError):
-        async for _event in handler.handle(
+    events = [
+        e
+        async for e in handler.handle(
             tickers=["AAPL", "MSFT"],
             question="compare",
             search_decision=_decision(True),
@@ -343,8 +345,13 @@ async def test_all_failures_raises_brave_retrieval_error(mock_multi_agent_cls, m
             preferred_model=ModelName.Auto,
             conversation_messages=None,
             request_id="rq",
-        ):
-            pass
+        )
+    ]
+
+    # Search always runs now, so a Brave outage must not fail a comparison the financials can answer.
+    statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
+    assert "No relevant web results for AAPL, MSFT, using their financials..." in statuses
+    assert [e["body"] for e in events if e["type"] == "answer"] == ["ok"]
 
 
 @pytest.mark.asyncio
@@ -399,7 +406,7 @@ async def test_flat_source_id_numbering_across_tickers(mock_multi_agent_cls, moc
 
 @pytest.mark.asyncio
 @patch("services.question_analyzer.comparison_handler_v2.MultiAgent")
-async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
+async def test_router_search_off_comparison_still_searches(mock_multi_agent_cls):
     from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHandlerV2
 
     mock_agent = MagicMock()
@@ -428,11 +435,12 @@ async def test_no_search_path_runs_v1_like_comparison(mock_multi_agent_cls):
     ):
         events.append(event)
 
-    # No "Writing your answer from N sources" thinking_status (no Brave)
-    assert not any(e["type"] == "thinking_status" and "writing your answer from" in e["body"].lower() for e in events)
-    # No v2 sources event from build_sources_event
+    # Search runs regardless of the router; the conftest's offline Brave finds nothing for either ticker.
+    statuses = [e["body"] for e in events if e["type"] == "thinking_status"]
+    assert "Searching the web for AAPL, MSFT..." in statuses
+    assert not any("writing your answer from" in body.lower() for body in statuses)
     v2_sources = [e for e in events if e["type"] == "sources" and isinstance(e.get("body"), list)]
-    assert len(v2_sources) == 0
+    assert [e["body"] for e in v2_sources] == [[]]
 
 
 @pytest.mark.asyncio
