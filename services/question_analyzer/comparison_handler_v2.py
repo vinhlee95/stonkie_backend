@@ -26,6 +26,7 @@ from services.question_analyzer.context_builders.comparison_builder import (
 )
 from services.question_analyzer.context_builders.components import PromptComponents
 from services.question_analyzer.handlers_v2 import (
+    MAX_COMPARISON_TOOL_ROUNDS,
     MAX_TOOL_ROUNDS,
     _build_prompt_debug_event,
     _build_sources_block,
@@ -236,7 +237,7 @@ class CompanyComparisonHandlerV2:
             preferred_model,
             routing is not None and routing.needs_calculation,
             tools=[web_search.chat_tool()],
-            max_tool_rounds=MAX_TOOL_ROUNDS * len(companies_data),  # budget per ticker
+            max_tool_rounds=min(MAX_TOOL_ROUNDS * len(companies_data), MAX_COMPARISON_TOOL_ROUNDS),
         )
         related_task = await start_related_questions(self._generate_related_questions(question, short_analysis))
         try:

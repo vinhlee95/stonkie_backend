@@ -254,3 +254,54 @@ def test_later_round_error_falls_back_to_a_plain_answer():
     fallback = completions.calls[-1]
     assert "tools" not in fallback
     assert fallback["messages"] == [{"role": "user", "content": "p"}]
+
+
+def test_preamble_flush_threshold_is_short():
+    text = "x" * 100
+    client, _ = _client([[_text(text), _text("y")]])
+
+    chunks = list(client.stream_chat("p", tools=[_tool()], max_tool_rounds=2))
+
+    assert chunks == [text, "y"]  # streamed past the threshold, not held to round end
+
+
+def test_total_tool_calls_capped_per_stream(monkeypatch):
+    monkeypatch.setattr("ai_models.openrouter_client.MAX_TOOL_CALLS_PER_STREAM", 4)
+    calls = []
+    rounds = [[_search_call(i, f"r{r}_{i}", f'{{"query": "r{r}q{i}"}}') for i in range(3)] for r in range(2)]
+    client, completions = _client([*rounds, [_text("Final.")]])
+
+    chunks = list(client.stream_chat("p", tools=[_tool(calls=calls)], max_tool_rounds=4))
+
+    assert len(calls) == 4
+    assert {"type": "tool_budget_exhausted"} in chunks
+    assert completions.calls[-1]["tool_choice"] == "none"
+    assert chunks[-1] == "Final."
+
+
+def _answer(chunks):
+    return "".join(c for c in chunks if isinstance(c, str))
+
+
+def test_pseudo_tool_call_markup_in_text_is_stripped():
+    # Seen live: DeepSeek wrote a tool call as answer text instead of a real tool_call.
+    leaked = [
+        "Nvidia leads.\n\n<inv",
+        'oke>\n<parameter name="query">Nvidia AMD margins</parameter>\n</invoke>\n</in',
+        "voke>\n\n**Profitability** Nvidia earns more.",
+    ]
+    client, _ = _client([[_text(t) for t in leaked]])
+
+    answer = _answer(client.stream_chat("p", tools=[_tool()], max_tool_rounds=2))
+
+    assert "invoke" not in answer and "parameter" not in answer
+    assert answer.startswith("Nvidia leads.")
+    assert answer.endswith("**Profitability** Nvidia earns more.")
+
+
+def test_text_with_angle_brackets_is_kept():
+    client, _ = _client([[_text("Margin <5% at AMD vs 75% at Nvidia; a <b>"), _text(" tag stays.")]])
+
+    answer = _answer(client.stream_chat("p", tools=[_tool()], max_tool_rounds=2))
+
+    assert answer == "Margin <5% at AMD vs 75% at Nvidia; a <b> tag stays."

@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 WEB_SEARCH_TOOL_NAME = "web_search"
 _NO_RESULTS = "No relevant results."
 _MAX_STATUS_PUBLISHERS = 3
+# Tool results are re-sent to the model on every later round: bound what one search adds.
+_MAX_RESULT_SOURCES = 5
+_MAX_RESULT_CHARS = 6_000
 
 
 def build_sources_block(
@@ -99,15 +102,18 @@ class WebSearchTool:
         except BraveRetrievalError:
             logger.info("web_search tool found nothing relevant", extra={"query": query})
             return ChatToolResult(_NO_RESULTS, {"source_count": 0, "publishers": []})
+        sources = result.sources[:_MAX_RESULT_SOURCES]
+        kept_ids = {s.id for s in sources}
+        passages = [p for p in result.selected_passages if p.source_id in kept_ids]
         with self._lock:
-            new_sources = [s for s in result.sources if s.id not in self._seen_ids]
+            new_sources = [s for s in sources if s.id not in self._seen_ids]
             self._seen_ids.update(s.id for s in new_sources)
-            self._results.append((result.sources, result.selected_passages))
+            self._results.append((sources, passages))
         publishers: list[str] = []
         for source in new_sources:
             if source.is_trusted and source.publisher not in publishers:
                 publishers.append(source.publisher)
-        content = build_sources_block(result.sources, result.selected_passages).strip() or _NO_RESULTS
+        content = build_sources_block(sources, passages).strip()[:_MAX_RESULT_CHARS] or _NO_RESULTS
         return ChatToolResult(
             content, {"source_count": len(new_sources), "publishers": publishers[:_MAX_STATUS_PUBLISHERS]}
         )

@@ -94,8 +94,9 @@ def _usage_event(served_model: str, usage) -> dict:
 # Tool loop limits: parallel calls per round, the round's shared call timeout, and how much text a tools round may produce before
 # it is treated as the answer (streamed) rather than a preamble to tool calls (dropped).
 MAX_TOOL_CALLS_PER_ROUND = 3
+MAX_TOOL_CALLS_PER_STREAM = 8  # whatever max_tool_rounds says: bounds searches and re-sent context
 TOOL_CALL_TIMEOUT_S = 15
-TOOL_ROUND_TEXT_FLUSH_CHARS = 400
+TOOL_ROUND_TEXT_FLUSH_CHARS = 80
 TOOL_FAILED_CONTENT = "search failed"
 
 
@@ -124,6 +125,58 @@ def _parse_arguments(raw: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return arguments if isinstance(arguments, dict) else None
+
+
+class _ToolMarkupFilter:
+    """Drops tool calls a model writes as answer text (`<invoke>...</invoke>`) instead of sending a real tool call.
+
+    Streaming-safe: holds back a tail that could be the start of a tag split across chunks.
+    """
+
+    _OPEN = "<invoke"
+    _CLOSE = "</invoke>"
+
+    def __init__(self):
+        self._pending = ""
+        self._inside = False
+
+    def feed(self, text: str) -> str:
+        self._pending += text
+        out: list[str] = []
+        while True:
+            if self._inside:
+                end = self._pending.find(self._CLOSE)
+                if end < 0:
+                    self._pending = self._pending[-(len(self._CLOSE) - 1) :]
+                    break
+                self._pending = self._pending[end + len(self._CLOSE) :]
+                self._inside = False
+                continue
+            start, stray = self._pending.find(self._OPEN), self._pending.find(self._CLOSE)
+            if stray >= 0 and (start < 0 or stray < start):  # a duplicate closing tag
+                out.append(self._pending[:stray])
+                self._pending = self._pending[stray + len(self._CLOSE) :]
+                continue
+            if start >= 0:
+                out.append(self._pending[:start])
+                self._pending = self._pending[start:]
+                self._inside = True
+                continue
+            keep = self._partial_tag_len(self._pending)
+            out.append(self._pending[: len(self._pending) - keep])
+            self._pending = self._pending[len(self._pending) - keep :]
+            break
+        return "".join(out)
+
+    def flush(self) -> str:
+        tail, self._pending = ("" if self._inside else self._pending), ""
+        return tail
+
+    def _partial_tag_len(self, text: str) -> int:
+        for n in range(min(len(text), len(self._CLOSE) - 1), 0, -1):
+            if self._OPEN.startswith(text[-n:]) or self._CLOSE.startswith(text[-n:]):
+                return n
+        return 0
 
 
 class OpenRouterClient:
@@ -206,7 +259,16 @@ class OpenRouterClient:
         self.served_model = None
 
         if tools:
-            yield from self._tool_loop(messages, request, reasoning, usage_totals, tools, max_tool_rounds)
+            markup = _ToolMarkupFilter()
+            for chunk in self._tool_loop(messages, request, reasoning, usage_totals, tools, max_tool_rounds):
+                if isinstance(chunk, str):
+                    chunk = markup.feed(chunk)
+                    if not chunk:
+                        continue
+                yield chunk
+            tail = markup.flush()
+            if tail:
+                yield tail
         else:
             yield from self._stream_round(self._create(messages, request), reasoning, usage_totals)
 
@@ -256,7 +318,10 @@ class OpenRouterClient:
         tools_by_name = {t.name: t for t in tools}
         question = list(messages)  # the user prompt alone, for a plain answer if a tools request fails
         used_tools = False
+        calls_left = MAX_TOOL_CALLS_PER_STREAM
         for _ in range(max_tool_rounds):
+            if calls_left <= 0:
+                break
             try:
                 response = self._create(messages, request, tools)
             except Exception:
@@ -267,7 +332,9 @@ class OpenRouterClient:
             if not calls:
                 return
             used_tools = True
-            yield from self._run_tool_calls(calls[:MAX_TOOL_CALLS_PER_ROUND], tools_by_name, messages)
+            calls = calls[: min(MAX_TOOL_CALLS_PER_ROUND, calls_left)]
+            calls_left -= len(calls)
+            yield from self._run_tool_calls(calls, tools_by_name, messages)
         if not used_tools:
             yield from self._stream_round(self._create(messages, request), reasoning, usage_totals)
             return

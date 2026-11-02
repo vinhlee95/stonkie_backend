@@ -13,6 +13,7 @@ from services.question_analyzer.comparison_handler_v2 import CompanyComparisonHa
 from services.question_analyzer.context_builders.comparison_builder import CompanyComparisonData
 from services.question_analyzer.handlers_v2 import (
     CHECKING_STATUS,
+    CONTEXT_STATUS,
     REASONING_ANSWER_CONFIG,
     REASONING_ANSWER_MODEL,
     REASONING_AUTO_ROUTER_MODELS,
@@ -93,13 +94,13 @@ def _answer_flow(events: list[dict]) -> list[str]:
     return [e["type"] for e in events if e["type"] in ("reasoning", "answer")]
 
 
-def _assert_status_order(events: list[dict], reasoning: bool) -> None:
-    """Answers with the web_search tool hold a status (the reasoning status, or "Checking what's behind the
-    numbers..." without reasoning), then the reasoning, "Writing your answer", the answer."""
+def _assert_status_order(events: list[dict], reasoning: bool, checking: str = CHECKING_STATUS) -> None:
+    """Answers with the web_search tool hold a status (the reasoning status, or `checking` without reasoning),
+    then the reasoning, "Writing your answer", the answer."""
     types = [e["type"] for e in events]
     statuses = {e["body"]: i for i, e in enumerate(events) if e["type"] == "thinking_status"}
     writing = next(i for body, i in statuses.items() if "writing your answer" in body.lower())
-    holding, absent = (REASONING_STATUS, CHECKING_STATUS) if reasoning else (CHECKING_STATUS, REASONING_STATUS)
+    holding, absent = (REASONING_STATUS, checking) if reasoning else (checking, REASONING_STATUS)
     assert statuses[holding] < types.index("reasoning")
     assert absent not in statuses
     assert max(i for i, t in enumerate(types) if t == "reasoning") < writing < types.index("answer")
@@ -302,4 +303,4 @@ async def test_company_general_orders_statuses_around_reasoning(mock_agent_cls, 
     ]
 
     assert ("reasoning" in agent.generate_content.call_args.kwargs) is needs_calculation
-    _assert_status_order(events, reasoning=needs_calculation)
+    _assert_status_order(events, reasoning=needs_calculation, checking=CONTEXT_STATUS)

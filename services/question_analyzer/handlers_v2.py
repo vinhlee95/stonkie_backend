@@ -103,9 +103,11 @@ REASONING_STATUS = "Working through the numbers..."
 REASONING_AUTO_ROUTER_MODELS = ("deepseek/deepseek-v4.1-flash-1017", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash")
 
 
-# Answer model's web_search tool: rounds of extra searches per answer (comparison: per ticker).
+# Answer model's web_search tool: rounds of extra searches per answer (comparison: per ticker, up to a cap).
 MAX_TOOL_ROUNDS = 2
+MAX_COMPARISON_TOOL_ROUNDS = 4
 CHECKING_STATUS = "Checking what's behind the numbers..."
+CONTEXT_STATUS = "Checking for more context..."  # holding status when the answer isn't about financial data
 _STATUS_QUERY_CHARS = 80
 _STATUS_PUBLISHERS = 3
 
@@ -201,6 +203,7 @@ def answer_events(
     answer_options: dict[str, Any],
     progress: ThinkingProgress,
     writing_status: Callable[[], dict],
+    holding_status: str = CHECKING_STATUS,
 ) -> Iterator[Dict[str, Any]]:
     """The answer call's events in order, statuses included; `answer_options` comes from `answer_call`.
 
@@ -210,7 +213,7 @@ def answer_events(
     if "tools" in answer_options:
         # Tool rounds run before any answer text: hold a status, report each search, write status last so it
         # counts the sources the searches added.
-        holding = REASONING_STATUS if "reasoning" in answer_options else CHECKING_STATUS
+        holding = REASONING_STATUS if "reasoning" in answer_options else holding_status
         yield progress.status(holding, phase=AnalysisPhase.ANALYZE)
         yield from iter_answer_events(chunks, writing_status, lambda chunk: tool_status_event(progress, chunk))
         return
@@ -571,6 +574,7 @@ IMPORTANT: Always respond in same language as the current question.
                     lambda: _writing_status(
                         progress, [] if is_url_grounded else web_search.merged_sources(retrieved_sources, [])[0]
                     ),
+                    holding_status=CONTEXT_STATUS,
                 )
             ) as events:
                 async for event in events:
@@ -720,6 +724,7 @@ IMPORTANT: Always respond in the same language as the current question.
                     lambda: _writing_status(
                         progress, [] if is_url_grounded else web_search.merged_sources(retrieved_sources, [])[0]
                     ),
+                    holding_status=CONTEXT_STATUS,
                 )
             ) as events:
                 async for event in events:

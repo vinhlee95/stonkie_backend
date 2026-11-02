@@ -79,7 +79,7 @@ class ComparisonCompanyBuilder:
 
             Start with a 1-2 sentence summary that directly answers the user's question with a clear verdict or key takeaway. Do NOT write generic filler like "below is a comparison" — state the actual insight.
 
-            Then show a vertical comparison table with the most relevant metrics for the question. Choose which metrics to include based on what the user is asking about.
+            Then show a vertical comparison table with the metrics that answer the question: about 3 rows; only add a row when the analysis below relies on it. Do not repeat table figures in the text unless they prove a point.
 
             Then explain WHY the companies differ, in 1-2 focused sections with **bold markdown headings** (e.g. **Profitability**) on their own lines followed by a blank line:
 

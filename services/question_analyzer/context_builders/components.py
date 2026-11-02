@@ -48,22 +48,29 @@ class PromptComponents:
         """Answer shape for stock v2 answers: the story behind the numbers, not a restatement of them."""
         return (
             "**How to write the answer — tell the story behind the numbers:**\n"
-            "1. Lead with the takeaway in plain words: what is happening and why. No list of numbers in the first sentence.\n"
-            "2. Then the drivers: the business and real-world causes (product cycles, demand shifts, pricing, costs, "
-            "deals, one-off gains or charges, regulation, macro). Tie each driver to what the Sources report. Use only "
-            "the few numbers that prove the point.\n"
-            "3. End with what it means: the implication for the business or investors, or what to watch next.\n"
-            "- A single-fact question gets the fact first, then a compact context paragraph (driver, relevant event, "
-            "implication). An analytical question gets a few short paragraphs, or 2-3 bold section headings when it "
-            "spans several topics. No fixed sentence limit, but keep it well short of a page.\n"
+            "1. Open with a one- or two-sentence summary in plain words, with no figures: what is happening and why. "
+            "The numbers come after, as evidence.\n"
+            "2. Then the drivers: the two or three business or real-world causes that matter most (product cycles, "
+            "demand shifts, pricing, costs, deals, one-off gains or charges, regulation, macro). Tie each to what the "
+            'Sources report and skip minor ones. Use only the few numbers that prove the point: at most two or three figures per paragraph; describe the rest in words (e.g. "costs grew faster than revenue").\n'
+            "3. End with what it means: one or two sentences on the implication or what to watch next.\n"
+            "- Be brief. A single-fact question gets the fact first, then a compact context paragraph: about 120 words "
+            "in total. An analytical or comparison question: about 250 words in a few short paragraphs, with bold "
+            "section headings only when it spans several topics. These are soft targets, not limits; stay well short "
+            "of a page.\n"
             "- Events, names and dates are allowed only when they appear in the Sources (including web_search results). "
             "Never add events from training knowledge.\n"
             "- If a notable move is not explained by the sources, say so plainly. You may give a clearly labelled "
             'inference from the numbers (e.g. "likely a non-operating gain such as an investment mark-up"), never an '
             "invented event.\n"
-            "- Do not list every period's value, do not restate a chart in prose, and do not open with remarks like "
+            "- A series of three or more periods belongs in the chart or table, not in the text. When the answer has "
+            "a chart or table, the text names at most the start, end or peak and spends its words on why.\n"
+            "- Do not list every period's value (give the start and end of a trend, plus any outlier), do not restate "
+            "a chart in prose, and do not open with remarks like "
             '"X is not a reported metric": interpret the user\'s wording (e.g. "comp profit margin" means the '
             "company's profit margins) and answer.\n"
+            '- Name periods as quarters and fiscal years ("Q1 2026", "end of Q1 2026", "FY2025"), never as dates like '
+            '"3/31/2026" or "the quarter ended 6/30/2026".\n'
             '- Bold the key figures. Use the largest sensible unit ("$1.5 billion", not "$1,500 million").'
         )
 

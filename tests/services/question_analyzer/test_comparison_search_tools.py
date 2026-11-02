@@ -86,14 +86,15 @@ async def test_comparison_all_retrieval_failed_still_answers():
 
 
 @pytest.mark.asyncio
-async def test_comparison_tool_budget_scales_with_tickers():
+@pytest.mark.parametrize(("tickers", "rounds"), [(["NVDA", "AMD"], 4), (["NVDA", "AMD", "INTC"], 4)])
+async def test_comparison_tool_budget_is_per_ticker_up_to_a_cap(tickers, rounds):
     agent = _agent()
     with patch(f"{_COMPARISON}.MultiAgent", return_value=agent):
-        await _run(["NVDA", "AMD", "INTC"])
+        await _run(tickers)
 
     kwargs = agent.generate_content.call_args.kwargs
     assert kwargs["tools"][0].name == "web_search"
-    assert kwargs["max_tool_rounds"] == 6
+    assert kwargs["max_tool_rounds"] == rounds
 
 
 @pytest.mark.asyncio

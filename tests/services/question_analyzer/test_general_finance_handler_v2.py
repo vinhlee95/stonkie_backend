@@ -151,7 +151,7 @@ async def test_search_on_emits_trusted_publishers_and_final_sources_once(mock_mu
     thinking_events = [e for e in events if e["type"] == "thinking_status"]
     assert len(thinking_events) == 3
     assert thinking_events[0]["body"].startswith("Searching for ")
-    assert thinking_events[1]["body"] == "Checking what's behind the numbers..."  # web_search tool round
+    assert thinking_events[1]["body"] == "Checking for more context..."  # web_search tool round
     assert "Reuters" in thinking_events[2]["body"]
     assert "Example Blog" not in thinking_events[2]["body"]
 

@@ -6,6 +6,7 @@ from ai_models.model_name import ModelName
 from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.question_analyzer.handlers_v2 import (
     CHECKING_STATUS,
+    CONTEXT_STATUS,
     REASONING_STATUS,
     answer_call,
     answer_events,
@@ -147,3 +148,13 @@ def test_answer_call_adds_tools():
 
 def test_answer_call_without_tools_is_unchanged():
     assert answer_call(ModelName.Auto, False) == (ModelName.Auto, {"include_usage": True})
+
+
+def test_holding_status_can_be_overridden_for_non_numeric_questions():
+    progress = ThinkingProgress()
+
+    events = list(
+        answer_events(iter(["A"]), _TOOLS_OPTIONS, progress, _writing(progress), holding_status=CONTEXT_STATUS)
+    )
+
+    assert _statuses(events)[0] == "Checking for more context..."

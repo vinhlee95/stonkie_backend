@@ -271,7 +271,7 @@ async def test_router_failure_default_routing_announces_the_question_as_the_quer
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", searching),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -290,7 +290,7 @@ async def test_unresolved_router_comparison_is_downgraded_and_keeps_the_status_s
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{_QUERY}"...'),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source: Reuters..."),
     ]
 
@@ -443,7 +443,7 @@ async def test_company_general_searches_before_writing(mock_agent_cls, mock_retr
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{query}"...'),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 2 sources: Reuters..."),
     ]
 
@@ -460,7 +460,7 @@ async def test_company_general_router_search_off_still_searches(mock_agent_cls):
         ("classify", "Understanding your question..."),
         ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
         ("search", "No relevant web results, answering from the available data..."),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -494,7 +494,7 @@ async def test_no_ticker_general_finance_makes_no_database_claim(mock_agent_cls)
         ("classify", "Understanding your question..."),
         ("search", 'Searching for "Should I buy or sell Apple stock now?"...'),
         ("search", "No relevant web results, answering from the available data..."),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer..."),
     ]
 
@@ -515,7 +515,7 @@ async def test_general_finance_with_search(mock_agent_cls, mock_retrieve, routed
     assert _sequence(events) == [
         ("classify", "Understanding your question..."),
         ("search", f'Searching for "{query}"...'),
-        ("analyze", "Checking what's behind the numbers..."),
+        ("analyze", "Checking for more context..."),
         ("analyze", "Writing your answer from 1 source..."),
     ]
 

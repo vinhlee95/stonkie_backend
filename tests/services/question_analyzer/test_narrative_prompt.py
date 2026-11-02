@@ -29,13 +29,13 @@ def _input(**overrides) -> ContextBuilderInput:
     return ContextBuilderInput(**values)
 
 
-def test_narrative_format_leads_with_takeaway_then_drivers_then_implication():
+def test_narrative_format_leads_with_summary_then_drivers_then_implication():
     text = NARRATIVE.lower()
 
-    assert "takeaway" in text
+    assert "summary" in text
     assert "drivers" in text
     assert "what to watch" in text
-    assert text.index("takeaway") < text.index("drivers") < text.index("what to watch")
+    assert text.index("summary") < text.index("drivers") < text.index("what to watch")
 
 
 def test_narrative_format_bans_number_dumps_and_metric_preambles():
@@ -108,3 +108,42 @@ def test_comparison_short_keeps_table_and_uses_narrative_format():
     assert NARRATIVE in prompt
     assert "comparison table" in prompt
     assert "under 60 words" not in prompt
+
+
+def test_narrative_format_sets_a_soft_length_target():
+    assert "about 120 words" in NARRATIVE
+    assert "about 250 words" in NARRATIVE
+    assert "two or three" in NARRATIVE
+
+
+def test_narrative_format_opens_with_a_summary_before_figures():
+    assert "Open with a one- or two-sentence summary in plain words, with no figures" in NARRATIVE
+
+
+def test_narrative_format_names_periods_not_dates():
+    assert '"Q1 2026"' in NARRATIVE and '"FY2025"' in NARRATIVE
+    assert "3/31/2026" in NARRATIVE  # the banned form, as an example
+
+
+def test_narrative_format_limits_figures_per_paragraph():
+    assert "at most two or three figures per paragraph" in NARRATIVE
+
+
+def test_comparison_short_table_keeps_only_rows_the_analysis_uses():
+    prompt = ComparisonCompanyBuilder().build(
+        ComparisonCompanyBuilderInput(
+            tickers=["NVDA", "AMD"],
+            question="How do Nvidia's margins compare with AMD?",
+            companies_data=[],
+            use_google_search=True,
+            short_analysis=True,
+        )
+    )
+
+    assert "about 3 rows" in prompt
+    assert "only add a row when the analysis below relies on it" in prompt
+
+
+def test_narrative_format_leaves_period_series_to_the_chart():
+    assert "A series of three or more periods belongs in the chart or table, not in the text" in NARRATIVE
+    assert "the text names at most the start, end or peak" in NARRATIVE

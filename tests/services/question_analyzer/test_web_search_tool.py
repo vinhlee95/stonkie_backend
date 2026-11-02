@@ -100,3 +100,31 @@ def test_merged_sources_without_tool_calls_is_initial():
     sources, _ = web_search.merged_sources([_source("a")], [_passage("a")])
 
     assert [s.id for s in sources] == ["a"]
+
+
+def test_result_keeps_at_most_five_sources_for_prompt_and_footer():
+    sources = [_source(f"s{i}") for i in range(8)]
+    web_search = WebSearchTool(lambda query: _result(*sources))
+
+    result = web_search.chat_tool().run({"query": "q"})
+
+    assert result.meta["source_count"] == 5
+    assert "Title s4" in result.content and "Title s5" not in result.content
+    assert [s.id for s in web_search.merged_sources([], [])[0]] == [f"s{i}" for i in range(5)]
+
+
+def test_result_content_is_capped():
+    source = AnalyzeSource(
+        id="big",
+        url="https://example.com/big",
+        title="Big",
+        publisher="Reuters",
+        is_trusted=True,
+        raw_content="x" * 50_000,
+    )
+    result = AnalyzeRetrievalResult(sources=[source], selected_passages=[], query="q", market="GLOBAL", request_id="r")
+
+    content = WebSearchTool(lambda query: result).chat_tool().run({"query": "q"}).content
+
+    assert len(content) <= 6_000
+    assert content.startswith("Sources:")
