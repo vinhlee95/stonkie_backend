@@ -63,6 +63,10 @@ _STABLE_CONCEPT_ALLOW = (
     "This is a well-known, stable fact (e.g. founding date, founders, headquarters). "
     "You may answer from your training knowledge. Be concise and confident."
 )
+_STABLE_CONCEPT_OVERRIDE = (
+    f"**Exception for this question:** {_STABLE_CONCEPT_ALLOW} This overrides the Sources-only rules above for the "
+    "stable fact itself; use the Sources for anything recent."
+)
 
 
 def _select_grounding(
@@ -74,10 +78,11 @@ def _select_grounding(
 ) -> str:
     if is_url_grounded:
         return _URL_GROUNDED_RULES
+    if search_decision.reason_code == "stable_concept":
+        # Search always runs: stable facts keep the training-knowledge allowance even when news was found.
+        return f"{_GROUNDING_RULES}\n\n{_STABLE_CONCEPT_OVERRIDE}" if retrieved_sources else _STABLE_CONCEPT_ALLOW
     if retrieved_sources:
         return _GROUNDING_RULES
-    if search_decision.reason_code == "stable_concept":
-        return _STABLE_CONCEPT_ALLOW
     # A fixed decline would stop the model from using its web_search tool, or contradict what it finds.
     return PromptComponents.no_sources_search_first() if has_search_tool else _NO_DATA_DECLINE
 

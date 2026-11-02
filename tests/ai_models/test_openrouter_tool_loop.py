@@ -305,3 +305,16 @@ def test_text_with_angle_brackets_is_kept():
     answer = _answer(client.stream_chat("p", tools=[_tool()], max_tool_rounds=2))
 
     assert answer == "Margin <5% at AMD vs 75% at Nvidia; a <b> tag stays."
+
+
+def test_tool_call_after_a_streamed_preamble_still_runs():
+    # A >80-char "I'll look into it" preamble streams before the tool call; the search must still run and an answer follow.
+    preamble = "I'll look into what drove the jump in Alphabet's other income in Q2 2026 before answering."
+    calls = []
+    client, completions = _client([[_text(preamble), _search_call()], [_text("Answer.")]])
+
+    chunks = list(client.stream_chat("p", tools=[_tool(calls=calls)], max_tool_rounds=2))
+
+    assert calls == [QUERY]
+    assert _answer(chunks) == preamble + "\n\nAnswer."
+    assert completions.calls[1]["messages"][-1]["role"] == "tool"

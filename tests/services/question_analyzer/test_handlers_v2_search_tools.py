@@ -14,8 +14,10 @@ from services.question_analyzer.handlers_v2 import (
     CompanyGeneralHandlerV2,
     CompanySpecificFinanceHandlerV2,
     GeneralFinanceHandlerV2,
+    _select_grounding,
 )
 from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
+from services.search_decision_engine import SearchDecision
 from tests.services.routing_fakes import make_routing
 
 _HANDLERS = "services.question_analyzer.handlers_v2"
@@ -304,3 +306,23 @@ async def test_no_initial_sources_asks_to_search_before_declining(handler_name):
     prompt = agent.calls[0]["prompt"]
     assert PromptComponents.no_sources_search_first() in prompt
     assert PromptComponents.no_data_decline() not in prompt
+
+
+def _decision(reason_code: str) -> SearchDecision:
+    return SearchDecision(
+        use_google_search=False, reason_code=reason_code, confidence=1.0, decision_model="m", decision_fallback="none"
+    )
+
+
+def test_stable_fact_with_sources_still_allows_training_knowledge():
+    # Search is always on now: a stable-fact question that finds news must not lose the training-knowledge allowance.
+    grounding = _select_grounding([_source("a")], _decision("stable_concept"), has_search_tool=True)
+
+    assert "training knowledge" in grounding
+    assert "well-known, stable fact" in grounding
+
+
+def test_non_stable_question_with_sources_keeps_strict_grounding():
+    grounding = _select_grounding([_source("a")], _decision("db_data_sufficient"), has_search_tool=True)
+
+    assert grounding == PromptComponents.grounding_rules()

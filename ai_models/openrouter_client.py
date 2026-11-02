@@ -353,7 +353,7 @@ class OpenRouterClient:
         """Stream one completion; return its tool calls ([] when it answered).
 
         With `buffer_text`, text is held until the round ends or passes TOOL_ROUND_TEXT_FLUSH_CHARS: a round
-        that ends in tool calls drops it (a "let me search" preamble). Tool calls after a flush are ignored.
+        that ends in tool calls drops it (a "let me search" preamble). Tool calls after a flush still run.
         """
         round_model = None
         usage = None
@@ -381,9 +381,6 @@ class OpenRouterClient:
                         yield "".join(buffered)
                         buffered = []
             for tool_delta in getattr(delta, "tool_calls", None) or []:
-                if flushed:
-                    logger.warning("Ignoring a tool call that arrived after the answer started streaming")
-                    continue
                 _accumulate_tool_call(calls, tool_delta)
             # OpenRouter extension: url_citation annotations in model_extra
             annotations = (delta.model_extra or {}).get("annotations", [])
@@ -399,7 +396,9 @@ class OpenRouterClient:
         self.served_model = round_model or self.served_model
         if usage is not None:
             usage_totals.append(_usage_event(round_model or "", usage))
-        if calls and not flushed:
+        if calls:
+            if buffer_text and flushed:
+                yield "\n\n"  # a preamble already streamed: the answer after the tool round starts a new paragraph
             return [{**calls[i], "id": calls[i]["id"] or f"call_{i}"} for i in sorted(calls)]
         if buffered:
             yield "".join(buffered)
