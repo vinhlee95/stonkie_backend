@@ -130,7 +130,8 @@ def _parse_arguments(raw: str) -> dict | None:
 class _ToolMarkupFilter:
     """Drops tool calls a model writes as answer text (`<invoke>...</invoke>`) instead of sending a real tool call.
 
-    Streaming-safe: holds back a tail that could be the start of a tag split across chunks.
+    Streaming-safe: holds back a tail that could be the start of a tag split across chunks. A block that is never
+    closed ends at the first prose line, so a missing `</invoke>` cannot swallow the rest of the answer.
     """
 
     _OPEN = "<invoke"
@@ -145,12 +146,17 @@ class _ToolMarkupFilter:
         out: list[str] = []
         while True:
             if self._inside:
-                end = self._pending.find(self._CLOSE)
-                if end < 0:
-                    self._pending = self._pending[-(len(self._CLOSE) - 1) :]
-                    break
-                self._pending = self._pending[end + len(self._CLOSE) :]
-                self._inside = False
+                end, newline = self._pending.find(self._CLOSE), self._pending.find("\n")
+                if end >= 0 and (newline < 0 or end < newline):
+                    self._pending = self._pending[end + len(self._CLOSE) :]
+                    self._inside = False
+                    continue
+                if newline < 0:
+                    break  # wait for the rest of the line
+                if not self._is_markup_line(self._pending[:newline]):
+                    self._inside = False  # prose again: the block was never closed
+                    continue
+                self._pending = self._pending[newline + 1 :]
                 continue
             start, stray = self._pending.find(self._OPEN), self._pending.find(self._CLOSE)
             if stray >= 0 and (start < 0 or stray < start):  # a duplicate closing tag
@@ -169,8 +175,15 @@ class _ToolMarkupFilter:
         return "".join(out)
 
     def flush(self) -> str:
-        tail, self._pending = ("" if self._inside else self._pending), ""
+        tail, self._pending = self._pending, ""
+        if self._inside and self._is_markup_line(tail):
+            return ""
         return tail
+
+    @staticmethod
+    def _is_markup_line(line: str) -> bool:
+        """Inside an unclosed block: blank lines and tag lines are markup; the first prose line ends the block."""
+        return not line.strip() or line.lstrip().startswith("<")
 
     def _partial_tag_len(self, text: str) -> int:
         for n in range(min(len(text), len(self._CLOSE) - 1), 0, -1):
@@ -357,6 +370,7 @@ class OpenRouterClient:
         """
         round_model = None
         usage = None
+        streamed: list[str] = []  # text the user already saw this round
         buffered: list[str] = []
         flushed = not buffer_text
         calls: dict[int, dict] = {}
@@ -373,12 +387,14 @@ class OpenRouterClient:
                     yield {"type": "reasoning", "text": reasoning_text}
             if delta.content:
                 if flushed:
+                    streamed.append(delta.content)
                     yield delta.content
                 else:
                     buffered.append(delta.content)
                     if not calls and sum(len(t) for t in buffered) > TOOL_ROUND_TEXT_FLUSH_CHARS:
                         flushed = True
-                        yield "".join(buffered)
+                        streamed.append("".join(buffered))
+                        yield streamed[-1]
                         buffered = []
             for tool_delta in getattr(delta, "tool_calls", None) or []:
                 _accumulate_tool_call(calls, tool_delta)
@@ -399,7 +415,8 @@ class OpenRouterClient:
         if calls:
             if buffer_text and flushed:
                 yield "\n\n"  # a preamble already streamed: the answer after the tool round starts a new paragraph
-            return [{**calls[i], "id": calls[i]["id"] or f"call_{i}"} for i in sorted(calls)]
+            text = "".join(streamed) if buffer_text else ""
+            return [{**calls[i], "id": calls[i]["id"] or f"call_{i}", "text": text} for i in sorted(calls)]
         if buffered:
             yield "".join(buffered)
         return []
@@ -436,7 +453,8 @@ class OpenRouterClient:
         messages.append(
             {
                 "role": "assistant",
-                "content": None,
+                # Text already streamed this round, so the next round continues it instead of restarting.
+                "content": (parsed[0][0].get("text") or None) if parsed else None,
                 "tool_calls": [
                     {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["arguments"]}}
                     for c, _ in parsed

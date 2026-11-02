@@ -110,14 +110,6 @@ def test_reasoning_on_with_tools_uses_reasoning_status_first():
     assert CHECKING_STATUS not in _statuses(events)
 
 
-def test_no_status_after_answer_started():
-    progress = ThinkingProgress()
-
-    events = list(answer_events(iter(["A", _call("late")]), _TOOLS_OPTIONS, progress, _writing(progress)))
-
-    assert 'Digging deeper: "late"...' not in _statuses(events)
-
-
 def test_writing_status_is_built_after_the_tool_rounds():
     progress = ThinkingProgress()
     built_after = []
@@ -158,3 +150,13 @@ def test_holding_status_can_be_overridden_for_non_numeric_questions():
     )
 
     assert _statuses(events)[0] == "Checking for more context..."
+
+
+def test_tool_statuses_still_show_after_a_streamed_preamble():
+    progress = ThinkingProgress()
+    stream = ["I'll check what drove it.", _call("q1"), _result("q1", count=1, publishers=["CNBC"]), "Answer."]
+
+    events = list(answer_events(iter(stream), _TOOLS_OPTIONS, progress, _writing(progress)))
+
+    assert _statuses(events)[-2:] == ['Digging deeper: "q1"...', 'Found 1 source on "q1": CNBC']
+    assert [e["body"] for e in events if e["type"] == "answer"] == ["I'll check what drove it.", "Answer."]

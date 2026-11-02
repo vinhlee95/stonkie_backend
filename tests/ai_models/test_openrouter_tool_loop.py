@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from ai_models.chat_tool import ChatTool, ChatToolResult
 from ai_models.model_name import ModelName
-from ai_models.openrouter_client import OpenRouterClient
+from ai_models.openrouter_client import OpenRouterClient, _ToolMarkupFilter
 
 QUERY = {"query": "Alphabet Q2 2026 other income"}
 
@@ -318,3 +318,32 @@ def test_tool_call_after_a_streamed_preamble_still_runs():
     assert calls == [QUERY]
     assert _answer(chunks) == preamble + "\n\nAnswer."
     assert completions.calls[1]["messages"][-1]["role"] == "tool"
+    # The model is told what the user already saw, so it continues instead of restarting the answer.
+    assert completions.calls[1]["messages"][-2]["content"] == preamble
+
+
+def _filtered(*chunks):
+    markup = _ToolMarkupFilter()
+    return "".join(markup.feed(c) for c in chunks) + markup.flush()
+
+
+def test_markup_filter_unclosed_invoke_resumes_at_the_next_prose_line():
+    text = _filtered('Lead.\n<invoke>\n<parameter name="query">q</parameter>\n', "Nvidia earns more.\nEnd.")
+
+    assert text == "Lead.\nNvidia earns more.\nEnd."
+
+
+def test_markup_filter_unclosed_invoke_at_stream_end_keeps_trailing_prose():
+    assert _filtered("Lead.\n<invoke>\n", "Tail prose") == "Lead.\nTail prose"
+
+
+def test_markup_filter_stray_closing_tag_is_dropped():
+    assert _filtered("A </invoke>B") == "A B"
+
+
+def test_markup_filter_partial_tag_at_stream_end_is_kept():
+    assert _filtered("Margin is <inv") == "Margin is <inv"
+
+
+def test_markup_filter_drops_multiple_blocks():
+    assert _filtered("A<invoke>x</invoke>B<invoke>y</invoke>C") == "ABC"

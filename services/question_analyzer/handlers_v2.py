@@ -175,7 +175,7 @@ def iter_answer_events(
     """`reasoning` and `answer` events from an LLM stream, each as soon as the LLM produces it.
 
     Reasoning dicts become `reasoning` events only before the first answer text, so the event order stays
-    reasoning* -> answer*. Tool-loop dicts become ``tool_status`` events, also only before the answer. Every other
+    reasoning* -> answer*. Tool-loop dicts become ``tool_status`` events (also after a streamed preamble). Every other
     dict (url_citation) is dropped; no dict ever reaches an answer event. ``writing_status`` (a status, or a
     callable building it then, so it can count the tool rounds' sources) is yielded right before the first answer text.
     """
@@ -186,12 +186,18 @@ def iter_answer_events(
                 yield writing_status() if callable(writing_status) else writing_status
             answer_started = True
             yield {"type": "answer", "body": chunk}
-        elif not answer_started and tool_status is not None and isinstance(chunk, dict):
+        elif tool_status is not None and isinstance(chunk, dict):
+            # Tool statuses can follow a streamed preamble (the model wrote text, then searched).
             status = tool_status(chunk)
             if status is not None:
                 yield status
                 continue
-            if chunk.get("type") == "reasoning" and isinstance(chunk.get("text"), str) and chunk["text"]:
+            if (
+                not answer_started
+                and chunk.get("type") == "reasoning"
+                and isinstance(chunk.get("text"), str)
+                and chunk["text"]
+            ):
                 yield {"type": "reasoning", "body": chunk["text"]}
         elif (
             not answer_started
