@@ -71,6 +71,9 @@ class PromptComponents:
             "company's profit margins) and answer.\n"
             '- Name periods as quarters and fiscal years ("Q1 2026", "end of Q1 2026", "FY2025"), never as dates like '
             '"3/31/2026" or "the quarter ended 6/30/2026".\n'
+            "- Every fiscal label (Qn FYyyyy or FYyyyy) MUST be followed by its period-end month and year in "
+            'parentheses the first time it appears, e.g. "Q2 FY2027 (ended Jul 2026)". Fiscal years often run ahead '
+            "of the calendar, so a bare fiscal label reads like a future period.\n"
             '- Bold the key figures. Use the largest sensible unit ("$1.5 billion", not "$1,500 million").'
         )
 

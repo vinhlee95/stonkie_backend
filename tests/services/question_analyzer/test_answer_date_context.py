@@ -73,3 +73,10 @@ def test_builders_pass_quarterly_statements_to_date_context(builder):
 def test_classifier_date_context_unchanged():
     # current_date() still feeds the router/reformulator prompts; only answer prompts changed.
     assert "most recently completed reporting quarter is 2026-Q3" in PromptComponents.current_date()
+
+
+def test_fiscal_labels_must_carry_period_end_date():
+    # NVDA "Q2 FY2027" ended Jul 2026; without the date users read it as a future quarter.
+    rules = PromptComponents.narrative_answer_format()
+
+    assert '"Q2 FY2027 (ended Jul 2026)"' in rules
