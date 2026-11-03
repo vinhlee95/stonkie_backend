@@ -41,3 +41,13 @@ def calendar_quarter(value: Optional[str]) -> Optional[Tuple[int, int]]:
     """Calendar (year, quarter) a "M/D/YYYY" period end falls in; None when unparseable."""
     period_end = parse_quarter_end(value)
     return (period_end.year, (period_end.month - 1) // 3 + 1) if period_end else None
+
+
+# A fiscal quarter is ~13 weeks (14 in 53-week years); past this, a later quarter has closed.
+_QUARTER_LENGTH_DAYS = 95
+
+
+def newer_quarter_has_closed(value: Optional[str], today: date) -> bool:
+    """True when a later quarter has ended since period end `value`, so its results may already be out."""
+    period_end = parse_quarter_end(value)
+    return period_end is not None and (today - period_end).days > _QUARTER_LENGTH_DAYS
