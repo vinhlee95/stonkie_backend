@@ -17,7 +17,7 @@ from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
-from core.quarter_period import newer_quarter_has_closed
+from core.quarter_period import calendar_quarter, newer_quarter_has_closed, parse_quarter_label
 from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
@@ -307,13 +307,17 @@ def _quarterly_filing_may_be_stale(
     """The latest-quarter summary's DB 10-Q predates a quarter that has since closed.
 
     That quarter's earnings (e.g. released yesterday) may be out but not ingested yet, so the old
-    filing must not be the only source. Not for a specific quarter the user asked for.
+    filing must not be the only source. Not when the 10-Q is the specific quarter the user asked for;
+    a requested quarter newer than any stored one resolves to the newest 10-Q, which is still checked.
     """
     if not quarterly_statements:
         return False
-    if period_requirement and period_requirement.specific_quarters not in (None, ["latest"]):
+    period_end_quarter = quarterly_statements[0].get("period_end_quarter")
+    labels = (period_requirement.specific_quarters if period_requirement else None) or []
+    requested = {parse_quarter_label(label) for label in labels} - {None}
+    if period_end_quarter in labels or calendar_quarter(period_end_quarter) in requested:
         return False
-    return newer_quarter_has_closed(quarterly_statements[0].get("period_end_quarter"), today)
+    return newer_quarter_has_closed(period_end_quarter, today)
 
 
 def _stale_quarter_notice(period_end_quarter: str) -> str:

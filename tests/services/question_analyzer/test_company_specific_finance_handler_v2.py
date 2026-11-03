@@ -10,7 +10,7 @@ from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
 from services.analyze_retrieval.url_ingest import UrlIngestError, UrlIngestResult
 from services.question_analyzer.router import RoutingResult
-from services.question_analyzer.types import FinancialDataRequirement, QuestionType
+from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
 from tests.services.routing_fakes import make_routing
 
@@ -886,3 +886,31 @@ async def test_quarterly_summary_searches_when_a_newer_quarter_has_closed(
     if not reads_filing:
         assert period_end_quarter in prompt
         assert "URL-grounded" not in prompt
+
+
+_TODAY = date(2026, 11, 3)
+
+
+@pytest.mark.parametrize(
+    ("statements", "specific_quarters", "stale"),
+    [
+        ([], None, False),
+        ([{"period_end_quarter": "6/27/2026"}], None, True),
+        ([{"period_end_quarter": "6/27/2026"}], ["latest"], True),
+        # The 10-Q is the quarter the user asked for (exact key or its calendar quarter): read it.
+        ([{"period_end_quarter": "6/27/2026"}], ["6/27/2026"], False),
+        ([{"period_end_quarter": "6/27/2026"}], ["2026-Q2"], False),
+        # Asked for a quarter newer than stored; the newest (old) 10-Q came back instead.
+        ([{"period_end_quarter": "6/27/2026"}], ["2026-Q4"], True),
+        ([{"period_end_quarter": "9/26/2026"}], ["2026-Q4"], False),
+    ],
+)
+def test_quarterly_filing_may_be_stale(statements, specific_quarters, stale):
+    from services.question_analyzer.handlers_v2 import _quarterly_filing_may_be_stale
+
+    period = (
+        FinancialPeriodRequirement(period_type="quarterly", specific_quarters=specific_quarters, num_periods=1)
+        if specific_quarters
+        else None
+    )
+    assert _quarterly_filing_may_be_stale(statements, period, _TODAY) is stale
