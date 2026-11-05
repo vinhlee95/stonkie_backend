@@ -300,7 +300,7 @@ _FILING_REQUIREMENTS = (FinancialDataRequirement.QUARTERLY_SUMMARY, FinancialDat
 
 
 def _quarterly_filing_may_be_stale(
-    quarterly_statements: list[dict],
+    period_end_quarter: Optional[str],
     period_requirement: Optional[FinancialPeriodRequirement],
     today: date,
 ) -> bool:
@@ -310,9 +310,6 @@ def _quarterly_filing_may_be_stale(
     filing must not be the only source. Not when the 10-Q is the specific quarter the user asked for;
     a requested quarter newer than any stored one resolves to the newest 10-Q, which is still checked.
     """
-    if not quarterly_statements:
-        return False
-    period_end_quarter = quarterly_statements[0].get("period_end_quarter")
     labels = (period_requirement.specific_quarters if period_requirement else None) or []
     requested = {parse_quarter_label(label) for label in labels} - {None}
     if period_end_quarter in labels or calendar_quarter(period_end_quarter) in requested:
@@ -914,11 +911,11 @@ Provide a helpful, general answer that builds on what we discussed before."""
         )
 
         stale_quarter_notice = ""
+        db_quarter = quarterly_statements[0].get("period_end_quarter") if quarterly_statements else None
         if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and _quarterly_filing_may_be_stale(
-            quarterly_statements, period_requirement, date.today()
+            db_quarter, period_requirement, date.today()
         ):
             # Answer from web search + the DB quarter instead of reading only the older 10-Q.
-            db_quarter = quarterly_statements[0].get("period_end_quarter")
             logger.info(
                 "v2 quarterly summary: DB 10-Q may be stale, searching instead",
                 extra={"request_id": request_id, "ticker": ticker_norm, "period_end_quarter": db_quarter},

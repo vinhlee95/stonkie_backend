@@ -892,20 +892,20 @@ _TODAY = date(2026, 11, 3)
 
 
 @pytest.mark.parametrize(
-    ("statements", "specific_quarters", "stale"),
+    ("period_end_quarter", "specific_quarters", "stale"),
     [
-        ([], None, False),
-        ([{"period_end_quarter": "6/27/2026"}], None, True),
-        ([{"period_end_quarter": "6/27/2026"}], ["latest"], True),
+        (None, None, False),
+        ("6/27/2026", None, True),
+        ("6/27/2026", ["latest"], True),
         # The 10-Q is the quarter the user asked for (exact key or its calendar quarter): read it.
-        ([{"period_end_quarter": "6/27/2026"}], ["6/27/2026"], False),
-        ([{"period_end_quarter": "6/27/2026"}], ["2026-Q2"], False),
+        ("6/27/2026", ["6/27/2026"], False),
+        ("6/27/2026", ["2026-Q2"], False),
         # Asked for a quarter newer than stored; the newest (old) 10-Q came back instead.
-        ([{"period_end_quarter": "6/27/2026"}], ["2026-Q4"], True),
-        ([{"period_end_quarter": "9/26/2026"}], ["2026-Q4"], False),
+        ("6/27/2026", ["2026-Q4"], True),
+        ("9/26/2026", ["2026-Q4"], False),
     ],
 )
-def test_quarterly_filing_may_be_stale(statements, specific_quarters, stale):
+def test_quarterly_filing_may_be_stale(period_end_quarter, specific_quarters, stale):
     from services.question_analyzer.handlers_v2 import _quarterly_filing_may_be_stale
 
     period = (
@@ -913,4 +913,4 @@ def test_quarterly_filing_may_be_stale(statements, specific_quarters, stale):
         if specific_quarters
         else None
     )
-    assert _quarterly_filing_may_be_stale(statements, period, _TODAY) is stale
+    assert _quarterly_filing_may_be_stale(period_end_quarter, period, _TODAY) is stale
