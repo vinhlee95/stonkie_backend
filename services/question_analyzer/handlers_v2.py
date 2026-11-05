@@ -8,6 +8,7 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
+from datetime import date
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Dict, Iterable, Iterator, List, Optional
 
 from agent.multi_agent import MultiAgent
@@ -16,6 +17,7 @@ from ai_models.model_name import ModelName
 from connectors.brave_client import BraveClient
 from connectors.company import CompanyConnector
 from core.financial_statement_type import FinancialStatementType
+from core.quarter_period import calendar_quarter, newer_quarter_has_closed, parse_quarter_label
 from services.analysis_progress import AnalysisPhase, ThinkingProgress
 from services.analyze_retrieval.citation_index import build_sources_event
 from services.analyze_retrieval.freshness import build_temporal_context_block
@@ -295,6 +297,33 @@ async def related_questions_result(task: asyncio.Task) -> list[Dict[str, str]]:
 
 
 _FILING_REQUIREMENTS = (FinancialDataRequirement.QUARTERLY_SUMMARY, FinancialDataRequirement.ANNUAL_SUMMARY)
+
+
+def _quarterly_filing_may_be_stale(
+    period_end_quarter: Optional[str],
+    period_requirement: Optional[FinancialPeriodRequirement],
+    today: date,
+) -> bool:
+    """The latest-quarter summary's DB 10-Q predates a quarter that has since closed.
+
+    That quarter's earnings (e.g. released yesterday) may be out but not ingested yet, so the old
+    filing must not be the only source. Not when the 10-Q is the specific quarter the user asked for;
+    a requested quarter newer than any stored one resolves to the newest 10-Q, which is still checked.
+    """
+    labels = (period_requirement.specific_quarters if period_requirement else None) or []
+    requested = {parse_quarter_label(label) for label in labels} - {None}
+    if period_end_quarter in labels or calendar_quarter(period_end_quarter) in requested:
+        return False
+    return newer_quarter_has_closed(period_end_quarter, today)
+
+
+def _stale_quarter_notice(period_end_quarter: str) -> str:
+    return (
+        f"**Data freshness:** Our database's latest quarterly report is for the quarter ending {period_end_quarter}. "
+        "A newer quarter has closed since, and its earnings may already be released. If the Sources cover a newer "
+        "quarter, answer about that quarter and use the database figures only for comparison; never present the "
+        f"{period_end_quarter} quarter as the latest results when the Sources show newer ones."
+    )
 
 
 _PERIOD_WORDING = {"annual": "annual", "quarterly": "quarterly", "both": "annual and quarterly"}
@@ -881,6 +910,19 @@ Provide a helpful, general answer that builds on what we discussed before."""
             period_requirement=period_requirement,
         )
 
+        stale_quarter_notice = ""
+        db_quarter = quarterly_statements[0].get("period_end_quarter") if quarterly_statements else None
+        if data_requirement == FinancialDataRequirement.QUARTERLY_SUMMARY and _quarterly_filing_may_be_stale(
+            db_quarter, period_requirement, date.today()
+        ):
+            # Answer from web search + the DB quarter instead of reading only the older 10-Q.
+            logger.info(
+                "v2 quarterly summary: DB 10-Q may be stale, searching instead",
+                extra={"request_id": request_id, "ticker": ticker_norm, "period_end_quarter": db_quarter},
+            )
+            data_requirement = FinancialDataRequirement.DETAILED
+            stale_quarter_notice = f"\n\n{_stale_quarter_notice(db_quarter)}"
+
         if relevant_statements and data_requirement == FinancialDataRequirement.DETAILED:
             valid_types = set(FinancialStatementType)
             drop_types = valid_types - set(relevant_statements)
@@ -946,6 +988,7 @@ Provide a helpful, general answer that builds on what we discussed before."""
                 use_google_search=False,
             )
         )
+        financial_context += stale_quarter_notice
 
         conversation_context = ""
         if conversation_messages:

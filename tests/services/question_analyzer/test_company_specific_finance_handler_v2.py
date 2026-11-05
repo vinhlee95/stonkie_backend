@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,7 +10,7 @@ from ai_models.model_name import ModelName
 from services.analyze_retrieval.schemas import AnalyzePassage, AnalyzeRetrievalResult, AnalyzeSource
 from services.analyze_retrieval.url_ingest import UrlIngestError, UrlIngestResult
 from services.question_analyzer.router import RoutingResult
-from services.question_analyzer.types import FinancialDataRequirement, QuestionType
+from services.question_analyzer.types import FinancialDataRequirement, FinancialPeriodRequirement, QuestionType
 from services.search_decision_engine import SearchDecision
 from tests.services.routing_fakes import make_routing
 
@@ -828,3 +829,88 @@ async def test_search_off_drops_legacy_sources_json_instructions(mock_multi_agen
     assert '[SOURCES_JSON]{"sources"' not in prompt_text
     assert "ALL citations must appear exclusively inside [SOURCES_JSON]" not in prompt_text
     assert PromptComponents.grounding_rules() in prompt_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("days_old", "reads_filing"), [(130, False), (40, True)])
+@patch("services.question_analyzer.handlers_v2.MultiAgent")
+@patch("services.question_analyzer.handlers_v2.ingest_url")
+async def test_quarterly_summary_searches_when_a_newer_quarter_has_closed(
+    mock_ingest_url, mock_multi_agent_cls, days_old, reads_filing
+):
+    """Earnings released yesterday aren't in the DB yet: an old 10-Q must not be the only source."""
+    from services.question_analyzer.handlers_v2 import CompanySpecificFinanceHandlerV2
+
+    period_end = date.today() - timedelta(days=days_old)
+    period_end_quarter = f"{period_end.month}/{period_end.day}/{period_end.year}"
+    source = AnalyzeSource(
+        id="s_q", url="https://sec.gov/aapl.pdf", title="10-Q", publisher="SEC", is_trusted=True, raw_content="x"
+    )
+    mock_ingest_url.return_value = UrlIngestResult(source=source, selected_passages=[])
+    company_connector, plan, optimizer = _make_handler_deps(
+        data_requirement=FinancialDataRequirement.QUARTERLY_SUMMARY,
+        quarterly=[{"filing_10q_url": "https://sec.gov/aapl.pdf", "period_end_quarter": period_end_quarter}],
+    )
+    mock_agent = MagicMock()
+    mock_agent.model_name = "test-model"
+    mock_agent.generate_content.return_value = iter(["Answer"])
+    mock_multi_agent_cls.return_value = mock_agent
+    handler = CompanySpecificFinanceHandlerV2(company_connector=company_connector, data_optimizer=optimizer)
+
+    async def _fake_related(*_a, **_k):
+        if False:
+            yield {}
+
+    handler._generate_related_questions = _fake_related  # type: ignore[attr-defined]
+
+    events = [
+        event
+        async for event in handler.handle(
+            ticker="AAPL",
+            question="What's the latest news from yesterday's quarterly earnings?",
+            search_decision=_decision(True),
+            routing=plan.routing(_decision(True)),
+            use_url_context=False,
+            preferred_model=ModelName.Auto,
+            conversation_messages=None,
+        )
+    ]
+
+    prompt = mock_agent.generate_content.call_args.kwargs["prompt"]
+    has_attachment = any(e["type"] == "attachment_url" for e in events)
+    searched = any(e["type"] == "thinking_status" and e["body"].startswith("Searching for") for e in events)
+    assert mock_ingest_url.called is reads_filing
+    assert has_attachment is reads_filing
+    assert searched is not reads_filing
+    assert ("Data freshness" in prompt) is not reads_filing
+    if not reads_filing:
+        assert period_end_quarter in prompt
+        assert "URL-grounded" not in prompt
+
+
+_TODAY = date(2026, 11, 3)
+
+
+@pytest.mark.parametrize(
+    ("period_end_quarter", "specific_quarters", "stale"),
+    [
+        (None, None, False),
+        ("6/27/2026", None, True),
+        ("6/27/2026", ["latest"], True),
+        # The 10-Q is the quarter the user asked for (exact key or its calendar quarter): read it.
+        ("6/27/2026", ["6/27/2026"], False),
+        ("6/27/2026", ["2026-Q2"], False),
+        # Asked for a quarter newer than stored; the newest (old) 10-Q came back instead.
+        ("6/27/2026", ["2026-Q4"], True),
+        ("9/26/2026", ["2026-Q4"], False),
+    ],
+)
+def test_quarterly_filing_may_be_stale(period_end_quarter, specific_quarters, stale):
+    from services.question_analyzer.handlers_v2 import _quarterly_filing_may_be_stale
+
+    period = (
+        FinancialPeriodRequirement(period_type="quarterly", specific_quarters=specific_quarters, num_periods=1)
+        if specific_quarters
+        else None
+    )
+    assert _quarterly_filing_may_be_stale(period_end_quarter, period, _TODAY) is stale
