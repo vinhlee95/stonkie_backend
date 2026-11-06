@@ -1,0 +1,11 @@
+# Secrets come from the job or service env, never the image. ** also catches nested worktree copies.
+**/.env
+**/.env.*
+
+# Local virtualenvs: requirements are installed in the image
+**/venv
+**/.venv
+
+# Repo history and local session files, including .claude/worktrees
+.git
+.claude
