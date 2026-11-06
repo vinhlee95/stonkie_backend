@@ -21,6 +21,8 @@ OPENROUTER_MODEL_MAP: Dict[ModelName, str] = {
     ModelName.Gemini25Flash: "google/gemini-2.5-flash",
     ModelName.Gemini31FlashLite: "google/gemini-3.1-flash-lite",
     ModelName.Gemini35Flash: "google/gemini-3.5-flash",
+    # DeepSeek Models
+    ModelName.DeepSeekV41Flash: "deepseek/deepseek-v4.1-flash",
     # Anthropic Models
     ModelName.Sonnet46: "anthropic/claude-sonnet-4.6",
     # OpenRouter Auto Router for automatic model selection

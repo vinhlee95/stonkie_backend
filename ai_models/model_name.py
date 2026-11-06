@@ -15,6 +15,9 @@ class ModelName(StrEnum):
     Gemini31FlashLite = "gemini-3.1-flash-lite"
     Gemini35Flash = "gemini-3.5-flash"
 
+    # DeepSeek Models
+    DeepSeekV41Flash = "deepseek-v4.1-flash"
+
     # Anthropic Models
     Sonnet46 = "sonnet-4.6"
 
