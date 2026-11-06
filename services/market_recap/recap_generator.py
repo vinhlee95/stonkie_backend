@@ -4,6 +4,7 @@ from datetime import date
 
 from agent.multi_agent import MultiAgent
 from services.market_recap.schemas import Citation, RecapPayload, RetrievalResult, Source
+from services.shared.recap_model import RECAP_MODEL
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,7 @@ def generate_recap(
     period_end: date,
     agent: MultiAgent | None = None,
 ) -> GeneratorResult:
-    llm = agent or MultiAgent()
+    llm = agent or MultiAgent(model_name=RECAP_MODEL)
     prompt = _build_prompt(retrieval, market, period_start, period_end, cadence)
     chunks = llm.generate_content(prompt=prompt, use_google_search=False)
     raw_text = "".join(chunk for chunk in chunks if isinstance(chunk, str))

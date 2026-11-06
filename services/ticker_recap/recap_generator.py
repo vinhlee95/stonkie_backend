@@ -4,6 +4,7 @@ from datetime import date
 
 from agent.multi_agent import MultiAgent
 from services.market_recap.schemas import Citation, RetrievalResult, Source
+from services.shared.recap_model import RECAP_MODEL
 from services.ticker_recap.schemas import TickerRecapPayload
 
 
@@ -79,7 +80,7 @@ def generate_recap(
     cadence: str = "daily",
     agent: MultiAgent | None = None,
 ) -> GeneratorResult:
-    llm = agent or MultiAgent()
+    llm = agent or MultiAgent(model_name=RECAP_MODEL)
     prompt = _build_prompt(
         retrieval,
         ticker=ticker,
