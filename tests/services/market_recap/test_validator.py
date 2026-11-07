@@ -446,3 +446,53 @@ def test_fi_required_content_markers_pass_when_present():
     )
     result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24), market="FI")
     assert result.failures == []
+
+
+def test_single_publisher_recap_warns_without_failing():
+    from services.market_recap.validator import WARNING_SINGLE_PUBLISHER, validate_recap
+
+    sources = [
+        _source(
+            source_id=f"src-{i}",
+            url=f"https://apnews.com/article/story-{i}",
+            published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+        )
+        for i in range(3)
+    ]
+    payload = _payload(
+        bullets=[Bullet(text=f"b{i}", citations=[Citation(source_id=f"src-{i}")]) for i in range(3)],
+        sources=sources,
+    )
+
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24))
+
+    assert result.ok is True
+    assert WARNING_SINGLE_PUBLISHER in result.warnings
+
+
+def test_two_publisher_recap_does_not_warn_about_publishers():
+    from services.market_recap.validator import WARNING_SINGLE_PUBLISHER, validate_recap
+
+    sources = [
+        _source(
+            source_id="src-1",
+            url="https://apnews.com/article/one",
+            published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+        ),
+        _source(
+            source_id="src-2",
+            url="https://www.cnbc.com/2026/04/24/two.html",
+            published_at=datetime(2026, 4, 24, 10, 0, tzinfo=UTC),
+        ),
+    ]
+    payload = _payload(
+        bullets=[
+            Bullet(text="b1", citations=[Citation(source_id="src-1")]),
+            Bullet(text="b2", citations=[Citation(source_id="src-2")]),
+        ],
+        sources=sources,
+    )
+
+    result = validate_recap(payload, period_start=date(2026, 4, 20), period_end=date(2026, 4, 24))
+
+    assert WARNING_SINGLE_PUBLISHER not in result.warnings
