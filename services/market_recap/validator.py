@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from services.market_recap.schemas import RecapPayload
-from services.market_recap.source_policy import is_allowlisted
+from services.market_recap.source_policy import is_allowlisted, registrable_domain
 
 REASON_OUT_OF_WINDOW = "cited_source_out_of_window"
 REASON_BULLET_MISSING_ALLOWLISTED = "bullet_missing_allowlisted_source"
@@ -18,6 +18,7 @@ REASON_FI_SECTOR_ROTATION_MISSING = "fi_sector_rotation_missing"
 REASON_FI_MACRO_CONTEXT_MISSING = "fi_macro_context_missing"
 REASON_FI_COMPANY_DRIVER_MISSING = "fi_company_driver_missing"
 WARNING_UNIQUE_SOURCE_FLOOR = "unique_source_floor_below_minimum"
+WARNING_SINGLE_PUBLISHER = "cited_sources_from_single_publisher"
 
 
 @dataclass(frozen=True)
@@ -147,5 +148,7 @@ def validate_recap(
     unique_cited_sources = {citation.source_id for bullet in payload.bullets for citation in bullet.citations}
     if len(unique_cited_sources) < min_unique_sources:
         warnings.append(WARNING_UNIQUE_SOURCE_FLOOR)
+    if len({registrable_domain(sources_by_id[source_id].url) for source_id in unique_cited_sources}) < 2:
+        warnings.append(WARNING_SINGLE_PUBLISHER)
 
     return ValidationResult(ok=len(failures) == 0, failures=failures, warnings=warnings)

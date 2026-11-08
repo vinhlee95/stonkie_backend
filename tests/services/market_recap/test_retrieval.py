@@ -5,6 +5,7 @@ import pytest
 from services.market_recap.query_planner import plan_queries
 from services.market_recap.retrieval import retrieve_candidates
 from services.market_recap.schemas import Candidate
+from services.market_recap.source_policy import registrable_domain
 
 
 class FakeSearchProvider:
@@ -168,7 +169,7 @@ def test_retrieve_candidates_returns_top_five_and_stats():
             ],
             "federalreserve.gov": [
                 _candidate(
-                    title="fed keep but cut by top5",
+                    title="reserve bank keep",
                     url="https://www.federalreserve.gov/newsevents/a.htm",
                     score=0.50,
                     raw_content="x",
@@ -199,6 +200,51 @@ def test_retrieve_candidates_returns_top_five_and_stats():
     assert "reuters duplicate higher" in {candidate.title for candidate in result.candidates}
     assert result.candidates[-1].title != "open non allowlisted"
     assert len(result.query_snapshots) == 7
+
+
+def test_retrieve_candidates_defaults_to_ten_diverse_sources():
+    published = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    publishers = (
+        "apnews.com/article",
+        "reuters.com/markets",
+        "bloomberg.com/news",
+        "nytimes.com/2026",
+        "ft.com/content",
+    )
+    provider = FakeSearchProvider(
+        payload_by_domain={
+            "open": [
+                _candidate(
+                    title=f"Stocks story {index}",
+                    url=f"https://www.{publisher}/story-{index}-{story}",
+                    score=0.0,
+                    raw_content="x" * 900,
+                    published_date=published,
+                    provider="brave",
+                )
+                for index, publisher in enumerate(publishers)
+                for story in range(3)
+            ]
+        }
+    )
+
+    result = retrieve_candidates(
+        market="US",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        search_provider=provider,
+        planned_queries=plan_queries(date(2026, 4, 20), date(2026, 4, 24))[:1],
+    )
+
+    assert result.stats.ranked_top_k == 10
+    assert len(result.candidates) == 10
+    assert {registrable_domain(candidate.url) for candidate in result.candidates} == {
+        "apnews.com",
+        "reuters.com",
+        "bloomberg.com",
+        "nytimes.com",
+        "ft.com",
+    }
 
 
 def test_retrieve_candidates_prioritizes_allowlisted_for_vn_market():

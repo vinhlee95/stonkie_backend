@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from services.market_recap.brave_client import BraveClient
 from services.market_recap.query_planner import plan_queries
-from services.market_recap.ranking import dedupe, rank
+from services.market_recap.ranking import dedupe, rank, select_candidates
 from services.market_recap.schemas import Candidate, PlannedQuery, RetrievalResult, RetrievalStats
 from services.market_recap.search_client import SearchProvider
 from services.market_recap.source_policy import is_allowlisted
@@ -46,7 +46,7 @@ def retrieve_candidates(
     period_end: date,
     search_provider: SearchProvider | None = None,
     planned_queries: list[PlannedQuery] | None = None,
-    top_k: int = 5,
+    top_k: int = 10,
     cadence: str = "weekly",
 ) -> RetrievalResult:
     provider = search_provider or _provider_for(market)
@@ -90,7 +90,13 @@ def retrieve_candidates(
     allowlisted = [candidate for candidate in with_raw_content if is_allowlisted(candidate.url, market=market)]
     allowlisted_count = len(allowlisted)
     ranked = rank(with_raw_content, market=market)
-    top_candidates = ranked[:top_k]
+    top_candidates = select_candidates(
+        ranked,
+        market=market,
+        period_start=period_start,
+        period_end=period_end,
+        top_k=top_k,
+    )
 
     return RetrievalResult(
         candidates=top_candidates,
