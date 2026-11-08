@@ -1,7 +1,8 @@
 from datetime import UTC, date, datetime
 
-from services.market_recap.ranking import _quality_rank, dedupe, rank, select_candidates
+from services.market_recap.ranking import _quality_rank, dedupe, rank
 from services.market_recap.schemas import Candidate
+from services.market_recap.selection import select_candidates
 
 
 def _candidate(
