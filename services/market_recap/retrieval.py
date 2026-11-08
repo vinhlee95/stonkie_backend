@@ -3,9 +3,10 @@ from datetime import date, timedelta
 
 from services.market_recap.brave_client import BraveClient
 from services.market_recap.query_planner import plan_queries
-from services.market_recap.ranking import dedupe, rank, select_candidates
+from services.market_recap.ranking import dedupe, rank
 from services.market_recap.schemas import Candidate, PlannedQuery, RetrievalResult, RetrievalStats
 from services.market_recap.search_client import SearchProvider
+from services.market_recap.selection import select_candidates
 from services.market_recap.source_policy import is_allowlisted
 
 
