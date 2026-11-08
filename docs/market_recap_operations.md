@@ -19,6 +19,12 @@ Fired once at the top of every `run_market_recap` call.
 | `period_start` | str (ISO date) | Inclusive Monday of the recap week. |
 | `period_end` | str (ISO date) | Inclusive Friday of the recap week. |
 
+### `recap.sources.selected`
+
+Fired once per run by `services.market_recap.selection` after sources are picked: `market`, `count`, and `sources`
+(`"<reason> <publisher>"` per source, reason `wrap:<date>` / `story` / `backfill` / `top`). How selection works:
+[market_recap_source_selection.md](market_recap_source_selection.md).
+
 ### `recap.run.outcome`
 
 Fired exactly once per run, immediately before the orchestrator returns.
