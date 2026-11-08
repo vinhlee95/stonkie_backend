@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from services.analyze_retrieval.query_reformulator import QueryReformulator
 
-from langfuse import observe
+from langfuse import get_client, observe
 
 from services.analyze_retrieval.freshness import (
     FreshnessPolicy,
@@ -133,7 +133,34 @@ def _execute_searches(
     return all_candidates, url_to_queries
 
 
-@observe(name="retrieve_for_analyze")
+def _record_trace_input(
+    *,
+    question: str,
+    market: Market,
+    request_id: str,
+    ticker: str,
+    company_name: str | None,
+    top_k: int,
+    asset_class: AssetClass,
+) -> None:
+    try:
+        get_client().update_current_span(
+            input={
+                "question": question,
+                "market": market,
+                "request_id": request_id,
+                "ticker": ticker,
+                "company_name": company_name,
+                "top_k": top_k,
+                "asset_class": asset_class,
+            }
+        )
+    except Exception:
+        logger.warning("Failed to record retrieval input on Langfuse", exc_info=True)
+
+
+# capture_input=False: Langfuse serializes arguments via vars(), which would put the Brave client's API key in the trace.
+@observe(name="retrieve_for_analyze", capture_input=False)
 def retrieve_for_analyze(
     *,
     question: str,
@@ -150,6 +177,15 @@ def retrieve_for_analyze(
 ) -> AnalyzeRetrievalResult:
     """`resolve_company_name` is called once the Brave searches return (so a slow lookup overlaps them);
     a name it returns replaces `company_name` for the relevance filter and passage ranking."""
+    _record_trace_input(
+        question=question,
+        market=market,
+        request_id=request_id,
+        ticker=ticker,
+        company_name=company_name,
+        top_k=top_k,
+        asset_class=asset_class,
+    )
     country, search_lang = _country_and_lang_for(market)
 
     reformulated_queries: list[str] | None = None
