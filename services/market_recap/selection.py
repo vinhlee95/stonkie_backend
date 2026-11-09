@@ -10,11 +10,12 @@ only to reach `MIN_SOURCES`.
 
 import logging
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date
 
 from services.market_recap.criteria import CandidateFacts, candidate_facts, is_eligible, policy_for
 from services.market_recap.logging import log_event
 from services.market_recap.schemas import Candidate
+from services.market_recap.session_dates import trading_days
 from services.market_recap.source_policy import registrable_domain
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,26 @@ def select_candidates(
     return selection.candidates
 
 
+def check_curator_picks(
+    picks: list[tuple[str, Candidate]], *, top_k: int
+) -> tuple[list[tuple[str, Candidate]], list[tuple[str, str]]]:
+    """Keep the curator's picks in order, up to `top_k`, without repeats: (kept, [(pick id, why dropped)]).
+
+    No publisher limit: publisher mix is the curator's call (see `curation.py`).
+    """
+    selection = Selection(max_sources=top_k, per_publisher=top_k)
+    kept: list[tuple[str, Candidate]] = []
+    dropped: list[tuple[str, str]] = []
+    for pick_id, candidate in picks:
+        reason = selection.rejection(candidate)
+        if reason is None:
+            selection.add(candidate, "curator")
+            kept.append((pick_id, candidate))
+        else:
+            dropped.append((pick_id, reason))
+    return kept, dropped
+
+
 class Selection:
     """Picked sources in output order, with why each was picked. Steps check `accepts` to honour the limits."""
 
@@ -76,11 +97,17 @@ class Selection:
         return self._publisher_counts[registrable_domain(candidate.url)]
 
     def accepts(self, candidate: Candidate) -> bool:
-        return (
-            len(self) < self._max_sources
-            and not self.contains(candidate)
-            and self.publisher_count(candidate) < self._per_publisher
-        )
+        return self.rejection(candidate) is None
+
+    def rejection(self, candidate: Candidate) -> str | None:
+        """Why the limits refuse `candidate`, or None when it fits."""
+        if self.contains(candidate):
+            return "duplicate"
+        if len(self) >= self._max_sources:
+            return "top_k"
+        if self.publisher_count(candidate) >= self._per_publisher:
+            return "publisher_cap"
+        return None
 
     def add(self, candidate: Candidate, reason: str, *, at: int | None = None) -> None:
         index = len(self) if at is None else at
@@ -100,7 +127,7 @@ def _add_one_wrap_per_trading_day(pool: Pool, selection: Selection, period_start
     carry the week's totals. Within a day: week totals (first pick only), then least-used publisher, then longest.
     """
     start = len(selection)
-    for day in reversed(_trading_days(period_start, period_end)):
+    for day in reversed(trading_days(period_start, period_end)):
         options = [
             (candidate, facts)
             for candidate, facts in pool
@@ -133,9 +160,3 @@ def _backfill_in_rank_order(ranked: list[Candidate], selection: Selection, *, up
             return
         if not selection.contains(candidate):
             selection.add(candidate, "backfill")
-
-
-def _trading_days(period_start: date, period_end: date) -> list[date]:
-    """Weekdays in the period, or every day when it has none (a weekend-only period)."""
-    days = [period_start + timedelta(days=offset) for offset in range((period_end - period_start).days + 1)]
-    return [day for day in days if day.weekday() < 5] or days

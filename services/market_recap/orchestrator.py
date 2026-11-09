@@ -169,6 +169,7 @@ def run_market_recap(
             "candidates": [_safe_raw_candidate(candidate) for candidate in retrieval.candidates],
             "stats": retrieval.stats.model_dump(mode="json"),
             "query_snapshots": retrieval.query_snapshots,
+            "selection": retrieval.selection_audit,
         }
         with session_factory() as db:
             persisted: PersistenceResult = persist_fn(

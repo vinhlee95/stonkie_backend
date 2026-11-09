@@ -83,3 +83,5 @@ class RetrievalResult(BaseModel):
     candidates: list[Candidate]
     stats: RetrievalStats
     query_snapshots: list[dict[str, Any]] = Field(default_factory=list)
+    # How the sources were picked: {"method": "rules"}, the curator's audit, or a rules fallback with its reason.
+    selection_audit: dict[str, Any] | None = None

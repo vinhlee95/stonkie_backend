@@ -103,6 +103,25 @@ def test_run_market_recap_success_persists_row(db_session):
     assert row.questions == ["Q1?", "Q2?", "Q3?"]
 
 
+def test_run_market_recap_stores_how_sources_were_selected(db_session):
+    audit = {"method": "curator", "model": "m", "picks": [{"id": "S1", "kept": True}], "would_search": []}
+    retrieval = _retrieval_result().model_copy(update={"selection_audit": audit})
+
+    run_market_recap(
+        market="FI",
+        cadence="weekly",
+        period_start=date(2026, 4, 20),
+        period_end=date(2026, 4, 24),
+        session_factory=_session_factory(db_session),
+        retrieve_fn=lambda **_: retrieval,
+        generate_fn=lambda **kwargs: GeneratorResult(payload=_payload(), model="test-model", raw_model_output="raw"),
+        validate_fn=lambda **_: ValidationResult(ok=True, failures=[], warnings=[]),
+        generate_questions_fn=_noop_questions,
+    )
+
+    assert db_session.query(MarketRecap).one().raw_sources["selection"] == audit
+
+
 def test_run_market_recap_forwards_cadence_to_generate_fn(db_session):
     captured: dict = {}
 

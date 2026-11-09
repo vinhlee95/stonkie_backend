@@ -20,6 +20,9 @@ _IRRELEVANT_MARKET_PENALTY = 6
 class MarketPolicy:
     # False: rank keeps the article-path bonus and selection takes the plain top of the ranked list.
     balanced_selection: bool = True
+    # True: an LLM curator picks the sources (`curation.py`); the rule selection is its fallback. On for US, FI and VN:
+    # the curator beat the rules in blind recap judging (2026-11-09: US 13/16, FI 4/4, VN 4/4).
+    curated_selection: bool = False
     # Words a story's title must carry to count as market coverage. None: no topic check.
     topic_re: re.Pattern[str] | None = None
     # Index names a session wrap mentions, and how many distinct ones it needs. None: no wraps.
@@ -35,6 +38,7 @@ class MarketPolicy:
 
 _POLICIES = {
     "US": MarketPolicy(
+        curated_selection=True,
         topic_re=re.compile(
             r"s&p|\b(?:stocks?|shares|wall st(?:reet)?|dow|nasdaq|markets?|treasur(?:y|ies)|bonds?|yields?|fed|"
             r"federal reserve|fomc|earnings|futures|sell-?off|rally|investors?|oil prices|inflation|jobs report|"
@@ -46,12 +50,13 @@ _POLICIES = {
         week_total_re=re.compile(r"(?:for|on) the week|weekly (?:loss|gain)", re.IGNORECASE),
     ),
     "FI": MarketPolicy(
+        curated_selection=True,
         session_index_re=re.compile(r"omx helsinki|omxh25|helsinki 25", re.IGNORECASE),
         relevance_hints=("finland", "finnish", "helsinki", "omx helsinki", "nasdaq helsinki", "omxh"),
     ),
-    # VN keeps plain ranking and its top 5: the balanced selection didn't beat it in before/after recap judging,
-    # and VN outlook pieces name VN-Index too, so index names can't identify a session wrap there.
-    "VN": MarketPolicy(balanced_selection=False, month_first_numeric_dates=False),
+    # VN's fallback keeps plain ranking and its top 5: the balanced selection didn't beat it in before/after recap
+    # judging, and VN outlook pieces name VN-Index too, so index names can't identify a session wrap there.
+    "VN": MarketPolicy(balanced_selection=False, month_first_numeric_dates=False, curated_selection=True),
 }
 _DEFAULT_POLICY = MarketPolicy()
 
