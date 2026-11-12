@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
+from langfuse._utils.serializer import EventSerializer
 
 from services.analyze_retrieval import retrieval
 from services.analyze_retrieval.query_reformulator import QueryReformulator
@@ -852,3 +854,45 @@ def test_retrieve_for_analyze_does_not_topic_filter_etf_searches() -> None:
     )
 
     assert len(result.sources) == 3
+
+
+class _KeyedBraveClient(_StubBraveClient):
+    """Holds a key like the real BraveClient, so a leak into the trace input is detectable."""
+
+    def __init__(self, candidates: list[Candidate]) -> None:
+        super().__init__(candidates)
+        self._api_key = "fake-brave-key-do-not-trace"
+
+
+def test_retrieve_for_analyze_trace_input_excludes_brave_client() -> None:
+    langfuse = MagicMock()
+    brave_client = _KeyedBraveClient([_candidate("https://www.reuters.com/a", "reuters body", 0.9)])
+
+    with (
+        patch("langfuse._client.observe.get_client", return_value=langfuse),
+        patch.object(retrieval, "get_client", return_value=langfuse),
+    ):
+        retrieve_for_analyze(
+            question="How is sentiment?",
+            market="GLOBAL",
+            request_id="req-trace",
+            brave_client=brave_client,
+            ticker="AAPL",
+            company_name="Apple",
+        )
+
+    decorator_input = langfuse.start_as_current_observation.call_args.kwargs["input"]
+    span_input = langfuse.update_current_span.call_args.kwargs["input"]
+    traced = EventSerializer().encode({"decorator": decorator_input, "span": span_input})
+    assert "_api_key" not in traced
+    assert brave_client._api_key not in traced
+    assert decorator_input is None
+    assert span_input == {
+        "question": "How is sentiment?",
+        "market": "GLOBAL",
+        "request_id": "req-trace",
+        "ticker": "AAPL",
+        "company_name": "Apple",
+        "top_k": 5,
+        "asset_class": "stock",
+    }
