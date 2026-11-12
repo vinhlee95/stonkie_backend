@@ -141,7 +141,8 @@ never run). A failed curator logs `recap.curator.fallback` (`market`, `reason`) 
 
 ```mermaid
 flowchart TD
-    P["allowlisted pool<br/>(same filters as above)"] --> C["catalog S1..Sn<br/>ordered by session date, publisher<br/>(not rank order)"]
+    P["allowlisted pool<br/>(same filters as above)"] --> D["drop pages whose own session date<br/>(title → URL → Brave) is outside period ± 1 day"]
+    D --> C["catalog S1..Sn<br/>ordered by session date, publisher<br/>(not rank order)"]
     C --> A["one LLM call, reasoning off<br/>ranked picks: id, publisher, role, why + would_search"]
     A --> L["drop unknown / repeated IDs<br/>keep the first top_k"]
     L --> W{"wrap of the last trading day?<br/>(weekly: with week totals, if the pool has one)"}
@@ -152,7 +153,8 @@ flowchart TD
     F -- yes --> O["selected candidates + audit"]
 ```
 
-- **Who decides what:** code keeps the guarantees (allowlist and date window before the curator, catalog IDs only,
+- **Who decides what:** code keeps the guarantees (allowlist and Brave date window, then the page's own session date in
+  period ± 1 day — as `is_eligible` does for the rules; undated pages stay — catalog IDs only,
   `top_k`, at least 3 picks, a wrap saying how the period ended). The curator judges relevance, quality, how many
   sources are enough and the publisher mix.
 - **Prompt goals:**
@@ -170,6 +172,7 @@ flowchart TD
     out week totals that a picked source contains.
 - **Audit:** `raw_sources["selection"]` holds:
   - `method` (`curator` | `rules` | `rules_fallback`) and `fallback_reason`.
+  - `out_of_window`: URLs dropped before the catalog because their own session date is outside the period.
   - The catalog (id, URL, session date).
   - Every pick with `kept` / `drop_reason`.
   - `added_latest_wrap`, `displaced_by_latest_wrap`, `would_search` and the raw model output.

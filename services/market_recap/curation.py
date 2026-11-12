@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from agent.multi_agent import MultiAgent
-from services.market_recap.criteria import candidate_facts, policy_for
+from services.market_recap.criteria import DATE_GRACE, candidate_facts, policy_for
 from services.market_recap.logging import log_event
 from services.market_recap.schemas import Candidate
 from services.market_recap.selection import EVENT_SOURCES_SELECTED, check_curator_picks
@@ -100,10 +100,13 @@ def curate_sources(
     top_k: int = 10,
     agent: MultiAgent | None = None,
 ) -> CurationResult:
-    if not pool:
+    in_period, out_of_window = _split_by_session_date(
+        pool, market=market, period_start=period_start, period_end=period_end
+    )
+    if not in_period:
         raise CuratorError("empty_pool")
     llm = agent or MultiAgent(model_name=RECAP_MODEL)
-    catalog = build_catalog(pool, market=market, period_end=period_end)
+    catalog = build_catalog(in_period, market=market, period_end=period_end)
     by_id = {entry.id: entry for entry in catalog}
 
     prompt = build_curator_prompt(
@@ -143,6 +146,7 @@ def curate_sources(
         audit={
             "method": "curator",
             "model": getattr(llm, "model_name", ""),
+            "out_of_window": [c.url for c in out_of_window],
             "added_latest_wrap": latest_wrap,
             "displaced_by_latest_wrap": displaced,
             "catalog": [
@@ -158,6 +162,30 @@ def curate_sources(
             "raw_output": raw_output,
         },
     )
+
+
+def _split_by_session_date(
+    pool: list[Candidate], *, market: str, period_start: date, period_end: date
+) -> tuple[list[Candidate], list[Candidate]]:
+    """(in period, out of window) by the page's own session date (title, then URL, then Brave's date).
+
+    Retrieval only filters on Brave's date, which can be the crawl date; a page whose title or URL dates it outside the
+    period ± DATE_GRACE is a stale page the curator must not see (the validator only checks Brave's date).
+    """
+    month_first = policy_for(market).month_first_numeric_dates
+    floor, ceiling = period_start - DATE_GRACE, period_end + DATE_GRACE
+    in_period: list[Candidate] = []
+    out_of_window: list[Candidate] = []
+    for c in pool:
+        day = session_date(
+            title=c.title or "",
+            url=c.canonical_url,
+            published=c.published_date,
+            period_end=period_end,
+            month_first_numeric_dates=month_first,
+        )
+        (in_period if day is None or floor <= day <= ceiling else out_of_window).append(c)
+    return in_period, out_of_window
 
 
 def _with_latest_day_wrap(

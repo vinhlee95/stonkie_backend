@@ -374,11 +374,18 @@ def test_the_added_wrap_displaces_the_lowest_priority_pick_at_the_limit():
 
 def test_daily_recaps_need_any_wrap_of_the_session():
     daily = (date(2026, 11, 6), date(2026, 11, 6))
-    agent = FakeAgent(_answer(("S1", "story"), ("S2", "story"), ("S3", "story")))
+    pool = [
+        _page("https://www.cnbc.com/2026/11/06/jobs.html", title="Jobs report", day=6),  # S3
+        _page("https://www.reuters.com/markets/2026-11-06/fed/", title="Fed odds", day=6),  # S4
+        _page("https://www.wsj.com/2026/11/06/chips", title="Chips rally", day=6),  # S5
+        _page("https://www.cnbc.com/2026/11/06/close.html", title="Friday close", body=WRAP_BODY, day=6),  # S2
+        _page("https://apnews.com/2026/11/06/wrap", title="Stocks Friday", body=WRAP_BODY, day=6),  # S1
+    ]
+    agent = FakeAgent(_answer(("S3", "story"), ("S4", "story"), ("S5", "story")))
 
-    result = _curate(agent, _wrap_pool(), period_start=daily[0], period_end=daily[1], cadence="daily")
+    result = _curate(agent, pool, period_start=daily[0], period_end=daily[1], cadence="daily")
 
-    assert result.audit["added_latest_wrap"] == "S4"  # picks already use cnbc.com: the less-used publisher wins
+    assert result.audit["added_latest_wrap"] == "S1"  # picks already use cnbc.com: the less-used publisher wins
 
 
 def test_vn_has_no_wrap_rule_so_nothing_is_added():
@@ -391,3 +398,38 @@ def test_vn_has_no_wrap_rule_so_nothing_is_added():
     result = _curate(agent, pool, market="VN")
 
     assert result.audit["added_latest_wrap"] is None
+
+
+# --- Session-date window ----------------------------------------------------------------------------------------
+
+
+def test_pages_dated_outside_the_period_never_reach_the_curator():
+    stale = _page("https://www.cnbc.com/2026/10/15/old-wrap.html", title="Stocks fall", day=3)  # Brave date in window
+    pool = [*_pool(), stale]
+    agent = FakeAgent(_answer(("S1", "story"), ("S3", "story"), ("S5", "story")))
+
+    result = _curate(agent, pool)
+
+    assert "old-wrap" not in agent.prompts[0]
+    assert result.audit["out_of_window"] == ["https://www.cnbc.com/2026/10/15/old-wrap.html"]
+    assert len(result.audit["catalog"]) == len(_pool())
+
+
+def test_undated_pages_and_one_day_of_slack_stay_in():
+    undated = Candidate(title="Markets", url="https://www.ft.com/markets", raw_content="x", provider="brave")
+    sunday_after = _page("https://www.wsj.com/2026/11/07/weekend-wrap", title="Week ahead", day=7)
+    agent = FakeAgent(_answer(("S1", "story"), ("S3", "story"), ("S5", "story")))
+
+    result = _curate(agent, [*_pool(), undated, sunday_after])
+
+    assert result.audit["out_of_window"] == []
+    assert len(result.audit["catalog"]) == len(_pool()) + 2
+
+
+def test_a_pool_entirely_out_of_window_is_a_curator_error_without_calling_the_agent():
+    agent = FakeAgent()
+    pool = [_page("https://www.cnbc.com/2026/10/15/old.html", day=3)]
+
+    with pytest.raises(CuratorError, match="empty_pool"):
+        _curate(agent, pool)
+    assert agent.prompts == []
