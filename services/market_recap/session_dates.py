@@ -1,7 +1,7 @@
 """Which trading session a page covers. Brave's date can be the crawl date, so the title and URL win over it."""
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urlsplit
 
 _MONTH_NUMBERS = {
@@ -33,6 +33,12 @@ def session_date(
         or _url_date(url)
         or (published.date() if published else None)
     )
+
+
+def trading_days(period_start: date, period_end: date) -> list[date]:
+    """Weekdays in the period, or every day when it has none (a weekend-only period)."""
+    days = [period_start + timedelta(days=offset) for offset in range((period_end - period_start).days + 1)]
+    return [day for day in days if day.weekday() < 5] or days
 
 
 def _title_date(title: str, period_end: date, month_first_numeric_dates: bool) -> date | None:

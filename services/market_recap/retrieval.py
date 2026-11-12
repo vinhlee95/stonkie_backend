@@ -1,13 +1,22 @@
+import logging
 import os
 from datetime import date, timedelta
+from typing import Callable
 
 from services.market_recap.brave_client import BraveClient
+from services.market_recap.criteria import policy_for
+from services.market_recap.curation import CuratorError, curate_sources
+from services.market_recap.logging import log_event
 from services.market_recap.query_planner import plan_queries
 from services.market_recap.ranking import dedupe, rank
 from services.market_recap.schemas import Candidate, PlannedQuery, RetrievalResult, RetrievalStats
 from services.market_recap.search_client import SearchProvider
 from services.market_recap.selection import select_candidates
 from services.market_recap.source_policy import is_allowlisted
+
+logger = logging.getLogger(__name__)
+
+EVENT_CURATOR_FALLBACK = "recap.curator.fallback"
 
 
 def _provider_for(market: str) -> SearchProvider:
@@ -49,6 +58,7 @@ def retrieve_candidates(
     planned_queries: list[PlannedQuery] | None = None,
     top_k: int = 10,
     cadence: str = "weekly",
+    curate_fn: Callable | None = None,
 ) -> RetrievalResult:
     provider = search_provider or _provider_for(market)
     queries = (
@@ -91,13 +101,28 @@ def retrieve_candidates(
     allowlisted = [candidate for candidate in with_raw_content if is_allowlisted(candidate.url, market=market)]
     allowlisted_count = len(allowlisted)
     ranked = rank(with_raw_content, market=market)
-    top_candidates = select_candidates(
-        ranked,
-        market=market,
-        period_start=period_start,
-        period_end=period_end,
-        top_k=top_k,
-    )
+
+    def rule_selection() -> list[Candidate]:
+        return select_candidates(ranked, market=market, period_start=period_start, period_end=period_end, top_k=top_k)
+
+    selection_audit: dict = {"method": "rules"}
+    if policy_for(market).curated_selection:
+        try:
+            curated = (curate_fn or curate_sources)(
+                allowlisted,
+                market=market,
+                cadence=cadence,
+                period_start=period_start,
+                period_end=period_end,
+                top_k=top_k,
+            )
+            top_candidates, selection_audit = curated.candidates, curated.audit
+        except CuratorError as error:
+            log_event(logger, EVENT_CURATOR_FALLBACK, {"market": market.upper(), "reason": str(error)})
+            top_candidates = rule_selection()
+            selection_audit = {"method": "rules_fallback", "fallback_reason": str(error)}
+    else:
+        top_candidates = rule_selection()
 
     return RetrievalResult(
         candidates=top_candidates,
@@ -110,4 +135,5 @@ def retrieve_candidates(
             ranked_top_k=len(top_candidates),
         ),
         query_snapshots=query_snapshots,
+        selection_audit=selection_audit,
     )

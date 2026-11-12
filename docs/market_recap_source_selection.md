@@ -2,6 +2,7 @@
 
 How a market recap picks the sources it is written from. Code: `services/market_recap/`
 (`retrieval.py` → `ranking.py` → `selection.py`, with rules in `criteria.py` and dates in `session_dates.py`).
+US, FI and VN pick with an LLM curator (`curation.py`, §7); the rule selection (§2–§3) is its fallback.
 
 ## 1. End to end
 
@@ -13,12 +14,16 @@ flowchart TD
     D --> E["drop pages with empty raw_content"]
     E --> F["drop Brave pages dated outside<br/>period ± 1 day"]
     F --> G["rank<br/>(ranking.py)"]
-    G --> H["select_candidates<br/>(selection.py)"]
+    G --> Q{"policy.curated_selection?<br/>(US, FI, VN)"}
+    Q -- no --> H["select_candidates<br/>(selection.py)"]
+    Q -- yes --> CU["curate_sources — LLM<br/>(curation.py, §7)"]
+    CU -- "CuratorError" --> H
+    CU --> I
     H --> I["generate_recap — LLM<br/>(recap_generator.py)"]
     I --> J{"validate_recap<br/>(validator.py)"}
     J -- "fails, attempts left" --> I
     J -- ok --> K["generate_questions"]
-    K --> L["persist_recap<br/>(raw_sources = selected candidates)"]
+    K --> L["persist_recap<br/>(raw_sources = selected candidates + selection audit)"]
 ```
 
 `retrieve_candidates` (`retrieval.py`) covers B–H and returns the selected candidates in a `RetrievalResult`.
@@ -110,12 +115,12 @@ A date that doesn't parse (e.g. "Feb. 30") falls through to the next source.
 
 | Market | Selection | Wrap index names | Topic words in title | Relevance hints | Week-total phrases |
 |---|---|---|---|---|---|
-| US | balanced | S&P, Dow, Nasdaq (2 needed) | yes | — | yes |
-| FI | balanced | OMX Helsinki, OMXH25, Helsinki 25 (1) | — | Finland, Helsinki, OMXH… | — |
-| VN | plain top 5 (+ article-path bonus in rank) | — | — | — | — |
+| US | **LLM curator** (fallback: balanced) | S&P, Dow, Nasdaq (2 needed) | yes | — | yes |
+| FI | **LLM curator** (fallback: balanced) | OMX Helsinki, OMXH25, Helsinki 25 (1) | — | Finland, Helsinki, OMXH… | — |
+| VN | **LLM curator** (fallback: plain top 5 + article-path bonus in rank) | — | — | — | — |
 | other | balanced | — (no wraps) | — | — | — |
 
-VN keeps the plain top 5: balanced selection didn't beat it in before/after recap judging, and VN outlook pieces
+VN's fallback is the plain top 5: balanced selection didn't beat it in before/after recap judging, and VN outlook pieces
 name VN-Index too, so index names can't identify a session wrap there.
 
 ## 6. Log event `recap.sources.selected`
@@ -127,3 +132,48 @@ Emitted once per `select_candidates` call.
 | `market` | e.g. `"US"` |
 | `count` | number of selected sources |
 | `sources` | `"<reason> <publisher>"` per source in output order; reason is `wrap:<date>`, `story`, `backfill` or `top` |
+
+Curator runs emit the same event with `reason` `curator:<role>` (`curator:latest_wrap` for the wrap code added) and
+extra fields `method` (`curator`) and `would_search` (queries the curator would run for missing coverage; logged only,
+never run). A failed curator logs `recap.curator.fallback` (`market`, `reason`) before rule selection runs.
+
+## 7. LLM curator (`curation.py`, US, FI and VN)
+
+```mermaid
+flowchart TD
+    P["allowlisted pool<br/>(same filters as above)"] --> D["drop pages whose own session date<br/>(title → URL → Brave) is outside period ± 1 day"]
+    D --> C["catalog S1..Sn<br/>ordered by session date, publisher<br/>(not rank order)"]
+    C --> A["one LLM call, reasoning off<br/>ranked picks: id, publisher, role, why + would_search"]
+    A --> L["drop unknown / repeated IDs<br/>keep the first top_k"]
+    L --> W{"wrap of the last trading day?<br/>(weekly: with week totals, if the pool has one)"}
+    W -- missing --> X["add the rules' choice for that day<br/>at top_k it displaces the lowest-priority pick"]
+    W -- present --> F
+    X --> F{"≥ 3 picks?"}
+    F -- no --> E["CuratorError → rule selection"]
+    F -- yes --> O["selected candidates + audit"]
+```
+
+- **Who decides what:** code keeps the guarantees (allowlist and Brave date window, then the page's own session date in
+  period ± 1 day — as `is_eligible` does for the rules; undated pages stay — catalog IDs only,
+  `top_k`, at least 3 picks, a wrap saying how the period ended). The curator judges relevance, quality, how many
+  sources are enough and the publisher mix.
+- **Prompt goals:**
+  - A wrap per trading day (the last one with the week's totals).
+  - At least 2 stories on the week's drivers (3 for a daily recap). "Wraps say what happened; stories explain why":
+    the curator finds the drivers in the wraps' own explanations.
+  - A mix of publishers as a *goal*.
+- **No publisher limit:** the rules' 2-per-publisher limit cut the curator's US picks to 6–7, mostly wraps, and lost
+  to the rules. Without it sets keep ~10 sources. Publishers do concentrate (US: CNBC/AP 3–6 each; FI: investing.com
+  6–7 of 10, which is what the FI pool mostly holds), and judges didn't flag one-sided recaps.
+- **Model:** `RECAP_MODEL` with reasoning off: `{"effort": "low"}` and `{"max_tokens": …}` budgets were ignored, and
+  runs hit the output cap with no answer. About $0.002 and 4 s per run.
+- **Evidence** (blind pairwise judging against the rules, 2026-11-09): curator won US 13/16, FI 4/4, VN 4/4.
+  - The remaining relative-accuracy flags come from the writer: it infers causes the sources don't state, or leaves
+    out week totals that a picked source contains.
+- **Audit:** `raw_sources["selection"]` holds:
+  - `method` (`curator` | `rules` | `rules_fallback`) and `fallback_reason`.
+  - `out_of_window`: URLs dropped before the catalog because their own session date is outside the period.
+  - The catalog (id, URL, session date).
+  - Every pick with `kept` / `drop_reason`.
+  - `added_latest_wrap`, `displaced_by_latest_wrap`, `would_search` and the raw model output.
+  - Picks vary run to run, so this is the only way to see why a recap had its sources.

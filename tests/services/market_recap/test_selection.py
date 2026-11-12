@@ -9,7 +9,7 @@ import pytest
 
 from services.market_recap.ranking import rank
 from services.market_recap.schemas import Candidate
-from services.market_recap.selection import select_candidates
+from services.market_recap.selection import check_curator_picks, select_candidates
 
 WRAP = "The S&P 500 rose 1% and the Dow gained 200 points while the Nasdaq climbed. " * 12
 WEEK_TOTAL = " For the week, the S&P 500 fell 2%."
@@ -397,3 +397,43 @@ def test_logs_plain_top_sources_for_vn(caplog: pytest.LogCaptureFixture):
         _select(ranked, market="vn")
 
     assert _selection_log(caplog) == {"market": "VN", "count": 2, "sources": ["top cafef.vn", "top cafef.vn"]}
+
+
+# --- Curator picks: top_k and repeats only -------------------------------------------------------------------
+
+
+def test_curator_picks_within_limits_are_kept_in_pick_order():
+    picks = [("S2", _page("https://www.cnbc.com/a/1")), ("S1", _page("https://www.reuters.com/a/2"))]
+
+    kept, dropped = check_curator_picks(picks, top_k=10)
+
+    assert [key for key, _ in kept] == ["S2", "S1"]
+    assert dropped == []
+
+
+def test_curator_picks_have_no_publisher_limit():
+    picks = [(f"S{i}", _page(f"https://www.cnbc.com/a/{i}")) for i in range(3)]
+    picks.append(("S9", _page("https://markets.cnbc.com/a/9")))
+
+    kept, dropped = check_curator_picks(picks, top_k=10)
+
+    assert [key for key, _ in kept] == ["S0", "S1", "S2", "S9"]
+    assert dropped == []
+
+
+def test_curator_picks_past_top_k_are_dropped():
+    picks = [(f"S{i}", _page(f"https://www.{p}/a/{i}")) for i, p in enumerate(STORY_PUBLISHERS[:4])]
+
+    kept, dropped = check_curator_picks(picks, top_k=2)
+
+    assert [key for key, _ in kept] == ["S0", "S1"]
+    assert dropped == [("S2", "top_k"), ("S3", "top_k")]
+
+
+def test_the_same_source_picked_twice_is_dropped():
+    page = _page("https://www.cnbc.com/a/1")
+
+    kept, dropped = check_curator_picks([("S1", page), ("S7", page)], top_k=10)
+
+    assert [key for key, _ in kept] == ["S1"]
+    assert dropped == [("S7", "duplicate")]
